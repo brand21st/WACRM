@@ -12,9 +12,17 @@ const PUBLIC_API_PREFIXES = [
   '/api/shopify/notifications/cron',
 ]
 
+// Public legal pages Meta's go-live crawler fetches (no session).
+const PUBLIC_PAGE_PREFIXES = ['/privacy', '/terms', '/data-deletion']
+
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
-  if (PUBLIC_API_PREFIXES.some((prefix) => pathname.startsWith(prefix))) {
+  if (
+    PUBLIC_API_PREFIXES.some((prefix) => pathname.startsWith(prefix)) ||
+    PUBLIC_PAGE_PREFIXES.some(
+      (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
+    )
+  ) {
     return NextResponse.next({ request })
   }
 

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 // Shared, hoisted state the module mocks close over. Reset per test.
 const h = vi.hoisted(() => ({
@@ -209,7 +209,7 @@ vi.mock('@/lib/webhooks/deliver', () => ({
   dispatchWebhookEvent: h.dispatchWebhookEvent,
 }))
 
-import { POST } from './route'
+import { GET, POST } from './route'
 import { getMediaUrl, downloadMedia } from '@/lib/whatsapp/meta-api'
 
 const mockGetMediaUrl = vi.mocked(getMediaUrl)
@@ -287,6 +287,39 @@ beforeEach(() => {
         h.state.automationCompleted++
         resolve()
       }, 0)
+    })
+  })
+})
+
+describe('webhook GET: Meta handshake', () => {
+  const originalToken = process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN
+
+  afterEach(() => {
+    if (originalToken === undefined) {
+      delete process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN
+    } else {
+      process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN = originalToken
+    }
+  })
+
+  it('returns the challenge when the env verify token matches', async () => {
+    process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN = '123456'
+    const res = await GET(
+      new Request(
+        'https://vachat.in/api/whatsapp/webhook?hub.mode=subscribe&hub.challenge=meta-challenge&hub.verify_token=123456',
+      ),
+    )
+    expect(res).toBeInstanceOf(Response)
+    expect(res.status).toBe(200)
+    expect(await res.text()).toBe('meta-challenge')
+  })
+
+  it('rejects a request missing the subscribe parameters', async () => {
+    process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN = '123456'
+    const res = await GET(new Request('https://vachat.in/api/whatsapp/webhook'))
+    expect(res).toEqual({
+      body: { error: 'Missing verification parameters' },
+      init: { status: 400 },
     })
   })
 })

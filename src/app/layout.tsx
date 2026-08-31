@@ -4,6 +4,7 @@ import { getLocale, getMessages } from 'next-intl/server';
 import { Inter } from "next/font/google";
 import Script from "next/script";
 import "./globals.css";
+import { PRODUCT_DESCRIPTION, PRODUCT_NAME } from "@/lib/brand";
 import { ThemeProvider } from "@/hooks/use-theme";
 import { ThemedToaster } from "@/components/themed-toaster";
 import {
@@ -22,10 +23,10 @@ const inter = Inter({
 
 export const metadata: Metadata = {
   title: {
-    default: "wacrm",
-    template: "%s — wacrm",
+    default: PRODUCT_NAME,
+    template: `%s — ${PRODUCT_NAME}`,
   },
-  description: "Self-hostable CRM template for WhatsApp.",
+  description: PRODUCT_DESCRIPTION,
   robots: {
     index: false,
     follow: false,

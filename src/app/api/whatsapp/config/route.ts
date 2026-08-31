@@ -7,6 +7,7 @@ import {
   verifyPhoneNumber,
 } from '@/lib/whatsapp/meta-api'
 import { encrypt, decrypt } from '@/lib/whatsapp/encryption'
+import { isUniqueViolation } from '@/lib/contacts/dedupe'
 
 /**
  * Resolve the caller's account_id from their profile. Inlined here
@@ -218,18 +219,30 @@ export async function POST(request: Request) {
       .maybeSingle()
 
     if (claimedError) {
-      console.error('Error checking phone_number_id ownership:', claimedError)
-      return NextResponse.json(
-        { error: 'Failed to validate configuration' },
-        { status: 500 }
+      // A missing / placeholder SUPABASE_SERVICE_ROLE_KEY makes this
+      // admin lookup fail with "Invalid API key". Don't block Save on
+      // that — the UNIQUE(phone_number_id) constraint still rejects a
+      // real conflict. Inbound webhooks still need a real service-role
+      // key, but the settings form must be able to persist credentials.
+      const isInvalidKey = /invalid api key/i.test(
+        String((claimedError as { message?: string }).message ?? ''),
       )
-    }
-
-    if (claimed) {
+      if (!isInvalidKey) {
+        console.error('Error checking phone_number_id ownership:', claimedError)
+        return NextResponse.json(
+          { error: 'Failed to validate configuration' },
+          { status: 500 }
+        )
+      }
+      console.warn(
+        '[whatsapp/config] skipping cross-account phone_number_id check:',
+        (claimedError as { message?: string }).message,
+      )
+    } else if (claimed) {
       return NextResponse.json(
         {
           error:
-            'This WhatsApp phone number is already linked to another account on this instance. Each phone number can only be connected to one wacrm user.',
+            'This WhatsApp phone number is already linked to another account on this instance. Each phone number can only be connected to one Vachat.in user.',
         },
         { status: 409 }
       )
@@ -393,6 +406,15 @@ export async function POST(request: Request) {
         })
 
       if (insertError) {
+        if (isUniqueViolation(insertError)) {
+          return NextResponse.json(
+            {
+              error:
+                'This WhatsApp phone number is already linked to another account on this instance. Each phone number can only be connected to one Vachat.in user.',
+            },
+            { status: 409 }
+          )
+        }
         console.error('Error inserting whatsapp_config:', insertError)
         return NextResponse.json(
           { error: 'Failed to save configuration' },

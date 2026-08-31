@@ -118,6 +118,18 @@ export async function GET(request: Request) {
       )
     }
 
+    // Env fallback so Meta can verify the callback even when the
+    // service-role DB lookup is unavailable (missing key, empty
+    // whatsapp_config, etc.). Must match the Verify Token set in
+    // Meta App Dashboard → WhatsApp → Configuration.
+    const envVerifyToken = process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN
+    if (envVerifyToken && envVerifyToken === verifyToken) {
+      return new Response(challenge, {
+        status: 200,
+        headers: { 'Content-Type': 'text/plain' },
+      })
+    }
+
     // Fetch all whatsapp configs to check verify tokens
     const { data: configs, error: configError } = await supabaseAdmin()
       .from('whatsapp_config')
@@ -207,27 +219,27 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
   }
 
-  // Process AFTER the response so we ack Meta within their ~20s timeout
-  // (a slow ack triggers Meta retries + duplicate inserts), while still
-  // guaranteeing the work runs to completion.
+  // Persist inbound work, then ACK Meta.
   //
-  // This MUST use `after()` rather than a detached `processWebhook(body)`
-  // promise: on serverless platforms (we run on Vercel) the function can
-  // be frozen or terminated the moment the response is sent, so a floating
-  // promise's DB writes are not guaranteed to finish. That dropped a
-  // non-deterministic *subset* of inbound messages — contacts/conversations
-  // were created but the message insert never landed, leaving conversations
-  // that show in the inbox with an empty thread, and no logs to explain it
-  // (see issue #301). `after()` hands the callback to the runtime, which
-  // keeps the function alive until it resolves (within the route's
-  // maxDuration).
-  after(async () => {
-    try {
-      await processWebhook(body)
-    } catch (error) {
-      console.error('Error processing webhook:', error)
-    }
+  // History: issue #301 used a detached `processWebhook(body)` promise so
+  // the 200 could return inside Meta's ~20s timeout. On Vercel that
+  // promise was frozen the moment the response flushed, so a subset of
+  // messages never landed. `after()` is the Vercel-safe primitive.
+  //
+  // Self-hosted Node (Coolify / docker `next start`) is the opposite
+  // failure: some reverse proxies close the request as soon as the
+  // response is sent, and `after()` never runs. Symptom: POST returns
+  // `{ status: "received" }` and the inbox stays empty.
+  //
+  // Same promise, both paths: `after()` keeps serverless isolates alive;
+  // `await` makes sure a long-running Node process actually writes the
+  // row before we ACK. Duplicate work is impossible because both await
+  // the same Promise. Inserts are idempotent if Meta retries.
+  const processing = processWebhook(body).catch((error) => {
+    console.error('Error processing webhook:', error)
   })
+  after(() => processing)
+  await processing
 
   return NextResponse.json({ status: 'received' }, { status: 200 })
 }
@@ -301,7 +313,17 @@ async function processWebhook(body: { entry?: WhatsAppWebhookEntry[] }) {
 
       const config = configRows[0]
 
-      const decryptedAccessToken = decrypt(config.access_token)
+      let decryptedAccessToken: string
+      try {
+        decryptedAccessToken = decrypt(config.access_token)
+      } catch (err) {
+        console.error(
+          '[webhook] access_token decrypt failed for phone_number_id:',
+          phoneNumberId,
+          err,
+        )
+        continue
+      }
 
       for (let i = 0; i < value.messages.length; i++) {
         const message = value.messages[i]
