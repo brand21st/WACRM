@@ -1,5 +1,20 @@
+import os from "node:os";
 import type { NextConfig } from "next";
 import createNextIntlPlugin from "next-intl/plugin";
+
+/** IPv4 LAN addresses so phones/other devices can load Next 16 dev assets. */
+function lanDevOrigins(): string[] {
+  const hosts = new Set<string>();
+  for (const addrs of Object.values(os.networkInterfaces())) {
+    for (const addr of addrs ?? []) {
+      if (addr.internal) continue;
+      if (addr.family === "IPv4" || addr.family === 4) {
+        hosts.add(addr.address);
+      }
+    }
+  }
+  return [...hosts];
+}
 
 const withNextIntl = createNextIntlPlugin("./src/i18n/request.ts");
 
@@ -69,6 +84,10 @@ const nextConfig: NextConfig = {
   // Harmless outside Docker: `next start` keeps working as before.
   output: "standalone",
 
+  // ffmpeg-static ships a platform binary; ws talks to OpenAI Realtime.
+  // Keep both outside the bundler so spawn/require resolve at runtime.
+  serverExternalPackages: ["ffmpeg-static", "ws"],
+
   /**
    * Cross-origin dev access (Next.js 16).
    *
@@ -86,10 +105,12 @@ const nextConfig: NextConfig = {
    */
   allowedDevOrigins: [
     "*.ngrok-free.app",
+    "*.ngrok-free.dev",
     "*.ngrok.app",
     "*.ngrok.io",
     "*.trycloudflare.com",
     "*.loca.lt",
+    ...lanDevOrigins(),
     ...(process.env.ALLOWED_DEV_ORIGINS
       ? process.env.ALLOWED_DEV_ORIGINS.split(",")
           .map((origin) => origin.trim())

@@ -16,6 +16,7 @@ import { ContactSidebar } from "@/components/inbox/contact-sidebar";
 import { toast } from "sonner";
 import { WifiOff } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { AI_FULL_AGENT_CHANGED } from "@/components/inbox/ai-full-agent-events";
 
 // Remembers the agent's show/hide choice for the desktop contact panel
 // across reloads and sessions (device-scoped, like the theme prefs).
@@ -554,6 +555,55 @@ function InboxPageInner() {
     [activeConversation]
   );
 
+  const handleAiAutoreplyChange = useCallback(
+    (conversationId: string, disabled: boolean) => {
+      setConversations((prev) =>
+        prev.map((c) =>
+          c.id === conversationId
+            ? { ...c, ai_autoreply_disabled: disabled }
+            : c
+        )
+      );
+      if (activeConversation?.id === conversationId) {
+        setActiveConversation((prev) =>
+          prev ? { ...prev, ai_autoreply_disabled: disabled } : prev
+        );
+      }
+    },
+    [activeConversation]
+  );
+
+  // When the inbox full-agent toggle turns on, every open thread is
+  // resumed server-side — mirror that locally so the banner flips instantly.
+  useEffect(() => {
+    const onFullAgentEnabled = (event: Event) => {
+      const { enabled } =
+        (event as CustomEvent<{ enabled?: boolean }>).detail ?? {};
+      if (!enabled) return;
+      setConversations((prev) =>
+        prev.map((c) => ({
+          ...c,
+          ai_autoreply_disabled: false,
+          ai_handoff_summary: undefined,
+          assigned_agent_id: undefined,
+        })),
+      );
+      setActiveConversation((prev) =>
+        prev
+          ? {
+              ...prev,
+              ai_autoreply_disabled: false,
+              ai_handoff_summary: undefined,
+              assigned_agent_id: undefined,
+            }
+          : prev,
+      );
+    };
+    window.addEventListener(AI_FULL_AGENT_CHANGED, onFullAgentEnabled);
+    return () =>
+      window.removeEventListener(AI_FULL_AGENT_CHANGED, onFullAgentEnabled);
+  }, []);
+
   // On mobile (<lg) we show a SINGLE pane — either the list or the
   // thread — rather than cramming both side-by-side. Selecting a
   // conversation slides the thread in; the thread's back button pops
@@ -618,6 +668,7 @@ function InboxPageInner() {
             onUpdateMessage={handleUpdateMessage}
             onStatusChange={handleStatusChange}
             onAssignChange={handleAssignChange}
+            onAiAutoreplyChange={handleAiAutoreplyChange}
             onBack={handleCloseConversation}
             resyncToken={resyncToken}
             onRefresh={handleManualRefresh}

@@ -8,7 +8,10 @@ import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rate-limit
 import { encrypt, decrypt } from '@/lib/whatsapp/encryption'
 import { validateAiCredentials } from '@/lib/ai/validate'
 import { embedTexts } from '@/lib/ai/embeddings'
-import { AiError, type AiProvider } from '@/lib/ai/types'
+import { validateElevenLabsKey } from '@/lib/elevenlabs'
+import { AiError, AI_VOICE_DEFAULTS, type AiProvider } from '@/lib/ai/types'
+import { parseVoiceReplyMode } from '@/lib/ai/voice'
+import { parseRealtimeVoice } from '@/lib/ai/realtime/voices'
 
 function bad(message: string) {
   return NextResponse.json({ error: message }, { status: 400 })
@@ -30,7 +33,7 @@ export async function GET() {
       // `api_key` is selected only to derive `has_key` — it is stripped
       // out below and never returned to the client.
       .select(
-        'provider, model, system_prompt, is_active, auto_reply_enabled, auto_reply_max_per_conversation, handoff_agent_id, api_key, embeddings_api_key',
+        'provider, model, system_prompt, is_active, auto_reply_enabled, auto_reply_unlimited, auto_reply_max_per_conversation, handoff_agent_id, api_key, embeddings_api_key, elevenlabs_api_key, elevenlabs_voice_id, voice_provider, sarvam_api_key, sarvam_speaker, sarvam_language_code, sarvam_pace, sarvam_temperature, stt_enabled, tts_enabled, voice_reply_mode, typing_indicator_enabled, full_agent_enabled, realtime_voice_enabled, realtime_voice',
       )
       .eq('account_id', accountId)
       .maybeSingle()
@@ -44,13 +47,15 @@ export async function GET() {
     }
 
     if (!data) return NextResponse.json({ configured: false })
-    // The keys are selected only to derive the has_* flags; neither is
-    // returned to the client.
-    const { api_key, embeddings_api_key, ...safe } = data
+    // The keys are selected only to derive the has_* flags; none of
+    // them are returned to the client.
+    const { api_key, embeddings_api_key, elevenlabs_api_key, sarvam_api_key, ...safe } = data
     return NextResponse.json({
       configured: true,
       has_key: !!api_key,
       has_embeddings_key: !!embeddings_api_key,
+      has_elevenlabs_key: !!elevenlabs_api_key,
+      has_sarvam_key: !!sarvam_api_key,
       ...safe,
     })
   } catch (err) {
@@ -91,6 +96,8 @@ export async function POST(request: Request) {
     const isActive = body.is_active === true
     const autoReplyEnabled = body.auto_reply_enabled === true
 
+    const autoReplyUnlimited = body.auto_reply_unlimited === true
+
     let maxPer = Number(body.auto_reply_max_per_conversation)
     if (!Number.isFinite(maxPer)) maxPer = 3
     maxPer = Math.min(20, Math.max(1, Math.floor(maxPer)))
@@ -124,6 +131,35 @@ export async function POST(request: Request) {
         ? body.embeddings_api_key.trim()
         : ''
     const clearEmbeddingsKey = body.embeddings_api_key === null
+
+    const rawElevenlabsKey =
+      typeof body.elevenlabs_api_key === 'string'
+        ? body.elevenlabs_api_key.trim()
+        : ''
+    const clearElevenlabsKey = body.elevenlabs_api_key === null
+    const elevenlabsVoiceId =
+      typeof body.elevenlabs_voice_id === 'string'
+        ? body.elevenlabs_voice_id.trim() || null
+        : undefined
+    const sttEnabled =
+      'stt_enabled' in body ? body.stt_enabled === true : undefined
+    const ttsEnabled =
+      'tts_enabled' in body ? body.tts_enabled === true : undefined
+    const voiceReplyMode = 'voice_reply_mode' in body
+      ? parseVoiceReplyMode(body.voice_reply_mode)
+      : undefined
+    const typingIndicatorEnabled =
+      'typing_indicator_enabled' in body
+        ? body.typing_indicator_enabled === true
+        : undefined
+    const fullAgentEnabled =
+      'full_agent_enabled' in body ? body.full_agent_enabled === true : undefined
+    const realtimeVoiceEnabled =
+      'realtime_voice_enabled' in body
+        ? body.realtime_voice_enabled === true && provider === 'openai'
+        : undefined
+    const realtimeVoice =
+      'realtime_voice' in body ? parseRealtimeVoice(body.realtime_voice) : undefined
 
     // Reuse the stored key when the form didn't send a fresh one.
     const { data: existing } = await supabase
@@ -164,9 +200,11 @@ export async function POST(request: Request) {
           systemPrompt,
           isActive,
           autoReplyEnabled,
+          autoReplyUnlimited,
           autoReplyMaxPerConversation: maxPer,
           handoffAgentId: null,
           embeddingsApiKey: null,
+          ...AI_VOICE_DEFAULTS,
         })
       } catch (err) {
         if (err instanceof AiError) {
@@ -197,6 +235,21 @@ export async function POST(request: Request) {
       }
     }
 
+    if (rawElevenlabsKey) {
+      try {
+        await validateElevenLabsKey(rawElevenlabsKey)
+      } catch (err) {
+        if (err instanceof AiError) {
+          return NextResponse.json(
+            { error: `ElevenLabs key: ${err.message}`, code: err.code },
+            { status: 400 },
+          )
+        }
+        console.error('[ai/config POST] ElevenLabs validation error:', err)
+        return bad('Could not validate the ElevenLabs key.')
+      }
+    }
+
     const encryptedKey = rawKey ? encrypt(rawKey) : null
     const shared: Record<string, unknown> = {
       provider,
@@ -204,6 +257,7 @@ export async function POST(request: Request) {
       system_prompt: systemPrompt,
       is_active: isActive,
       auto_reply_enabled: autoReplyEnabled,
+      auto_reply_unlimited: autoReplyUnlimited,
       auto_reply_max_per_conversation: maxPer,
     }
     // Only touch the handoff target when the form actually sent the field,
@@ -213,6 +267,29 @@ export async function POST(request: Request) {
       shared.embeddings_api_key = encrypt(rawEmbeddingsKey)
     } else if (clearEmbeddingsKey) {
       shared.embeddings_api_key = null
+    }
+    if (rawElevenlabsKey) {
+      shared.elevenlabs_api_key = encrypt(rawElevenlabsKey)
+    } else if (clearElevenlabsKey) {
+      shared.elevenlabs_api_key = null
+    }
+    if (elevenlabsVoiceId !== undefined) {
+      shared.elevenlabs_voice_id = elevenlabsVoiceId
+    }
+    if (sttEnabled !== undefined) shared.stt_enabled = sttEnabled
+    if (ttsEnabled !== undefined) shared.tts_enabled = ttsEnabled
+    if (voiceReplyMode !== undefined) shared.voice_reply_mode = voiceReplyMode
+    if (typingIndicatorEnabled !== undefined) {
+      shared.typing_indicator_enabled = typingIndicatorEnabled
+    }
+    if (fullAgentEnabled !== undefined) {
+      shared.full_agent_enabled = fullAgentEnabled
+    }
+    if (realtimeVoiceEnabled !== undefined) {
+      shared.realtime_voice_enabled = realtimeVoiceEnabled
+    }
+    if (realtimeVoice !== undefined) {
+      shared.realtime_voice = realtimeVoice
     }
 
     if (existing) {
@@ -240,6 +317,23 @@ export async function POST(request: Request) {
           { error: 'Failed to save AI configuration' },
           { status: 500 },
         )
+      }
+    }
+
+    // Turning on full-agent mode hands every open thread back to the
+    // bot so the inbox toggle and per-conversation pause stay in sync.
+    if ('full_agent_enabled' in body && fullAgentEnabled === true) {
+      const { error: resumeErr } = await supabase
+        .from('conversations')
+        .update({
+          ai_autoreply_disabled: false,
+          assigned_agent_id: null,
+          ai_handoff_summary: null,
+          ai_reply_count: 0,
+        })
+        .eq('account_id', accountId)
+      if (resumeErr) {
+        console.error('[ai/config POST] full-agent resume error:', resumeErr)
       }
     }
 

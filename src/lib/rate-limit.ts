@@ -173,6 +173,24 @@ export const RATE_LIMITS = {
    *  capping a stampede; excess inbounds simply don't get an auto-reply
    *  (they still land in the inbox for a human). */
   aiAutoReplyAccount: { limit: 30, windowMs: 60_000 },
+  /** Playground push-to-talk (STT + generation + TTS), per user. */
+  aiVoice: { limit: 15, windowMs: 60_000 },
+  /** Playground voice + ElevenLabs test/preview, per account. Caps
+   *  spend on the shared BYO ElevenLabs key. */
+  aiVoiceAccount: { limit: 40, windowMs: 60_000 },
+  /** Inbound WhatsApp STT, per account. Voice notes that miss this
+   *  bucket are kept without a transcript for a human to handle. */
+  aiSttAccount: { limit: 40, windowMs: 60_000 },
+  /** OpenAI Realtime WhatsApp voice replies, per account. Costlier
+   *  than batch TTS; excess inbounds fall back to ElevenLabs or skip
+   *  speech. */
+  aiRealtimeAccount: { limit: 20, windowMs: 60_000 },
+  /** Instant Voice Clone via ElevenLabs, per account. Cloning is
+   *  slow and billed; a handful of attempts a minute is plenty. */
+  aiVoiceClone: { limit: 6, windowMs: 60_000 },
+  /** Shopify catalog sync, per user. A full catalog page-walk is
+   *  expensive; a handful of clicks a minute is plenty. */
+  shopifyCatalogSync: { limit: 6, windowMs: 60_000 },
 } as const;
 
 /** Test-only helper. Clears the in-memory state so unit tests don't

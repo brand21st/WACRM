@@ -1,7 +1,23 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
+// Routes Meta/Shopify/cron hit without a browser session. Skip the
+// Supabase getUser() round-trip — it can hang or slow webhook acks.
+const PUBLIC_API_PREFIXES = [
+  '/api/whatsapp/webhook',
+  '/api/shopify/webhook',
+  '/api/whatsapp/broadcast/cron',
+  '/api/automations/cron',
+  '/api/flows/cron',
+  '/api/shopify/notifications/cron',
+]
+
 export async function middleware(request: NextRequest) {
+  const { pathname } = request.nextUrl
+  if (PUBLIC_API_PREFIXES.some((prefix) => pathname.startsWith(prefix))) {
+    return NextResponse.next({ request })
+  }
+
   let supabaseResponse = NextResponse.next({ request })
 
   const supabase = createServerClient(
@@ -77,9 +93,14 @@ export async function middleware(request: NextRequest) {
     return withRefreshedCookies(NextResponse.redirect(url))
   }
 
-  // API routes that need auth (not webhooks)
-  if (!user && request.nextUrl.pathname.startsWith('/api/whatsapp/') &&
-      !request.nextUrl.pathname.includes('/webhook')) {
+  // API routes that need auth (not webhooks or the scheduled-broadcast
+  // drain — that authenticates with x-cron-secret inside the route).
+  if (
+    !user &&
+    request.nextUrl.pathname.startsWith('/api/whatsapp/') &&
+    !request.nextUrl.pathname.includes('/webhook') &&
+    request.nextUrl.pathname !== '/api/whatsapp/broadcast/cron'
+  ) {
     return withRefreshedCookies(
       NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     )

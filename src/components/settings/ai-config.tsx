@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
@@ -31,6 +31,7 @@ import type { AiProvider } from '@/lib/ai/types';
 import type { AccountMember } from '@/types';
 import { fetchAccountMembers, memberLabel } from '@/lib/account/members';
 import { useTranslations } from 'next-intl';
+import Link from 'next/link';
 
 const MASKED_KEY = '••••••••••••••••';
 
@@ -52,6 +53,7 @@ export function AiConfig() {
   const { accountId, accountRole, profileLoading } = useAuth();
   const canEdit = accountRole ? canEditSettings(accountRole) : false;
   const t = useTranslations('Settings.aiConfig');
+  const tv = useTranslations('Agents.voice');
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -71,6 +73,10 @@ export function AiConfig() {
   const [systemPrompt, setSystemPrompt] = useState('');
   const [isActive, setIsActive] = useState(false);
   const [autoReplyEnabled, setAutoReplyEnabled] = useState(false);
+  const [typingIndicatorEnabled, setTypingIndicatorEnabled] = useState(true);
+  const [maxAutoReplyMode, setMaxAutoReplyMode] = useState<'limit' | 'unlimited'>(
+    'limit',
+  );
   const [maxPerConversation, setMaxPerConversation] = useState(3);
   // Empty string = leave unassigned (shared queue).
   const [handoffAgentId, setHandoffAgentId] = useState('');
@@ -98,6 +104,8 @@ export function AiConfig() {
         setSystemPrompt(data.system_prompt ?? '');
         setIsActive(data.is_active);
         setAutoReplyEnabled(data.auto_reply_enabled);
+        setTypingIndicatorEnabled(data.typing_indicator_enabled !== false);
+        setMaxAutoReplyMode(data.auto_reply_unlimited ? 'unlimited' : 'limit');
         setMaxPerConversation(data.auto_reply_max_per_conversation ?? 3);
         setHandoffAgentId(data.handoff_agent_id ?? '');
         setHasStoredKey(Boolean(data.has_key));
@@ -112,7 +120,7 @@ export function AiConfig() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     if (!accountId || loadedAccountIdRef.current === accountId) return;
@@ -149,6 +157,8 @@ export function AiConfig() {
     system_prompt: systemPrompt.trim() || null,
     is_active: isActive,
     auto_reply_enabled: autoReplyEnabled,
+    typing_indicator_enabled: typingIndicatorEnabled,
+    auto_reply_unlimited: maxAutoReplyMode === 'unlimited',
     auto_reply_max_per_conversation: maxPerConversation,
     handoff_agent_id: handoffAgentId || null,
   });
@@ -233,8 +243,7 @@ export function AiConfig() {
   if (loading || profileLoading) {
     return (
       <div className="flex items-center justify-center py-16 text-muted-foreground">
-        <Loader2 className="mr-2 h-4 w-4 animate-spin" /> {t('loadFailed')} {/* Re-using label or a global one, wait, loading is better. Let's use useTranslations from overview or just hardcode Loading... actually I should add loading to aiConfig */}
-        {/* Wait, I didn't add loading to aiConfig. I'll just use loading. */}
+        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
       </div>
     );
   }
@@ -383,6 +392,18 @@ export function AiConfig() {
 
         <Card>
           <CardHeader>
+            <CardTitle className="text-base">{tv('movedTitle')}</CardTitle>
+            <CardDescription>{tv('movedDesc')}</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button nativeButton={false} render={<Link href="/agents/voice?tab=build" />}>
+              {tv('movedCta')}
+            </Button>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
             <CardTitle className="text-base">{t('behaviour')}</CardTitle>
             <CardDescription>
               {t('behaviourDesc')}
@@ -433,27 +454,64 @@ export function AiConfig() {
               />
             </div>
 
+            <div className="flex items-center justify-between gap-4 rounded-md border border-border p-3">
+              <div>
+                <p className="text-sm font-medium text-foreground">
+                  {t('typingIndicator')}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {t('typingIndicatorDesc')}
+                </p>
+              </div>
+              <Switch
+                checked={typingIndicatorEnabled}
+                onCheckedChange={setTypingIndicatorEnabled}
+                disabled={disabled || !autoReplyEnabled}
+              />
+            </div>
+
             <div className="flex items-center justify-between gap-4">
               <div>
-                <Label htmlFor="ai-max">{t('maxAutoReplies')}</Label>
+                <Label htmlFor="ai-max-mode">{t('maxAutoReplies')}</Label>
                 <p className="text-xs text-muted-foreground">
                   {t('maxAutoRepliesDesc')}
                 </p>
               </div>
-              <Input
-                id="ai-max"
-                type="number"
-                min={1}
-                max={20}
-                value={maxPerConversation}
-                onChange={(e) =>
-                  setMaxPerConversation(
-                    Math.min(20, Math.max(1, Number(e.target.value) || 1)),
-                  )
-                }
-                disabled={disabled || !autoReplyEnabled}
-                className="w-20"
-              />
+              <div className="flex items-center gap-2">
+                <Select
+                  value={maxAutoReplyMode}
+                  onValueChange={(v) =>
+                    setMaxAutoReplyMode(v as 'limit' | 'unlimited')
+                  }
+                  disabled={disabled || !autoReplyEnabled}
+                >
+                  <SelectTrigger id="ai-max-mode" className="w-[9.5rem]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="limit">{t('maxAutoRepliesLimit')}</SelectItem>
+                    <SelectItem value="unlimited">
+                      {t('maxAutoRepliesUnlimited')}
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+                {maxAutoReplyMode === 'limit' ? (
+                  <Input
+                    id="ai-max"
+                    type="number"
+                    min={1}
+                    max={20}
+                    value={maxPerConversation}
+                    onChange={(e) =>
+                      setMaxPerConversation(
+                        Math.min(20, Math.max(1, Number(e.target.value) || 1)),
+                      )
+                    }
+                    disabled={disabled || !autoReplyEnabled}
+                    className="w-20"
+                  />
+                ) : null}
+              </div>
             </div>
 
             <div className="space-y-2">

@@ -34,6 +34,7 @@ import {
   Trash2,
   PlayCircle,
   RotateCcw,
+  Clock,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
@@ -163,6 +164,7 @@ export default function BroadcastDetailPage() {
   const [resumingScope, setResumingScope] = useState<
     'pending' | 'failed' | null
   >(null);
+  const [cancellingSchedule, setCancellingSchedule] = useState(false);
 
   const fetchData = useCallback(async () => {
     try {
@@ -298,6 +300,29 @@ export default function BroadcastDetailPage() {
     router.push('/broadcasts');
   }
 
+  async function handleCancelSchedule() {
+    setCancellingSchedule(true);
+    const supabase = createClient();
+    const { data, error: cancelErr } = await supabase
+      .from('broadcasts')
+      .update({ status: 'draft', scheduled_at: null })
+      .eq('id', broadcastId)
+      .eq('status', 'scheduled')
+      .select('id');
+    setCancellingSchedule(false);
+    if (cancelErr) {
+      toast.error(t('toastCancelScheduleFailed', { error: cancelErr.message }));
+      return;
+    }
+    if (!data?.length) {
+      toast.error(t('toastCancelScheduleTooLate'));
+      await fetchData();
+      return;
+    }
+    toast.success(t('toastScheduleCancelled'));
+    await fetchData();
+  }
+
   if (loading) {
     return (
       <div className="flex h-64 items-center justify-center">
@@ -325,6 +350,13 @@ export default function BroadcastDetailPage() {
   // still pending and nothing left to move them. Name that state rather
   // than leaving a permanently pulsing "sending" badge.
   const isStalled = broadcast.status === 'sending' && pendingCount > 0;
+  // Scheduled (and cancelled-to-draft) rows have pending recipients by
+  // design — Resume would fire them immediately. Only offer it once the
+  // campaign has actually entered a delivery state.
+  const canResumeDelivery =
+    broadcast.status === 'sending' ||
+    broadcast.status === 'sent' ||
+    broadcast.status === 'failed';
 
   const funnelSteps: FunnelStep[] = [
     { label: t('stats.sent'), value: broadcast.sent_count, color: 'bg-primary' },
@@ -355,12 +387,22 @@ export default function BroadcastDetailPage() {
                 {tStatus(status.label)}
               </span>
             </div>
-            <div className="mt-1 flex items-center gap-3 text-sm text-muted-foreground">
+            <div className="mt-1 flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
               <span>{t('template', { name: broadcast.template_name })}</span>
               <span>-</span>
               <span>
                 {t('createdAt', { date: new Date(broadcast.created_at).toLocaleDateString() })}
               </span>
+              {broadcast.status === 'scheduled' && broadcast.scheduled_at && (
+                <>
+                  <span>-</span>
+                  <span>
+                    {t('scheduledAt', {
+                      date: new Date(broadcast.scheduled_at).toLocaleString(),
+                    })}
+                  </span>
+                </>
+              )}
             </div>
           </div>
         </div>
@@ -369,6 +411,23 @@ export default function BroadcastDetailPage() {
             "Delete Pipeline" flow. Mid-send broadcasts can't be deleted
             because orphaning in-flight Meta messages would leave the
             funnel inconsistent. */}
+        <div className="flex flex-wrap items-center gap-2">
+          {broadcast.status === 'scheduled' && (
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={cancellingSchedule}
+              onClick={handleCancelSchedule}
+              className="border-border bg-transparent text-muted-foreground hover:bg-muted"
+            >
+              {cancellingSchedule ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Clock className="h-3.5 w-3.5" />
+              )}
+              {cancellingSchedule ? t('cancellingSchedule') : t('cancelSchedule')}
+            </Button>
+          )}
         {confirmDelete ? (
           <div className="flex items-center gap-2 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-1.5 text-sm">
             <span className="text-red-300">{t('deletePrompt')}</span>
@@ -407,11 +466,12 @@ export default function BroadcastDetailPage() {
             {t('delete')}
           </Button>
         )}
+        </div>
       </div>
 
       {/* Resume / retry (issue #472). Only rendered when there is
           actually something outstanding. */}
-      {(pendingCount > 0 || retryableCount > 0) && (
+      {(canResumeDelivery && (pendingCount > 0 || retryableCount > 0)) && (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-card p-4">
           <div className="text-sm">
             <p className="font-medium text-foreground">

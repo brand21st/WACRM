@@ -1,6 +1,8 @@
 -- ============================================================
 -- NOTIFICATIONS
 -- ============================================================
+SET search_path TO public, extensions;
+
 CREATE TABLE IF NOT EXISTS notifications (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   account_id UUID NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,

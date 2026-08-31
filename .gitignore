@@ -42,3 +42,32 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# InsForge & AI agent skills
+.insforge
+.agent
+.agents
+.augment
+.claude
+.cline
+.github/copilot*
+.kilocode
+.qoder
+.qwen
+.roo
+.trae
+.windsurf
+testsprite_tests/tmp/
+testsprite_tests/tmp/config.json
+
+# Generated SQL export for moving to another Supabase project
+/supabase/export/
+
+# Local editor / agent state (do not publish)
+.cursor/
+.gemini/
+.jolli/
+
+# Scratch / temp
+supabase/.temp/
+.tmp-coolify-query.py

@@ -1,0 +1,411 @@
+[
+  {
+    "id": "TC001",
+    "title": "Sign in and reach the CRM workspace",
+    "description": "This verifies a merchant can sign in with workspace credentials and land in the authenticated CRM area.",
+    "category": "User Login",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the email field with {{LOGIN_USER}}"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the password field with {{LOGIN_PASSWORD}}"
+      },
+      {
+        "type": "action",
+        "description": "Submit the sign-in form"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the dashboard is displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify authenticated workspace navigation is available"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC002",
+    "title": "Connect a Shopify store and save the settings",
+    "description": "This verifies a merchant can enter Shopify credentials, enable Shopify in auto-reply, and save a successful connection.",
+    "category": "Shopify Settings Connection",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the email field with {{LOGIN_USER}}"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the password field with {{LOGIN_PASSWORD}}"
+      },
+      {
+        "type": "action",
+        "description": "Submit the sign-in form"
+      },
+      {
+        "type": "action",
+        "description": "Navigate to /settings"
+      },
+      {
+        "type": "action",
+        "description": "Open the Shopify settings section"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the shop domain field with a valid store domain"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the Admin API token field with a valid token"
+      },
+      {
+        "type": "action",
+        "description": "Optionally fill in the WhatsApp catalog ID field"
+      },
+      {
+        "type": "action",
+        "description": "Enable Shopify in auto-reply"
+      },
+      {
+        "type": "action",
+        "description": "Save the Shopify connection"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify store details are displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the Shopify connection is shown as enabled"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC003",
+    "title": "Sign in and open Shopify settings",
+    "description": "This verifies a merchant can sign in and reach the Shopify settings area from the authenticated workspace.",
+    "category": "Shopify Settings Connection",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the email field with {{LOGIN_USER}}"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the password field with {{LOGIN_PASSWORD}}"
+      },
+      {
+        "type": "action",
+        "description": "Submit the sign-in form"
+      },
+      {
+        "type": "action",
+        "description": "Navigate to /settings"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the Shopify settings section is displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the Shopify setup state is visible"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC004",
+    "title": "Get Shopify-aware help from the agents playground",
+    "description": "This verifies a merchant can ask the AI agent a product or order question and receive a Shopify-aware response in the playground.",
+    "category": "AI Agents Shopify Playground",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the email field with {{LOGIN_USER}}"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the password field with {{LOGIN_PASSWORD}}"
+      },
+      {
+        "type": "action",
+        "description": "Submit the sign-in form"
+      },
+      {
+        "type": "action",
+        "description": "Navigate to /agents"
+      },
+      {
+        "type": "action",
+        "description": "Open the AI Agents playground"
+      },
+      {
+        "type": "action",
+        "description": "Send a test message about a product or order"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify an AI response is displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the response reflects Shopify-aware information"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC005",
+    "title": "Sync the Shopify catalog after connection",
+    "description": "This verifies a merchant can start a catalog sync after connecting Shopify and see the sync complete in settings.",
+    "category": "Shopify Settings Connection",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the email field with {{LOGIN_USER}}"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the password field with {{LOGIN_PASSWORD}}"
+      },
+      {
+        "type": "action",
+        "description": "Submit the sign-in form"
+      },
+      {
+        "type": "action",
+        "description": "Navigate to /settings"
+      },
+      {
+        "type": "action",
+        "description": "Open the Shopify settings section"
+      },
+      {
+        "type": "action",
+        "description": "Start the catalog sync"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify catalog sync progress is displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the catalog sync completes"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC006",
+    "title": "View an existing Shopify connection",
+    "description": "This verifies a merchant can return to settings and see the saved Shopify configuration details.",
+    "category": "Shopify Settings Connection",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the email field with {{LOGIN_USER}}"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the password field with {{LOGIN_PASSWORD}}"
+      },
+      {
+        "type": "action",
+        "description": "Submit the sign-in form"
+      },
+      {
+        "type": "action",
+        "description": "Navigate to /settings"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify Shopify store details are displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the saved Shopify configuration is visible"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC007",
+    "title": "Disconnect Shopify from settings",
+    "description": "This verifies a merchant can remove an existing Shopify connection and return to the disconnected state.",
+    "category": "Shopify Settings Connection",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the email field with {{LOGIN_USER}}"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the password field with {{LOGIN_PASSWORD}}"
+      },
+      {
+        "type": "action",
+        "description": "Submit the sign-in form"
+      },
+      {
+        "type": "action",
+        "description": "Navigate to /settings"
+      },
+      {
+        "type": "action",
+        "description": "Open the Shopify settings section"
+      },
+      {
+        "type": "action",
+        "description": "Disconnect Shopify"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the Shopify connection is no longer active"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the disconnected state message is visible"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC008",
+    "title": "Keep the dashboard and workspace navigation available after sign in",
+    "description": "This verifies a signed-in user can move between core CRM sections without losing authenticated access.",
+    "category": "User Login",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the email field with {{LOGIN_USER}}"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the password field with {{LOGIN_PASSWORD}}"
+      },
+      {
+        "type": "action",
+        "description": "Submit the sign-in form"
+      },
+      {
+        "type": "action",
+        "description": "Click the dashboard navigation item"
+      },
+      {
+        "type": "action",
+        "description": "Click the inbox navigation item"
+      },
+      {
+        "type": "action",
+        "description": "Click the contacts navigation item"
+      },
+      {
+        "type": "action",
+        "description": "Click the agents navigation item"
+      },
+      {
+        "type": "action",
+        "description": "Click the settings navigation item"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the settings page is displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify authenticated workspace navigation remains available"
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC009",
+    "title": "Block saving an invalid Shopify token",
+    "description": "This verifies the app prevents saving a Shopify connection when the Admin API token is missing or invalid and shows a validation error.",
+    "category": "Shopify Settings Connection",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the email field with {{LOGIN_USER}}"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the password field with {{LOGIN_PASSWORD}}"
+      },
+      {
+        "type": "action",
+        "description": "Submit the sign-in form"
+      },
+      {
+        "type": "action",
+        "description": "Navigate to /settings"
+      },
+      {
+        "type": "action",
+        "description": "Open the Shopify settings section"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the shop domain field with a valid store domain"
+      },
+      {
+        "type": "action",
+        "description": "Leave the Admin API token field empty"
+      },
+      {
+        "type": "action",
+        "description": "Save the Shopify connection"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify a token validation error is visible"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the Shopify connection is not saved"
+      }
+    ],
+    "priority": "Medium"
+  }
+]

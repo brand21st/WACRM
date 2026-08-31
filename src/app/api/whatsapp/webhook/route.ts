@@ -1,7 +1,7 @@
 import { NextResponse, after } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { decrypt, encrypt, isLegacyFormat } from '@/lib/whatsapp/encryption'
-import { getMediaUrl, downloadMedia } from '@/lib/whatsapp/meta-api'
+import { getMediaUrl } from '@/lib/whatsapp/meta-api'
 import { mirrorInboundMedia } from '@/lib/whatsapp/mirror-inbound-media'
 import { normalizePhone } from '@/lib/whatsapp/phone-utils'
 import { findExistingContact, isUniqueViolation } from '@/lib/contacts/dedupe'
@@ -10,6 +10,12 @@ import { verifyMetaWebhookSignature } from '@/lib/whatsapp/webhook-signature'
 import { runAutomationsForTrigger } from '@/lib/automations/engine'
 import { dispatchInboundToFlows } from '@/lib/flows/engine'
 import { dispatchInboundToAiReply } from '@/lib/ai/auto-reply'
+import { loadAiConfig } from '@/lib/ai/config'
+import { describeInboundImage } from '@/lib/ai/describe-inbound-image'
+import { sendPhotoWaitAck } from '@/lib/ai/photo-wait-ack'
+import { engineSendTypingIndicator } from '@/lib/flows/meta-send'
+import { loadShopifyConfig } from '@/lib/shopify/config'
+import { transcribeInboundVoiceNote } from '@/lib/ai/transcribe-inbound'
 import { dispatchWebhookEvent } from '@/lib/webhooks/deliver'
 import {
   handleTemplateWebhookChange,
@@ -629,13 +635,13 @@ async function processMessage(
     return
   }
 
-  // Parse message content based on type
-  const { contentText, mediaUrl, mediaType, interactiveReplyId } =
-    await parseMessageContent(
-      message,
-      accessToken,
-      mirrorMedia ? { accountId } : null
-    )
+  const parsed = await parseMessageContent(
+    message,
+    accessToken,
+    mirrorMedia ? { accountId } : null
+  )
+  let contentText = parsed.contentText
+  const { mediaUrl, mediaType, interactiveReplyId } = parsed
 
   // Resolve swipe-reply context if present. A missing parent is fine —
   // we just store NULL and the UI renders the message without a quote.
@@ -764,6 +770,118 @@ async function processMessage(
   // SQL — see the helper for why that matters.
   await reopenClosedConversation(supabaseAdmin(), conversation)
 
+  // Speech-to-text for inbound voice notes. Runs AFTER the insert so a
+  // Meta replay that loses the insert race (ignoreDuplicates → empty)
+  // never re-transcribes. Failures are non-fatal: the audio row stays
+  // and a human can listen. The transcript is written to the existing
+  // `content_text` column — no extra transcript field.
+  if (
+    contentType === 'audio' &&
+    message.audio?.id &&
+    insertedRows?.[0]?.id
+  ) {
+    const transcript = await transcribeInboundVoiceNote({
+      accountId,
+      mediaId: message.audio.id,
+      accessToken,
+      mimeType: mediaType,
+      contentText,
+      contentType,
+    })
+    if (transcript) {
+      contentText = transcript
+      const { error: trErr } = await supabaseAdmin()
+        .from('messages')
+        .update({ content_text: transcript })
+        .eq('id', insertedRows[0].id)
+      if (trErr) {
+        console.error('[webhook] failed to persist audio transcript:', trErr)
+      } else {
+        await supabaseAdmin()
+          .from('conversations')
+          .update({ last_message_text: transcript })
+          .eq('id', conversation.id)
+      }
+    }
+  }
+
+  const aiConfig = await loadAiConfig(supabaseAdmin(), accountId).catch((err) => {
+    console.error('[webhook] loadAiConfig failed:', err)
+    return null
+  })
+
+  const shopifyConfig = await loadShopifyConfig(supabaseAdmin(), accountId).catch(
+    (err) => {
+      console.error('[webhook] loadShopifyConfig failed:', err)
+      return null
+    },
+  )
+
+  if (contentType === 'image' && aiConfig && insertedRows?.[0]?.id) {
+    const humanOwns = Boolean(
+      (conversation as { assigned_agent_id?: string | null }).assigned_agent_id,
+    )
+    const paused =
+      Boolean(
+        (conversation as { ai_autoreply_disabled?: boolean | null })
+          .ai_autoreply_disabled,
+      ) && !aiConfig.fullAgentEnabled
+    if (aiConfig.autoReplyEnabled && !humanOwns && !paused) {
+      const languageHint = [
+        contentText,
+        (conversation as { last_message_text?: string | null }).last_message_text,
+      ]
+        .filter((s): s is string => Boolean(s?.trim()))
+        .join(' ')
+      await sendPhotoWaitAck({
+        accountId,
+        userId: configOwnerUserId,
+        conversationId: conversation.id,
+        contactId: contactRecord.id,
+        languageHint,
+      }).catch((err) =>
+        console.error('[webhook] photo wait ack failed:', err),
+      )
+      if (aiConfig.typingIndicatorEnabled) {
+        await engineSendTypingIndicator({
+          accountId,
+          inboundMessageId: message.id,
+        }).catch((err) =>
+          console.warn('[webhook] typing after photo wait ack failed:', err),
+        )
+      }
+    }
+
+    const description = await describeInboundImage({
+      provider: aiConfig.provider,
+      apiKey: aiConfig.apiKey,
+      mediaUrl,
+      caption: contentText,
+      purpose: shopifyConfig ? 'shopping' : 'support',
+      mediaId: message.image?.id ?? null,
+      accessToken,
+    })
+    const nextText =
+      description ||
+      contentText?.trim() ||
+      '[Customer sent a product photo]'
+    if (nextText !== contentText) {
+      contentText = nextText
+      const { error: imgErr } = await supabaseAdmin()
+        .from('messages')
+        .update({ content_text: nextText })
+        .eq('id', insertedRows[0].id)
+      if (imgErr) {
+        console.error('[webhook] failed to persist image description:', imgErr)
+      } else {
+        await supabaseAdmin()
+          .from('conversations')
+          .update({ last_message_text: nextText })
+          .eq('id', conversation.id)
+      }
+    }
+  }
+
   // If this contact was a recent broadcast recipient, flag the reply
   // so the broadcast's `replied_count` advances (via the aggregate
   // trigger installed in migration 003).
@@ -788,34 +906,44 @@ async function processMessage(
   // no active flows take the runner's early-exit "no_match" path
   // basically for free (one indexed SELECT for the active run).
   // ============================================================
-  const flowResult = await dispatchInboundToFlows({
-    accountId,
-    userId: configOwnerUserId,
-    contactId: contactRecord.id,
-    conversationId: conversation.id,
-    message:
-      interactiveReplyId
-        ? {
-            kind: 'interactive_reply',
-            reply_id: interactiveReplyId,
-            reply_title: contentText ?? '',
-            meta_message_id: message.id,
-          }
-        : {
-            kind: 'text',
-            text: contentText ?? message.text?.body ?? '',
-            meta_message_id: message.id,
-          },
-    isFirstInboundMessage,
-  })
-  const flowConsumed = flowResult.consumed
+  // Voice notes skip the flow runner. Full-agent mode skips it for
+  // everything else too — the LLM owns the thread. Interactive taps
+  // still run flows so menu navigation keeps working.
+  let flowConsumed = false
+  if (
+    contentType !== 'audio' &&
+    !(aiConfig?.fullAgentEnabled && !interactiveReplyId)
+  ) {
+    const flowResult = await dispatchInboundToFlows({
+      accountId,
+      userId: configOwnerUserId,
+      contactId: contactRecord.id,
+      conversationId: conversation.id,
+      message:
+        interactiveReplyId
+          ? {
+              kind: 'interactive_reply',
+              reply_id: interactiveReplyId,
+              reply_title: contentText ?? '',
+              meta_message_id: message.id,
+            }
+          : {
+              kind: 'text',
+              text: contentText ?? message.text?.body ?? '',
+              meta_message_id: message.id,
+            },
+      isFirstInboundMessage,
+    })
+    flowConsumed = flowResult.consumed
+  }
+
+  const inboundText = contentText ?? message.text?.body ?? ''
 
   // Fire any automations that react to this webhook event. All dispatches
   // run here (not earlier) so the contact, conversation, and inbound
   // message all exist before any step — including send_message — runs.
   // Fire-and-forget: a slow or failing automation must not block the
   // webhook's 200 OK response to Meta.
-  const inboundText = contentText ?? message.text?.body ?? ''
   const automationTriggers: (
     | 'new_contact_created'
     | 'first_inbound_message'
@@ -824,8 +952,8 @@ async function processMessage(
     | 'interactive_reply'
   )[] = []
   // Content-level triggers are suppressed when a flow consumed the
-  // message — see the comment block above.
-  if (!flowConsumed) {
+  // message — or when full-agent mode owns the thread.
+  if (!flowConsumed && contentType !== 'audio' && !aiConfig?.fullAgentEnabled) {
     automationTriggers.push('new_message_received', 'keyword_match')
     // Interactive tap → fire the interactive_reply trigger too (only
     // meaningful when a button/list reply actually arrived). Enables
@@ -866,17 +994,34 @@ async function processMessage(
     }).catch((err) => console.error('[automations] dispatch failed:', err))
   }
 
-  // AI auto-reply. Runs only for plain-text inbound the deterministic
-  // flow runner did NOT consume (flows win over the LLM), and only when
-  // the account has enabled it. Awaited inside `after()` (same reason as
-  // the webhook dispatch below); `dispatchInboundToAiReply` owns its
-  // eligibility gates + try/catch and never throws.
-  if (!flowConsumed && !interactiveReplyId && inboundText.trim()) {
+  // AI auto-reply. Full-agent mode bypasses flows/automations; images
+  // reach this path once vision (or a caption) filled `content_text`.
+  const inboundModality =
+    contentType === 'audio'
+      ? 'audio'
+      : contentType === 'image'
+        ? 'image'
+        : 'text'
+  const shouldAiReply =
+    aiConfig?.autoReplyEnabled &&
+    inboundText.trim() &&
+    (!interactiveReplyId || aiConfig.fullAgentEnabled) &&
+    (!flowConsumed ||
+      aiConfig.fullAgentEnabled ||
+      contentType === 'audio')
+  if (shouldAiReply) {
     await dispatchInboundToAiReply({
       accountId,
       conversationId: conversation.id,
       contactId: contactRecord.id,
       configOwnerUserId,
+      inboundContentType: inboundModality,
+      inboundMetaMessageId: message.id,
+      inboundMediaUrl: contentType === 'image' ? mediaUrl : undefined,
+      inboundMediaId:
+        contentType === 'image' ? (message.image?.id ?? null) : undefined,
+      inboundAccessToken: contentType === 'image' ? accessToken : undefined,
+      isFirstInbound: isFirstInboundMessage,
     })
   }
 

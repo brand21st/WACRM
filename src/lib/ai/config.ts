@@ -1,6 +1,15 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { decrypt } from '@/lib/whatsapp/encryption'
 import type { AiConfig } from './types'
+import { parseRealtimeVoice } from './realtime/voices'
+import {
+  parseSarvamLanguage,
+  parseSarvamPace,
+  parseSarvamSpeaker,
+  parseSarvamTemperature,
+  parseVoiceProvider,
+  parseVoiceReplyMode,
+} from './voice'
 
 interface AiConfigRow {
   provider: 'openai' | 'anthropic'
@@ -10,12 +19,28 @@ interface AiConfigRow {
   is_active: boolean
   auto_reply_enabled: boolean
   auto_reply_max_per_conversation: number
+  auto_reply_unlimited: boolean | null
   handoff_agent_id: string | null
   embeddings_api_key: string | null
+  elevenlabs_api_key: string | null
+  elevenlabs_voice_id: string | null
+  voice_provider: string | null
+  sarvam_api_key: string | null
+  sarvam_speaker: string | null
+  sarvam_language_code: string | null
+  sarvam_pace: number | null
+  sarvam_temperature: number | null
+  stt_enabled: boolean | null
+  tts_enabled: boolean | null
+  voice_reply_mode: string | null
+  typing_indicator_enabled: boolean | null
+  full_agent_enabled: boolean | null
+  realtime_voice_enabled: boolean | null
+  realtime_voice: string | null
 }
 
 const CONFIG_COLUMNS =
-  'provider, model, api_key, system_prompt, is_active, auto_reply_enabled, auto_reply_max_per_conversation, handoff_agent_id, embeddings_api_key'
+  'provider, model, api_key, system_prompt, is_active, auto_reply_enabled, auto_reply_unlimited, auto_reply_max_per_conversation, handoff_agent_id, embeddings_api_key, elevenlabs_api_key, elevenlabs_voice_id, voice_provider, sarvam_api_key, sarvam_speaker, sarvam_language_code, sarvam_pace, sarvam_temperature, stt_enabled, tts_enabled, voice_reply_mode, typing_indicator_enabled, full_agent_enabled, realtime_voice_enabled, realtime_voice'
 
 /**
  * Load and decrypt the account's AI config for *use* (draft or
@@ -69,6 +94,33 @@ export async function loadAiConfig(
     }
   }
 
+  // Voice keys are optional. A corrupt one disables that provider for
+  // this load without taking down chat generation — same posture as
+  // the embeddings key.
+  let elevenlabsApiKey: string | null = null
+  if (row.elevenlabs_api_key) {
+    try {
+      elevenlabsApiKey = decrypt(row.elevenlabs_api_key)
+    } catch {
+      console.error(
+        `[ai config] ElevenLabs key for account ${accountId} could not be decrypted — check ENCRYPTION_KEY; ElevenLabs voice is disabled until it is re-entered.`,
+      )
+      elevenlabsApiKey = null
+    }
+  }
+
+  let sarvamApiKey: string | null = null
+  if (row.sarvam_api_key) {
+    try {
+      sarvamApiKey = decrypt(row.sarvam_api_key)
+    } catch {
+      console.error(
+        `[ai config] Sarvam key for account ${accountId} could not be decrypted — check ENCRYPTION_KEY; Sarvam voice is disabled until it is re-entered.`,
+      )
+      sarvamApiKey = null
+    }
+  }
+
   return {
     provider: row.provider,
     model: row.model,
@@ -76,9 +128,25 @@ export async function loadAiConfig(
     systemPrompt: row.system_prompt,
     isActive: row.is_active,
     autoReplyEnabled: row.auto_reply_enabled,
+    autoReplyUnlimited: row.auto_reply_unlimited === true,
     autoReplyMaxPerConversation: row.auto_reply_max_per_conversation,
     handoffAgentId: row.handoff_agent_id,
     embeddingsApiKey,
+    elevenlabsApiKey,
+    elevenlabsVoiceId: row.elevenlabs_voice_id?.trim() || null,
+    voiceProvider: parseVoiceProvider(row.voice_provider),
+    sarvamApiKey,
+    sarvamSpeaker: parseSarvamSpeaker(row.sarvam_speaker),
+    sarvamLanguageCode: parseSarvamLanguage(row.sarvam_language_code),
+    sarvamPace: parseSarvamPace(row.sarvam_pace),
+    sarvamTemperature: parseSarvamTemperature(row.sarvam_temperature),
+    sttEnabled: row.stt_enabled !== false,
+    ttsEnabled: row.tts_enabled !== false,
+    voiceReplyMode: parseVoiceReplyMode(row.voice_reply_mode),
+    typingIndicatorEnabled: row.typing_indicator_enabled !== false,
+    fullAgentEnabled: row.full_agent_enabled === true,
+    realtimeVoiceEnabled: row.realtime_voice_enabled === true,
+    realtimeVoice: parseRealtimeVoice(row.realtime_voice),
   }
 }
 

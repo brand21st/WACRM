@@ -6,6 +6,7 @@ const h = vi.hoisted(() => ({
   dispatchInboundToFlows: vi.fn(),
   dispatchInboundToAiReply: vi.fn(),
   dispatchWebhookEvent: vi.fn(),
+  loadAiConfig: vi.fn(),
   state: {
     // Result the message upsert's .select() resolves to. A genuine insert
     // returns the row; a replayed delivery conflicts and returns [].
@@ -198,6 +199,12 @@ vi.mock('@/lib/flows/engine', () => ({
 vi.mock('@/lib/ai/auto-reply', () => ({
   dispatchInboundToAiReply: h.dispatchInboundToAiReply,
 }))
+vi.mock('@/lib/ai/config', () => ({
+  loadAiConfig: h.loadAiConfig,
+}))
+vi.mock('@/lib/shopify/config', () => ({
+  loadShopifyConfig: vi.fn(async () => null),
+}))
 vi.mock('@/lib/webhooks/deliver', () => ({
   dispatchWebhookEvent: h.dispatchWebhookEvent,
 }))
@@ -272,6 +279,7 @@ beforeEach(() => {
   h.dispatchInboundToFlows.mockResolvedValue({ consumed: false })
   h.dispatchInboundToAiReply.mockResolvedValue(undefined)
   h.dispatchWebhookEvent.mockResolvedValue(undefined)
+  h.loadAiConfig.mockResolvedValue(null)
   h.runAutomationsForTrigger.mockImplementation(() => {
     h.state.automationStarted++
     return new Promise<void>((resolve) => {
@@ -313,6 +321,31 @@ describe('inbound webhook: idempotent insert (#367)', () => {
     expect(h.runAutomationsForTrigger).not.toHaveBeenCalled()
     expect(h.dispatchInboundToAiReply).not.toHaveBeenCalled()
     expect(h.dispatchWebhookEvent).not.toHaveBeenCalled()
+  })
+})
+
+describe('inbound webhook: first-inbound AI flag', () => {
+  const aiOn = {
+    autoReplyEnabled: true,
+    fullAgentEnabled: false,
+  }
+
+  it('passes isFirstInbound true on the first customer message', async () => {
+    h.loadAiConfig.mockResolvedValue(aiOn)
+    h.state.priorCustomerMsgCount = 0
+    await runWebhook()
+    expect(h.dispatchInboundToAiReply).toHaveBeenCalledWith(
+      expect.objectContaining({ isFirstInbound: true }),
+    )
+  })
+
+  it('passes isFirstInbound false after the first customer message', async () => {
+    h.loadAiConfig.mockResolvedValue(aiOn)
+    h.state.priorCustomerMsgCount = 1
+    await runWebhook()
+    expect(h.dispatchInboundToAiReply).toHaveBeenCalledWith(
+      expect.objectContaining({ isFirstInbound: false }),
+    )
   })
 })
 

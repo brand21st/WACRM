@@ -53,8 +53,14 @@ interface BroadcastPayload {
   headerMediaUrl?: string;
 }
 
+interface ScheduledBroadcastPayload extends BroadcastPayload {
+  /** UTC ISO timestamp written to `broadcasts.scheduled_at`. */
+  scheduledAt: string;
+}
+
 interface UseBroadcastSendingReturn {
   createAndSendBroadcast: (payload: BroadcastPayload) => Promise<string>;
+  createScheduledBroadcast: (payload: ScheduledBroadcastPayload) => Promise<string>;
   isProcessing: boolean;
   progress: number;
 }
@@ -344,6 +350,122 @@ export function useBroadcastSending(): UseBroadcastSendingReturn {
     return data ?? [];
   }
 
+  /**
+   * Resolve audience, insert the parent row + frozen recipient params.
+   * Shared by send-now (status `sending`) and schedule (status
+   * `scheduled`). Does not fan out to Meta.
+   */
+  async function planAndInsertBroadcast(
+    payload: BroadcastPayload,
+    options: { status: 'sending' | 'scheduled'; scheduledAt?: string },
+  ): Promise<{ broadcastId: string }> {
+    const supabase = createClient();
+
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    const user = session?.user;
+    if (!user) {
+      throw new Error('You are not signed in.');
+    }
+    if (!accountId) {
+      throw new Error('Your profile is not linked to an account.');
+    }
+
+    setProgress(5);
+    const contacts = await resolveAudience(payload.audience);
+
+    if (contacts.length === 0) {
+      throw new Error('No contacts found for this audience.');
+    }
+
+    setProgress(10);
+    const headerMediaUrl = payload.headerMediaUrl?.trim() || null;
+    const { data: broadcast, error: broadcastError } = await supabase
+      .from('broadcasts')
+      .insert({
+        user_id: user.id,
+        account_id: accountId,
+        name: payload.name,
+        template_name: payload.template.name,
+        template_language: payload.template.language ?? 'en_US',
+        template_variables: payload.variables,
+        audience_filter: {
+          type: payload.audience.type,
+          tagIds: payload.audience.tagIds,
+          customField: payload.audience.customField,
+          excludeTagIds: payload.audience.excludeTagIds,
+        },
+        header_media_url: headerMediaUrl,
+        status: options.status,
+        scheduled_at: options.scheduledAt ?? null,
+        total_recipients: contacts.length,
+        sent_count: 0,
+        delivered_count: 0,
+        read_count: 0,
+        replied_count: 0,
+        failed_count: 0,
+      })
+      .select()
+      .single();
+
+    if (broadcastError || !broadcast) {
+      throw new Error(
+        `Failed to create broadcast: ${broadcastError?.message ?? 'unknown error'}`,
+      );
+    }
+
+    // Custom values are fetched BEFORE the insert so each row can
+    // carry its resolved template params. Those params are what makes
+    // the campaign resumable server-side (issue #472): the send loop
+    // below runs in this browser tab, and if the tab goes away the
+    // only record of what {{1}} should be for each contact is this
+    // column. Resolving once here also means the resume / cron drain
+    // sends exactly what this pass would have.
+    setProgress(20);
+    const customValueIndex = await fetchCustomValueIndex(
+      supabase,
+      contacts.map((c) => c.id),
+    );
+    const paramsByContact = new Map(
+      contacts.map((contact) => [
+        contact.id,
+        resolveVariables(
+          payload.variables,
+          contact,
+          customValueIndex.get(contact.id),
+        ),
+      ]),
+    );
+    const recipientRows = contacts.map((contact) => ({
+      broadcast_id: broadcast.id,
+      contact_id: contact.id,
+      status: 'pending' as const,
+      template_params: paramsByContact.get(contact.id) ?? [],
+    }));
+
+    for (let i = 0; i < recipientRows.length; i += INSERT_BATCH_SIZE) {
+      const batch = recipientRows.slice(i, i + INSERT_BATCH_SIZE);
+      const { error: recipientError } = await supabase
+        .from('broadcast_recipients')
+        .insert(batch);
+      if (recipientError) {
+        await supabase
+          .from('broadcasts')
+          .update({
+            status: 'failed',
+            failed_count: contacts.length,
+          })
+          .eq('id', broadcast.id);
+        throw new Error(
+          `Failed to insert recipient batch ${i / INSERT_BATCH_SIZE + 1}: ${recipientError.message}`,
+        );
+      }
+    }
+
+    return { broadcastId: broadcast.id };
+  }
+
   async function createAndSendBroadcast(payload: BroadcastPayload): Promise<string> {
     setIsProcessing(true);
     setProgress(0);
@@ -351,124 +473,16 @@ export function useBroadcastSending(): UseBroadcastSendingReturn {
     const supabase = createClient();
 
     try {
-      // ── Step 0: Resolve current user ──────────────────────────────
-      // broadcasts.user_id is NOT NULL + guarded by RLS
-      // (auth.uid() = user_id). Without this, the INSERT below was
-      // silently failing with 23502 / 42501 — the wizard would
-      // no-op with no feedback.
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      const user = session?.user;
-      if (!user) {
-        throw new Error('You are not signed in.');
-      }
-      if (!accountId) {
-        throw new Error('Your profile is not linked to an account.');
-      }
+      const { broadcastId } = await planAndInsertBroadcast(payload, {
+        status: 'sending',
+      });
 
-      // ── Step 1: Resolve audience contacts ─────────────────────────
-      setProgress(5);
-      const contacts = await resolveAudience(payload.audience);
-
-      if (contacts.length === 0) {
-        throw new Error('No contacts found for this audience.');
-      }
-
-      // ── Step 2: Create broadcast row ──────────────────────────────
-      setProgress(10);
-      const { data: broadcast, error: broadcastError } = await supabase
-        .from('broadcasts')
-        .insert({
-          user_id: user.id,
-          account_id: accountId,
-          name: payload.name,
-          template_name: payload.template.name,
-          template_language: payload.template.language ?? 'en_US',
-          template_variables: payload.variables,
-          audience_filter: {
-            type: payload.audience.type,
-            tagIds: payload.audience.tagIds,
-            customField: payload.audience.customField,
-            excludeTagIds: payload.audience.excludeTagIds,
-          },
-          status: 'sending',
-          total_recipients: contacts.length,
-          sent_count: 0,
-          delivered_count: 0,
-          read_count: 0,
-          replied_count: 0,
-          failed_count: 0,
-        })
-        .select()
-        .single();
-
-      if (broadcastError || !broadcast) {
-        throw new Error(
-          `Failed to create broadcast: ${broadcastError?.message ?? 'unknown error'}`,
-        );
-      }
-
-      // ── Step 3: Insert recipient rows ─────────────────────────────
-      // Custom values are fetched BEFORE the insert so each row can
-      // carry its resolved template params. Those params are what makes
-      // the campaign resumable server-side (issue #472): the send loop
-      // below runs in this browser tab, and if the tab goes away the
-      // only record of what {{1}} should be for each contact is this
-      // column. Resolving once here also means the resume sends exactly
-      // what this pass would have.
-      setProgress(20);
-      const customValueIndex = await fetchCustomValueIndex(
-        supabase,
-        contacts.map((c) => c.id),
-      );
-      const paramsByContact = new Map(
-        contacts.map((contact) => [
-          contact.id,
-          resolveVariables(
-            payload.variables,
-            contact,
-            customValueIndex.get(contact.id),
-          ),
-        ]),
-      );
-      const recipientRows = contacts.map((contact) => ({
-        broadcast_id: broadcast.id,
-        contact_id: contact.id,
-        status: 'pending' as const,
-        template_params: paramsByContact.get(contact.id) ?? [],
-      }));
-
-      for (let i = 0; i < recipientRows.length; i += INSERT_BATCH_SIZE) {
-        const batch = recipientRows.slice(i, i + INSERT_BATCH_SIZE);
-        const { error: recipientError } = await supabase
-          .from('broadcast_recipients')
-          .insert(batch);
-        if (recipientError) {
-          // Previous impl logged and marched on — the broadcast then ran
-          // with an incomplete recipient set, so webhook status updates
-          // couldn't find some rows and the aggregate counts drifted.
-          // Flip the broadcast to failed so the user sees the problem
-          // immediately, then throw to abort the send loop.
-          await supabase
-            .from('broadcasts')
-            .update({
-              status: 'failed',
-              failed_count: contacts.length,
-            })
-            .eq('id', broadcast.id);
-          throw new Error(
-            `Failed to insert recipient batch ${i / INSERT_BATCH_SIZE + 1}: ${recipientError.message}`,
-          );
-        }
-      }
-
-      // ── Step 4: Fetch recipients back (joined contact) ────────────
+      // ── Fetch recipients back (joined contact) ────────────────────
       setProgress(30);
       const { data: recipients, error: recipientsFetchError } = await supabase
         .from('broadcast_recipients')
         .select('*, contact:contacts(*)')
-        .eq('broadcast_id', broadcast.id);
+        .eq('broadcast_id', broadcastId);
 
       if (recipientsFetchError || !recipients) {
         throw new Error('Failed to fetch broadcast recipients');
@@ -606,14 +620,31 @@ export function useBroadcastSending(): UseBroadcastSendingReturn {
       await supabase
         .from('broadcasts')
         .update({ status: finalStatus })
-        .eq('id', broadcast.id);
+        .eq('id', broadcastId);
 
       setProgress(100);
-      return broadcast.id;
+      return broadcastId;
     } finally {
       setIsProcessing(false);
     }
   }
 
-  return { createAndSendBroadcast, isProcessing, progress };
+  async function createScheduledBroadcast(
+    payload: ScheduledBroadcastPayload,
+  ): Promise<string> {
+    setIsProcessing(true);
+    setProgress(0);
+    try {
+      const { broadcastId } = await planAndInsertBroadcast(payload, {
+        status: 'scheduled',
+        scheduledAt: payload.scheduledAt,
+      });
+      setProgress(100);
+      return broadcastId;
+    } finally {
+      setIsProcessing(false);
+    }
+  }
+
+  return { createAndSendBroadcast, createScheduledBroadcast, isProcessing, progress };
 }

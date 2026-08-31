@@ -7,6 +7,8 @@ import { generateReply } from '@/lib/ai/generate'
 import { buildSystemPrompt } from '@/lib/ai/defaults'
 import { latestUserMessage } from '@/lib/ai/query'
 import { AiError, type ChatMessage } from '@/lib/ai/types'
+import { loadShopifyConfig } from '@/lib/shopify/config'
+import { SHOPIFY_LLM_TOOLS, executeShopifyTool } from '@/lib/shopify/tools'
 
 // Keep the tested transcript bounded, mirroring the live context window.
 const MAX_TURNS = 20
@@ -78,13 +80,32 @@ export async function POST(request: Request) {
       config,
       latestUserMessage(messages),
     )
+    const shopify = await loadShopifyConfig(supabase, accountId).catch(() => null)
     const systemPrompt = buildSystemPrompt({
       userPrompt: config.systemPrompt,
       mode: 'auto_reply',
       knowledge,
+      shopify: Boolean(shopify),
     })
 
-    const { text, handoff } = await generateReply({ config, systemPrompt, messages })
+    const { text, handoff } = await generateReply({
+      config,
+      systemPrompt,
+      messages,
+      ...(shopify
+        ? {
+            tools: SHOPIFY_LLM_TOOLS,
+            executeTool: async (name, args) => {
+              const result = await executeShopifyTool(
+                { db: supabase, config: shopify, contactPhone: null },
+                name,
+                args,
+              )
+              return result.json
+            },
+          }
+        : {}),
+    })
     return NextResponse.json({ reply: text, handoff })
   } catch (err) {
     if (err instanceof AiError) {

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
 import { useTotalUnread } from "@/hooks/use-total-unread";
@@ -10,6 +10,7 @@ import { useUnreadNotifications } from "@/hooks/use-unread-notifications";
 import {
   Bell,
   Bot,
+  ChevronDown,
   Crown,
   GitBranch,
   LayoutDashboard,
@@ -78,6 +79,11 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
+interface NavChild {
+  href: string;
+  labelKey: string;
+}
+
 interface NavItem {
   href: string;
   labelKey: string;
@@ -87,6 +93,7 @@ interface NavItem {
    * Purely informational — doesn't affect routing or access.
    */
   beta?: boolean;
+  children?: NavChild[];
 }
 
 const navItems: NavItem[] = [
@@ -98,7 +105,15 @@ const navItems: NavItem[] = [
   { href: "/broadcasts", labelKey: "broadcasts", icon: Radio },
   { href: "/automations", labelKey: "automations", icon: Zap },
   { href: "/flows", labelKey: "flows", icon: Workflow, beta: true },
-  { href: "/agents", labelKey: "aiAgents", icon: Bot },
+  {
+    href: "/agents",
+    labelKey: "aiAgents",
+    icon: Bot,
+    children: [
+      { href: "/agents", labelKey: "chatAgent" },
+      { href: "/agents/voice", labelKey: "voiceAgent" },
+    ],
+  },
 ];
 
 const bottomNavItems = [
@@ -113,10 +128,18 @@ interface SidebarProps {
 
 import { useTranslations } from "next-intl";
 
+function childIsActive(pathname: string, href: string): boolean {
+  if (href === "/agents") return pathname === "/agents";
+  return pathname === href || pathname.startsWith(`${href}/`);
+}
+
 export function Sidebar({ open = false, onClose }: SidebarProps) {
   const t = useTranslations("Sidebar");
   const pathname = usePathname();
   const { profile, profileLoading, account, accountRole, signOut } = useAuth();
+  const [agentsOpen, setAgentsOpen] = useState(() =>
+    pathname.startsWith("/agents"),
+  );
   const totalUnread = useTotalUnread();
   const unreadNotifications = useUnreadNotifications();
   // Only surface the account-name strip when it actually carries
@@ -138,6 +161,10 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
     onClose?.();
     // Only pathname drives this — onClose identity doesn't need to re-run it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pathname]);
+
+  useEffect(() => {
+    if (pathname.startsWith("/agents")) setAgentsOpen(true);
   }, [pathname]);
 
   // Lock body scroll and allow Escape to close while the drawer is open on
@@ -209,12 +236,12 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
         <nav className="flex-1 overflow-y-auto px-3 py-4">
           <ul className="flex flex-col gap-1">
             {navItems.map((item) => {
-              const isActive =
+              const isGroupActive =
                 pathname === item.href ||
                 (item.href !== "/dashboard" && pathname.startsWith(item.href));
 
               const showUnreadDot =
-                item.href === "/inbox" && totalUnread > 0 && !isActive;
+                item.href === "/inbox" && totalUnread > 0 && !isGroupActive;
 
               // Unlike the inbox dot, the notifications count stays visible
               // even while the page is active — it reflects unread state
@@ -223,6 +250,60 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
               const showNotificationBadge =
                 item.href === "/notifications" && unreadNotifications > 0;
 
+              if (item.children?.length) {
+                const expanded = item.href === "/agents" ? agentsOpen : isGroupActive;
+                return (
+                  <li key={item.href}>
+                    <button
+                      type="button"
+                      aria-expanded={expanded}
+                      onClick={() => {
+                        if (item.href === "/agents") setAgentsOpen((open) => !open);
+                      }}
+                      className={cn(
+                        "flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors lg:py-2",
+                        isGroupActive
+                          ? "bg-primary/10 text-primary"
+                          : "text-muted-foreground hover:bg-muted hover:text-foreground",
+                      )}
+                    >
+                      <item.icon className="h-4 w-4" />
+                      <span className="flex-1 text-left">
+                        {t(item.labelKey as string)}
+                      </span>
+                      <ChevronDown
+                        className={cn(
+                          "h-4 w-4 shrink-0 transition-transform",
+                          expanded ? "rotate-0" : "-rotate-90",
+                        )}
+                      />
+                    </button>
+                    {expanded ? (
+                      <ul className="mt-1 ml-4 flex flex-col gap-0.5 border-l border-border pl-2">
+                        {item.children.map((child) => {
+                          const childActive = childIsActive(pathname, child.href);
+                          return (
+                            <li key={child.href}>
+                              <Link
+                                href={child.href}
+                                className={cn(
+                                  "flex items-center rounded-lg px-3 py-2 text-sm font-medium transition-colors lg:py-1.5",
+                                  childActive
+                                    ? "bg-primary/10 text-primary"
+                                    : "text-muted-foreground hover:bg-muted hover:text-foreground",
+                                )}
+                              >
+                                {t(child.labelKey as string)}
+                              </Link>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    ) : null}
+                  </li>
+                );
+              }
+
               return (
                 <li key={item.href}>
                   <Link
@@ -230,7 +311,7 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
                     className={cn(
                       // Taller on mobile so fingers can hit the row reliably (≥44px).
                       "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors lg:py-2",
-                      isActive
+                      isGroupActive
                         ? "bg-primary/10 text-primary"
                         : "text-muted-foreground hover:bg-muted hover:text-foreground",
                     )}

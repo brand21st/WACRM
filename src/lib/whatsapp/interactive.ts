@@ -68,9 +68,21 @@ export interface InteractiveListPayload {
   sections: InteractiveListSection[]
 }
 
+export interface InteractiveCtaUrlPayload {
+  kind: 'cta_url'
+  body: string
+  header?: string
+  footer?: string
+  /** Visible button label (≤ 20 chars). */
+  display_text: string
+  /** https URL opened when the customer taps Checkout. */
+  url: string
+}
+
 export type InteractiveMessagePayload =
   | InteractiveButtonsPayload
   | InteractiveListPayload
+  | InteractiveCtaUrlPayload
 
 export type InteractiveValidation =
   | { ok: true }
@@ -223,7 +235,23 @@ export function validateInteractivePayload(
     return ok()
   }
 
-  return fail('Interactive message must be reply buttons or a list.')
+  if (p.kind === 'cta_url') {
+    const cta = p as InteractiveCtaUrlPayload
+    if (typeof cta.display_text !== 'string' || cta.display_text.trim() === '') {
+      return fail('The checkout button needs a label.')
+    }
+    if (cta.display_text.length > INTERACTIVE_LIMITS.buttonTitleMaxLength) {
+      return fail(
+        `Checkout button label exceeds the ${INTERACTIVE_LIMITS.buttonTitleMaxLength}-character limit.`,
+      )
+    }
+    if (typeof cta.url !== 'string' || !/^https?:\/\//i.test(cta.url.trim())) {
+      return fail('Checkout button needs an http(s) URL.')
+    }
+    return ok()
+  }
+
+  return fail('Interactive message must be reply buttons, a list, or a checkout link.')
 }
 
 /**
@@ -235,5 +263,8 @@ export function interactivePayloadPreviewText(
 ): string {
   const body = payload.body?.trim()
   if (body) return body
+  if (payload.kind === 'cta_url') {
+    return payload.display_text.trim() || '[checkout]'
+  }
   return payload.kind === 'buttons' ? '[buttons]' : '[list]'
 }

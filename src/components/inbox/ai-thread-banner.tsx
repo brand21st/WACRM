@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { useTranslations } from "next-intl";
 import { useAuth } from "@/hooks/use-auth";
+import { AI_FULL_AGENT_CHANGED } from "./ai-full-agent-events";
 
 // ------------------------------------------------------------
 // Account AI status is the same for every conversation, so cache it per
@@ -20,25 +21,32 @@ import { useAuth } from "@/hooks/use-auth";
 // ------------------------------------------------------------
 interface AiAccountStatus {
   autoReplyOn: boolean;
+  fullAgentOn: boolean;
 }
 const statusCache = new Map<string, AiAccountStatus>();
+
+/** Drop cached account AI status after a settings change from the inbox. */
+export function invalidateAiAccountStatusCache(accountId: string) {
+  statusCache.delete(accountId);
+}
 
 async function fetchAiAccountStatus(accountId: string): Promise<AiAccountStatus> {
   const cached = statusCache.get(accountId);
   if (cached) return cached;
   try {
     const res = await fetch("/api/ai/config", { cache: "no-store" });
-    if (!res.ok) return { autoReplyOn: false }; // don't cache a transient failure
+    if (!res.ok) return { autoReplyOn: false, fullAgentOn: false }; // don't cache a transient failure
     const j = await res.json();
     const status = {
       // AI auto-reply is "live" only when configured, the master switch
       // is on, and the inbound bot is enabled.
       autoReplyOn: !!(j?.configured && j?.is_active && j?.auto_reply_enabled),
+      fullAgentOn: !!(j?.configured && j?.full_agent_enabled),
     };
     statusCache.set(accountId, status);
     return status;
   } catch {
-    return { autoReplyOn: false }; // don't cache
+    return { autoReplyOn: false, fullAgentOn: false }; // don't cache
   }
 }
 
@@ -81,6 +89,7 @@ export function AiThreadBanner({
   const t = useTranslations("Inbox.aiBanner");
   const { accountId } = useAuth();
   const [autoReplyOn, setAutoReplyOn] = useState<boolean | null>(null);
+  const [fullAgentOn, setFullAgentOn] = useState(false);
   const [busy, setBusy] = useState(false);
   // Optimistic local mirror of the pause flag so the banner flips
   // instantly on click; re-seeds whenever the thread (or its server
@@ -91,9 +100,23 @@ export function AiThreadBanner({
   useEffect(() => {
     if (!accountId) return;
     let alive = true;
-    fetchAiAccountStatus(accountId).then((s) => alive && setAutoReplyOn(s.autoReplyOn));
+    const load = () =>
+      fetchAiAccountStatus(accountId).then((s) => {
+        if (!alive) return;
+        setAutoReplyOn(s.autoReplyOn);
+        setFullAgentOn(s.fullAgentOn);
+      });
+    void load();
+    const onFullAgentChanged = (event: Event) => {
+      const detail = (event as CustomEvent<{ accountId?: string }>).detail;
+      if (detail?.accountId !== accountId) return;
+      invalidateAiAccountStatusCache(accountId);
+      void load();
+    };
+    window.addEventListener(AI_FULL_AGENT_CHANGED, onFullAgentChanged);
     return () => {
       alive = false;
+      window.removeEventListener(AI_FULL_AGENT_CHANGED, onFullAgentChanged);
     };
   }, [accountId]);
 
@@ -137,7 +160,19 @@ export function AiThreadBanner({
   // Account has no auto-reply → nothing to show. (Still loading → nothing.)
   if (!autoReplyOn) return null;
 
-  // Paused here (a human took over, or the model handed off).
+  // Full-agent toggle off → the bot is paused account-wide for this inbox.
+  if (!fullAgentOn) {
+    return (
+      <Banner tone="muted">
+        <div className="min-w-0 flex-1">
+          <p className="font-medium text-foreground">{t("pausedTitle")}</p>
+          <p className="text-muted-foreground">{t("pausedOffHint")}</p>
+        </div>
+      </Banner>
+    );
+  }
+
+  // Paused on this thread (human took over, or legacy handoff row).
   if (paused) {
     return (
       <Banner tone="muted">
@@ -162,11 +197,18 @@ export function AiThreadBanner({
   // Active on this thread.
   return (
     <Banner tone="primary">
-      <div className="flex min-w-0 flex-1 items-center gap-1.5">
-        <Sparkles className="h-3.5 w-3.5 flex-shrink-0 text-primary" />
-        <span className="truncate font-medium text-foreground">
-          {t("activeText")}
-        </span>
+      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <div className="flex min-w-0 items-center gap-1.5">
+          <Sparkles className="h-3.5 w-3.5 flex-shrink-0 text-primary" />
+          <span className="truncate font-medium text-foreground">
+            {fullAgentOn ? t("fullAgentActive") : t("activeText")}
+          </span>
+        </div>
+        {fullAgentOn && (
+          <span className="text-[11px] text-muted-foreground">
+            {t("fullAgentHint")}
+          </span>
+        )}
       </div>
       <BannerButton onClick={() => toggle(true)} busy={busy} icon={Hand}>
         {t("takeOver")}

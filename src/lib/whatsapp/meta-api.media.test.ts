@@ -71,6 +71,15 @@ describe("sendMediaMessage — payload shape", () => {
     expect(captured?.audio).toEqual({ link: BASE.link });
   });
 
+  it("sends audio as a native voice note when voice is true", async () => {
+    await sendMediaMessage({
+      ...BASE,
+      kind: "audio",
+      voice: true,
+    });
+    expect(captured?.audio).toEqual({ link: BASE.link, voice: true });
+  });
+
   it("throws when no link is provided", async () => {
     await expect(
       sendMediaMessage({ ...BASE, link: "", kind: "image" }),

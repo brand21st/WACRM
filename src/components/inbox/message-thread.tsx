@@ -73,6 +73,10 @@ interface MessageThreadProps {
     conversationId: string,
     assignedAgentId: string | null,
   ) => void;
+  onAiAutoreplyChange?: (
+    conversationId: string,
+    disabled: boolean,
+  ) => void;
   /**
    * On mobile, the thread is shown full-screen with the conversation list
    * hidden. This callback lets the page deselect the active conversation
@@ -158,6 +162,7 @@ export function MessageThread({
   onUpdateMessage,
   onStatusChange,
   onAssignChange,
+  onAiAutoreplyChange,
   onBack,
   resyncToken = 0,
   onRefresh,
@@ -1168,6 +1173,12 @@ export function MessageThread({
         onChange={(patch) => {
           if ("assigned_agent_id" in patch) {
             onAssignChange(conversation.id, patch.assigned_agent_id ?? null);
+          }
+          if ("ai_autoreply_disabled" in patch) {
+            onAiAutoreplyChange?.(
+              conversation.id,
+              patch.ai_autoreply_disabled,
+            );
           }
         }}
       />

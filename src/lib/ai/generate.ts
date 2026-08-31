@@ -8,6 +8,8 @@ import {
 import { HANDOFF_SENTINEL, aiRequestTimeoutMs } from './defaults'
 import { generateOpenAi } from './providers/openai'
 import { generateAnthropic } from './providers/anthropic'
+import type { ExecuteLlmTool, LlmToolDef } from './providers/shared'
+import { latestCustomerText, shouldRewriteSpoken, spokenRewrite } from './spoken-rewrite'
 
 export interface GenerateArgs {
   config: AiConfig
@@ -15,6 +17,10 @@ export interface GenerateArgs {
   systemPrompt: string
   /** Recent conversation turns, oldest first. */
   messages: ChatMessage[]
+  tools?: LlmToolDef[]
+  executeTool?: ExecuteLlmTool
+  /** Speakable first name so the spoken rewrite keeps the honorific. */
+  customerName?: string | null
 }
 
 /**
@@ -23,7 +29,7 @@ export interface GenerateArgs {
  * of the raw text. Throws `AiError` on any provider/network failure.
  */
 export async function generateReply(args: GenerateArgs): Promise<GenerateResult> {
-  const { config, systemPrompt, messages } = args
+  const { config, systemPrompt, messages, tools, executeTool } = args
   const timeoutMs = aiRequestTimeoutMs()
   const providerArgs = {
     apiKey: config.apiKey,
@@ -31,6 +37,8 @@ export async function generateReply(args: GenerateArgs): Promise<GenerateResult>
     systemPrompt,
     messages,
     timeoutMs,
+    tools,
+    executeTool,
   }
 
   let result: { text: string; usage: AiUsage | null }
@@ -48,7 +56,22 @@ export async function generateReply(args: GenerateArgs): Promise<GenerateResult>
       })
   }
 
-  return parseGeneration(result.text, result.usage)
+  const parsed = parseGeneration(result.text, result.usage)
+  const language = shouldRewriteSpoken({
+    draft: parsed.text,
+    handoff: parsed.handoff,
+    customerText: latestCustomerText(messages),
+  })
+  if (!language) return parsed
+
+  const rewritten = await spokenRewrite({
+    config,
+    draft: parsed.text,
+    language,
+    customerText: latestCustomerText(messages),
+    customerName: args.customerName,
+  })
+  return { ...parsed, text: rewritten }
 }
 
 /**

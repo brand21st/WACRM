@@ -146,7 +146,7 @@ export async function planBroadcastResume(
 ): Promise<ResumePlan> {
   const { data: broadcast, error: bcError } = await db
     .from('broadcasts')
-    .select('id, template_name, template_language')
+    .select('id, template_name, template_language, header_media_url')
     .eq('id', broadcastId)
     .eq('account_id', accountId)
     .maybeSingle();
@@ -232,6 +232,11 @@ export async function planBroadcastResume(
     );
   }
 
+  const headerMediaUrl =
+    typeof broadcast.header_media_url === 'string'
+      ? broadcast.header_media_url.trim()
+      : '';
+
   const plan: BroadcastPlan = {
     broadcastId,
     templateName: broadcast.template_name,
@@ -247,6 +252,7 @@ export async function planBroadcastResume(
         : [],
     })),
     rejected: 0,
+    ...(headerMediaUrl ? { headerMediaUrl } : {}),
   };
 
   return { plan, remaining, unsendable: unsendable.length };

@@ -6,10 +6,13 @@ import { buildConversationContext } from '@/lib/ai/context'
 import { retrieveKnowledge } from '@/lib/ai/knowledge'
 import { generateReply } from '@/lib/ai/generate'
 import { buildSystemPrompt } from '@/lib/ai/defaults'
+import { speakableFirstName } from '@/lib/ai/customer-name'
 import { latestUserMessage } from '@/lib/ai/query'
 import { logAiUsage } from '@/lib/ai/usage'
 import { supabaseAdmin } from '@/lib/ai/admin-client'
 import { AiError } from '@/lib/ai/types'
+import { loadShopifyConfig } from '@/lib/shopify/config'
+import { SHOPIFY_LLM_TOOLS, executeShopifyTool } from '@/lib/shopify/tools'
 
 /**
  * POST /api/ai/draft  (agent+)
@@ -47,7 +50,7 @@ export async function POST(request: Request) {
     // row means "not yours / not found" either way.
     const { data: conversation, error: convErr } = await supabase
       .from('conversations')
-      .select('id')
+      .select('id, contact_id')
       .eq('id', conversationId)
       .maybeSingle()
     if (convErr) {
@@ -98,13 +101,46 @@ export async function POST(request: Request) {
       latestUserMessage(messages),
     )
 
+    let contactPhone: string | null = null
+    let customerName: string | null = null
+    if (conversation.contact_id) {
+      const { data: contact } = await supabase
+        .from('contacts')
+        .select('name, phone')
+        .eq('id', conversation.contact_id)
+        .maybeSingle()
+      contactPhone = contact?.phone ?? null
+      customerName = speakableFirstName(contact?.name)
+    }
+    const shopify = await loadShopifyConfig(supabase, accountId).catch(() => null)
+
     const systemPrompt = buildSystemPrompt({
       userPrompt: config.systemPrompt,
       mode: 'draft',
       knowledge,
+      shopify: Boolean(shopify),
+      customerName,
     })
 
-    const { text, usage } = await generateReply({ config, systemPrompt, messages })
+    const { text, usage } = await generateReply({
+      config,
+      systemPrompt,
+      messages,
+      customerName,
+      ...(shopify
+        ? {
+            tools: SHOPIFY_LLM_TOOLS,
+            executeTool: async (name, args) => {
+              const result = await executeShopifyTool(
+                { db: supabase, config: shopify, contactPhone },
+                name,
+                args,
+              )
+              return result.json
+            },
+          }
+        : {}),
+    })
 
     // Record spend on the account's BYO key. Best-effort + via the
     // service role (the log has no `authenticated` INSERT policy). This

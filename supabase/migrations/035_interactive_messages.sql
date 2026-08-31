@@ -16,6 +16,8 @@
 --      composer. Account-scoped, same tenancy model as automations.
 -- ============================================================
 
+SET search_path TO public, extensions;
+
 -- 1. Outbound interactive payload -----------------------------
 ALTER TABLE messages
   ADD COLUMN IF NOT EXISTS interactive_payload JSONB;

@@ -72,6 +72,12 @@ export interface BroadcastPlan {
   planned: PlannedRecipient[];
   /** Phones rejected up front (invalid E.164) — counted as failed. */
   rejected: number;
+  /**
+   * Campaign-level media-header override. When set, every recipient
+   * send uses this URL instead of the template sample. Absent on
+   * public-API creates that never collected one.
+   */
+  headerMediaUrl?: string;
 }
 
 const MAX_RECIPIENTS = 1000;
@@ -274,6 +280,9 @@ export async function deliverBroadcast(
           language: plan.templateLanguage,
           template: plan.templateRow ?? undefined,
           params: recipient.params,
+          messageParams: plan.headerMediaUrl
+            ? { headerMediaUrl: plan.headerMediaUrl }
+            : undefined,
         });
         sentMessageId = result.messageId;
         lastError = null;

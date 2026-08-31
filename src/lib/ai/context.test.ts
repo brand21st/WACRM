@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { buildConversationContext } from './context'
+import { PHOTO_WAIT_ACK } from './photo-wait-ack'
 
 /** Minimal fake matching the query chain in buildConversationContext:
  *  from().select().eq().eq().order().limit() → { data, error }. */
@@ -9,6 +10,7 @@ function fakeDb(rows: unknown[]): SupabaseClient {
     from: () => chain,
     select: () => chain,
     eq: () => chain,
+    in: () => chain,
     order: () => chain,
     limit: () => Promise.resolve({ data: rows, error: null }),
   }
@@ -37,6 +39,62 @@ describe('buildConversationContext', () => {
       'conv-1',
     )
     expect(out).toEqual([{ role: 'assistant', content: 'auto reply' }])
+  })
+
+  it('includes audio rows that have a transcript', async () => {
+    const out = await buildConversationContext(
+      fakeDb([
+        { sender_type: 'bot', content_text: 'spoken reply', content_type: 'audio' },
+        { sender_type: 'customer', content_text: 'hello from a voice note', content_type: 'audio' },
+      ]),
+      'conv-1',
+    )
+    expect(out).toEqual([
+      { role: 'user', content: 'hello from a voice note' },
+      { role: 'assistant', content: 'spoken reply' },
+    ])
+  })
+
+  it('drops audio rows with no transcript', async () => {
+    const out = await buildConversationContext(
+      fakeDb([
+        { sender_type: 'customer', content_text: null, content_type: 'audio' },
+        { sender_type: 'customer', content_text: 'typed', content_type: 'text' },
+      ]),
+      'conv-1',
+    )
+    expect(out).toEqual([{ role: 'user', content: 'typed' }])
+  })
+
+  it('includes image rows that have a description', async () => {
+    const out = await buildConversationContext(
+      fakeDb([
+        {
+          sender_type: 'customer',
+          content_text: 'Here is the product photo',
+          content_type: 'image',
+        },
+      ]),
+      'conv-1',
+    )
+    expect(out).toEqual([
+      { role: 'user', content: 'Here is the product photo' },
+    ])
+  })
+
+  it('drops the photo wait-ack so the model does not echo it', async () => {
+    const out = await buildConversationContext(
+      fakeDb([
+        { sender_type: 'bot', content_text: PHOTO_WAIT_ACK.en, content_type: 'text' },
+        {
+          sender_type: 'customer',
+          content_text: 'pink gold saree',
+          content_type: 'image',
+        },
+      ]),
+      'conv-1',
+    )
+    expect(out).toEqual([{ role: 'user', content: 'pink gold saree' }])
   })
 
   it('drops empty / whitespace-only messages', async () => {

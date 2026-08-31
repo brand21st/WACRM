@@ -3,7 +3,7 @@ import { requireRole, toErrorResponse } from '@/lib/auth/account'
 import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rate-limit'
 import { decrypt } from '@/lib/whatsapp/encryption'
 import { validateAiCredentials } from '@/lib/ai/validate'
-import { AiError, type AiProvider } from '@/lib/ai/types'
+import { AiError, AI_VOICE_DEFAULTS, type AiProvider } from '@/lib/ai/types'
 
 /**
  * POST /api/ai/test  (admin+)
@@ -70,9 +70,11 @@ export async function POST(request: Request) {
         systemPrompt: null,
         isActive: true,
         autoReplyEnabled: false,
+        autoReplyUnlimited: false,
         autoReplyMaxPerConversation: 3,
         handoffAgentId: null,
         embeddingsApiKey: null,
+        ...AI_VOICE_DEFAULTS,
       })
     } catch (err) {
       if (err instanceof AiError) {

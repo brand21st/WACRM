@@ -1,8 +1,10 @@
 import {
   sendInteractiveButtons,
+  sendInteractiveCtaUrl,
   sendInteractiveList,
   sendMediaMessage,
   sendTextMessage,
+  sendTypingIndicator,
   type InteractiveButton,
   type InteractiveListSection,
   type MediaKind,
@@ -156,11 +158,20 @@ interface SendMediaEngineArgs {
   conversationId: string
   contactId: string
   kind: MediaKind
-  /** Public URL Meta fetches at send time. */
+  /** Public URL Meta fetches at send time. Also persisted as `media_url`. */
   link: string
   caption?: string
   /** Document-only; ignored by Meta for image/video. */
   filename?: string
+  /** MIME type stored on the message row so downloads keep the right extension. */
+  mediaType?: string | null
+  /** Transcript (audio) or other text to persist in `content_text`.
+   *  Audio messages cannot carry a Meta caption; this is inbox-only. */
+  contentText?: string | null
+  /** Marks the persisted message row `ai_generated = true`. */
+  aiGenerated?: boolean
+  /** Audio-only — native WhatsApp voice note bubble (OGG/Opus + voice flag). */
+  voice?: boolean
 }
 
 /**
@@ -212,6 +223,7 @@ export async function engineSendMedia(
       link: args.link,
       caption: args.caption,
       filename: args.filename,
+      voice: args.voice,
     })
     return r.messageId
   }
@@ -238,18 +250,23 @@ export async function engineSendMedia(
     await db.from('contacts').update({ phone: workingPhone }).eq('id', contact.id)
   }
 
-  // content_type='image'|'video'|'document' — these are already in the
-  // messages_content_type_check constraint (migration 001 + 010).
-  // content_text carries the caption (or empty) so the conversation
-  // list preview shows something meaningful when the user glances at it.
-  const preview = args.caption?.trim() || `[${args.kind}]`
+  // content_type='image'|'video'|'document'|'audio' — these are already
+  // in the messages_content_type_check constraint (migration 001 + 010).
+  // content_text carries the caption, or for audio the transcript (Meta
+  // does not accept captions on audio). media_url is the public link so
+  // the inbox can play/show the attachment.
+  const persistedText = args.contentText ?? args.caption ?? null
+  const preview = persistedText?.trim() || `[${args.kind}]`
   const { error: msgErr } = await db.from('messages').insert({
     conversation_id: args.conversationId,
     sender_type: 'bot',
     content_type: args.kind,
-    content_text: args.caption ?? null,
+    content_text: persistedText,
+    media_url: args.link,
+    media_type: args.mediaType ?? null,
     message_id: waMessageId,
     status: 'sent',
+    ai_generated: args.aiGenerated ?? false,
   })
   if (msgErr) {
     throw new Error(`sent to Meta but DB insert failed: ${msgErr.message}`)
@@ -276,6 +293,7 @@ interface SendInteractiveButtonsEngineArgs {
   buttons: InteractiveButton[]
   headerText?: string
   footerText?: string
+  aiGenerated?: boolean
 }
 
 interface SendInteractiveListEngineArgs {
@@ -288,6 +306,7 @@ interface SendInteractiveListEngineArgs {
   sections: InteractiveListSection[]
   headerText?: string
   footerText?: string
+  aiGenerated?: boolean
 }
 
 /**
@@ -317,9 +336,30 @@ export async function engineSendInteractiveList(
   return sendInteractiveViaMeta({ ...args, kind: 'list' })
 }
 
+interface SendInteractiveCtaUrlEngineArgs {
+  accountId: string
+  userId: string
+  conversationId: string
+  contactId: string
+  bodyText: string
+  displayText: string
+  url: string
+  headerText?: string
+  footerText?: string
+  aiGenerated?: boolean
+}
+
+/** One WhatsApp CTA URL button (e.g. Shopify Checkout). */
+export async function engineSendCtaUrl(
+  args: SendInteractiveCtaUrlEngineArgs,
+): Promise<{ whatsapp_message_id: string }> {
+  return sendInteractiveViaMeta({ ...args, kind: 'cta_url' })
+}
+
 type SendInput =
   | (SendInteractiveButtonsEngineArgs & { kind: 'buttons' })
   | (SendInteractiveListEngineArgs & { kind: 'list' })
+  | (SendInteractiveCtaUrlEngineArgs & { kind: 'cta_url' })
 
 async function sendInteractiveViaMeta(
   input: SendInput,
@@ -363,6 +403,19 @@ async function sendInteractiveViaMeta(
         to: phone,
         bodyText: input.bodyText,
         buttons: input.buttons,
+        headerText: input.headerText,
+        footerText: input.footerText,
+      })
+      return r.messageId
+    }
+    if (input.kind === 'cta_url') {
+      const r = await sendInteractiveCtaUrl({
+        phoneNumberId: config.phone_number_id,
+        accessToken,
+        to: phone,
+        bodyText: input.bodyText,
+        displayText: input.displayText,
+        url: input.url,
         headerText: input.headerText,
         footerText: input.footerText,
       })
@@ -426,14 +479,23 @@ async function sendInteractiveViaMeta(
           footer: input.footerText,
           buttons: input.buttons,
         }
-      : {
-          kind: 'list',
-          body: input.bodyText,
-          header: input.headerText,
-          footer: input.footerText,
-          button_label: input.buttonLabel,
-          sections: input.sections,
-        }
+      : input.kind === 'cta_url'
+        ? {
+            kind: 'cta_url',
+            body: input.bodyText,
+            header: input.headerText,
+            footer: input.footerText,
+            display_text: input.displayText,
+            url: input.url,
+          }
+        : {
+            kind: 'list',
+            body: input.bodyText,
+            header: input.headerText,
+            footer: input.footerText,
+            button_label: input.buttonLabel,
+            sections: input.sections,
+          }
 
   const { error: msgErr } = await db.from('messages').insert({
     conversation_id: input.conversationId,
@@ -443,6 +505,7 @@ async function sendInteractiveViaMeta(
     interactive_payload: interactivePayload,
     message_id: waMessageId,
     status: 'sent',
+    ai_generated: input.aiGenerated ?? false,
   })
   if (msgErr) {
     throw new Error(`sent to Meta but DB insert failed: ${msgErr.message}`)
@@ -458,4 +521,32 @@ async function sendInteractiveViaMeta(
     .eq('id', input.conversationId)
 
   return { whatsapp_message_id: waMessageId }
+}
+
+/**
+ * Show WhatsApp "typing…" for the inbound message the AI is about to
+ * answer. Best-effort: never throws — a typing failure must not block
+ * the reply.
+ */
+export async function engineSendTypingIndicator(args: {
+  accountId: string
+  inboundMessageId: string
+}): Promise<void> {
+  if (!args.inboundMessageId.trim()) return
+  try {
+    const db = supabaseAdmin()
+    const { data: config, error } = await db
+      .from('whatsapp_config')
+      .select('phone_number_id, access_token')
+      .eq('account_id', args.accountId)
+      .maybeSingle()
+    if (error || !config?.phone_number_id || !config.access_token) return
+    await sendTypingIndicator({
+      phoneNumberId: config.phone_number_id,
+      accessToken: decrypt(config.access_token),
+      messageId: args.inboundMessageId,
+    })
+  } catch (err) {
+    console.error('[ai typing] failed:', err)
+  }
 }

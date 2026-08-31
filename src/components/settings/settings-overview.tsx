@@ -51,6 +51,10 @@ export function SettingsOverview({
   // from blanking the rest of the landing.
   const [whatsapp, setWhatsapp] = useState<WhatsAppStatus | null>(null);
   const [whatsappLoading, setWhatsappLoading] = useState(true);
+  const [shopify, setShopify] = useState<{ configured: boolean; active: boolean } | null>(
+    null,
+  );
+  const [shopifyLoading, setShopifyLoading] = useState(true);
 
   useEffect(() => {
     if (!user || !accountId) return;
@@ -136,6 +140,23 @@ export function SettingsOverview({
       setWhatsappLoading(false);
     })();
 
+    (async () => {
+      setShopifyLoading(true);
+      try {
+        const res = await fetch('/api/shopify/config', { cache: 'no-store' });
+        const data = await res.json();
+        if (cancelled) return;
+        setShopify({
+          configured: Boolean(data.configured),
+          active: data.is_active !== false && Boolean(data.configured),
+        });
+      } catch {
+        if (!cancelled) setShopify({ configured: false, active: false });
+      } finally {
+        if (!cancelled) setShopifyLoading(false);
+      }
+    })();
+
     return () => {
       cancelled = true;
     };
@@ -164,6 +185,21 @@ export function SettingsOverview({
       subtitle: !whatsapp?.configured ? (
         t('notSetup')
       ) : whatsapp.connected ? (
+        <>
+          <StatusDot tone="ok" /> {t('connected')}
+        </>
+      ) : (
+        <>
+          <StatusDot tone="muted" /> {t('needsReconnecting')}
+        </>
+      ),
+    },
+    {
+      section: 'shopify',
+      loading: shopifyLoading,
+      subtitle: !shopify?.configured ? (
+        t('notSetup')
+      ) : shopify.active ? (
         <>
           <StatusDot tone="ok" /> {t('connected')}
         </>

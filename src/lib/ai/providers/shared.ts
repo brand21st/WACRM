@@ -4,12 +4,39 @@ import { AiError, type AiUsage, type ChatMessage } from '../types'
 // Bits shared by the OpenAI + Anthropic adapters.
 // ============================================================
 
+export interface LlmToolDef {
+  name: string
+  description: string
+  parameters: Record<string, unknown>
+}
+
+export type ExecuteLlmTool = (
+  name: string,
+  args: Record<string, unknown>,
+) => Promise<string>
+
+export const MAX_TOOL_ROUNDS = 3
+
 export interface ProviderArgs {
   apiKey: string
   model: string
   systemPrompt: string
   messages: ChatMessage[]
   timeoutMs: number
+  tools?: LlmToolDef[]
+  executeTool?: ExecuteLlmTool
+  /** Override the default output-token cap (spoken rewrite uses a small one). */
+  maxTokens?: number
+}
+
+export function mergeUsage(a: AiUsage | null, b: AiUsage | null): AiUsage | null {
+  if (!a) return b
+  if (!b) return a
+  return {
+    promptTokens: a.promptTokens + b.promptTokens,
+    completionTokens: a.completionTokens + b.completionTokens,
+    totalTokens: a.totalTokens + b.totalTokens,
+  }
 }
 
 /**

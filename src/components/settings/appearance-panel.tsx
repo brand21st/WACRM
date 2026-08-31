@@ -1,27 +1,31 @@
 "use client";
 
-import { Check, Moon, Palette, SunMoon, Sun } from "lucide-react";
+import { Bell, Check, Moon, Palette, SunMoon, Sun, Volume2 } from "lucide-react";
 
 import { useTheme } from "@/hooks/use-theme";
+import { useIncomingAlertPrefs } from "@/hooks/use-incoming-alert-prefs";
 import { MODES, THEMES, type Mode, type ThemeId } from "@/lib/themes";
 import { cn } from "@/lib/utils";
 import { useTranslations } from "next-intl";
+import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
+import {
+  playIncomingMessageSound,
+  unlockIncomingSound,
+} from "@/lib/notifications/incoming-sound";
 import { SettingsPanelHead } from "./settings-panel-head";
 
 /**
- * Appearance panel — light/dark mode + accent-color picker.
+ * Appearance panel — light/dark mode, accent-color picker, and
+ * incoming-message alert prefs (sound + desktop notifications).
  *
- * Two independent controls: a mode toggle (light / dark) and the
- * accent grid. Either applies + persists immediately. No save button:
- * each change is a single attribute swap on <html>, there's nothing
- * to roll back.
- *
- * Persistence: localStorage only (device-scoped). The boot script in
- * layout.tsx replays both choices before first paint on subsequent
- * loads.
+ * Mode and accent apply immediately. Alert prefs are device-scoped
+ * localStorage, same as theme.
  */
 export function AppearancePanel() {
   const { theme, setTheme, mode, setMode } = useTheme();
+  const { prefs, setPrefs } = useIncomingAlertPrefs();
   const t = useTranslations("Settings.appearance");
 
   return (
@@ -72,6 +76,76 @@ export function AppearancePanel() {
             />
           ))}
         </div>
+      </div>
+
+      <div className="mt-8 space-y-4">
+        <h3 className="flex items-center gap-2 text-sm font-semibold text-foreground">
+          <Bell className="size-4 text-muted-foreground" />
+          {t("notifications")}
+        </h3>
+
+        <div className="flex items-center justify-between gap-4 rounded-lg border border-border bg-card p-4">
+          <div className="min-w-0">
+            <p className="text-sm font-medium text-foreground">{t("sound")}</p>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              {t("soundDesc")}
+            </p>
+          </div>
+          <Switch
+            checked={prefs.sound}
+            aria-label={t("sound")}
+            onCheckedChange={(checked) => {
+              unlockIncomingSound();
+              setPrefs({ sound: checked });
+            }}
+          />
+        </div>
+
+        <div className="flex items-center justify-between gap-4 rounded-lg border border-border bg-card p-4">
+          <div className="min-w-0">
+            <p className="text-sm font-medium text-foreground">{t("desktop")}</p>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              {t("desktopDesc")}
+            </p>
+          </div>
+          <Switch
+            checked={prefs.desktop}
+            aria-label={t("desktop")}
+            onCheckedChange={(checked) => {
+              setPrefs({ desktop: checked });
+              if (
+                checked &&
+                typeof Notification !== "undefined" &&
+                Notification.permission === "default"
+              ) {
+                void Notification.requestPermission().then((result) => {
+                  if (result === "denied") {
+                    toast.error(t("permissionDenied"));
+                  }
+                });
+              } else if (
+                checked &&
+                typeof Notification !== "undefined" &&
+                Notification.permission === "denied"
+              ) {
+                toast.error(t("permissionDenied"));
+              }
+            }}
+          />
+        </div>
+
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => {
+            unlockIncomingSound();
+            playIncomingMessageSound();
+          }}
+        >
+          <Volume2 className="h-4 w-4" />
+          {t("testSound")}
+        </Button>
       </div>
     </section>
   );

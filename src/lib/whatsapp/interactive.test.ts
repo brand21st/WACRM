@@ -4,6 +4,7 @@ import {
   validateInteractivePayload,
   interactivePayloadPreviewText,
   type InteractiveButtonsPayload,
+  type InteractiveCtaUrlPayload,
   type InteractiveListPayload,
 } from './interactive'
 
@@ -131,6 +132,32 @@ describe('validateInteractivePayload — list', () => {
   })
 })
 
+const validCta: InteractiveCtaUrlPayload = {
+  kind: 'cta_url',
+  body: 'Red Bag',
+  display_text: 'Checkout',
+  url: 'https://shop.example/cart/99:1?checkout',
+}
+
+describe('validateInteractivePayload — cta_url', () => {
+  it('accepts a checkout CTA', () => {
+    expect(validateInteractivePayload(validCta)).toEqual({ ok: true })
+  })
+
+  it('requires an http(s) URL and a label within 20 chars', () => {
+    expect(
+      validateInteractivePayload({ ...validCta, url: 'not-a-url' }).ok,
+    ).toBe(false)
+    expect(
+      validateInteractivePayload({ ...validCta, display_text: '' }).ok,
+    ).toBe(false)
+    expect(
+      validateInteractivePayload({ ...validCta, display_text: 'x'.repeat(21) })
+        .ok,
+    ).toBe(false)
+  })
+})
+
 describe('interactivePayloadPreviewText', () => {
   it('returns the trimmed body', () => {
     expect(interactivePayloadPreviewText({ ...validButtons, body: '  Hi  ' })).toBe('Hi')
@@ -138,5 +165,8 @@ describe('interactivePayloadPreviewText', () => {
   it('falls back when body is blank', () => {
     expect(interactivePayloadPreviewText({ ...validButtons, body: '   ' })).toBe('[buttons]')
     expect(interactivePayloadPreviewText({ ...validList, body: '' })).toBe('[list]')
+    expect(interactivePayloadPreviewText({ ...validCta, body: '   ' })).toBe(
+      'Checkout',
+    )
   })
 })

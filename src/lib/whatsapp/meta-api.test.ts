@@ -2,7 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   INTERACTIVE_LIMITS,
   sendInteractiveButtons,
+  sendInteractiveCtaUrl,
   sendInteractiveList,
+  sendTypingIndicator,
 } from "./meta-api";
 
 // All assertions in this file run BEFORE the network call. We stub fetch
@@ -141,6 +143,59 @@ describe("sendInteractiveButtons — validation", () => {
   });
 });
 
+describe("sendInteractiveCtaUrl", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("sends type cta_url with Checkout display_text", async () => {
+    let captured: { body: unknown } | null = null;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init: RequestInit) => {
+        captured = { body: JSON.parse(String(init.body)) };
+        return new Response(
+          JSON.stringify({ messages: [{ id: "wamid.CTA" }] }),
+          { status: 200 },
+        );
+      }),
+    );
+
+    const result = await sendInteractiveCtaUrl({
+      ...BASE_ARGS,
+      displayText: "Checkout",
+      url: "https://shop.example/cart/99:1?checkout",
+    });
+
+    expect(result).toEqual({ messageId: "wamid.CTA" });
+    expect(captured!.body).toMatchObject({
+      type: "interactive",
+      interactive: {
+        type: "cta_url",
+        body: { text: "Body text" },
+        action: {
+          name: "cta_url",
+          parameters: {
+            display_text: "Checkout",
+            url: "https://shop.example/cart/99:1?checkout",
+          },
+        },
+      },
+    });
+  });
+
+  it("rejects a non-http URL", async () => {
+    vi.stubGlobal("fetch", vi.fn(neverFetch));
+    await expect(
+      sendInteractiveCtaUrl({
+        ...BASE_ARGS,
+        displayText: "Checkout",
+        url: "javascript:alert(1)",
+      }),
+    ).rejects.toThrow(/http\(s\)/);
+  });
+});
+
 describe("sendInteractiveList — validation", () => {
   beforeEach(() => {
     vi.stubGlobal("fetch", vi.fn(neverFetch));
@@ -264,6 +319,58 @@ describe("sendInteractiveList — validation", () => {
           ],
         },
       },
+    });
+  });
+});
+
+describe("sendTypingIndicator", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("rejects an empty message id", async () => {
+    vi.stubGlobal("fetch", vi.fn(neverFetch));
+    await expect(
+      sendTypingIndicator({
+        phoneNumberId: "test-phone",
+        accessToken: "test-token",
+        messageId: "  ",
+      }),
+    ).rejects.toThrow(/requires a messageId/);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("posts read + typing_indicator to Graph", async () => {
+    let captured: { url: string; body: Record<string, unknown> } | null = null;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit) => {
+        captured = {
+          url,
+          body: JSON.parse(String(init?.body)) as Record<string, unknown>,
+        };
+        return {
+          ok: true,
+          json: async () => ({ success: true }),
+        } as Response;
+      }),
+    );
+
+    await sendTypingIndicator({
+      phoneNumberId: "test-phone",
+      accessToken: "test-token",
+      messageId: "wamid.inbound",
+    });
+
+    expect(captured).not.toBeNull();
+    expect(captured!.url).toBe(
+      "https://graph.facebook.com/v22.0/test-phone/messages",
+    );
+    expect(captured!.body).toEqual({
+      messaging_product: "whatsapp",
+      status: "read",
+      message_id: "wamid.inbound",
+      typing_indicator: { type: "text" },
     });
   });
 });

@@ -259,6 +259,49 @@ export async function sendTextMessage(
   return { messageId: data.messages[0].id }
 }
 
+export interface SendTypingIndicatorArgs {
+  phoneNumberId: string
+  accessToken: string
+  /** Meta `messages.id` from the inbound webhook. */
+  messageId: string
+}
+
+/**
+ * Mark an inbound message as read and show the WhatsApp typing
+ * animation. Dismisses when we send a reply, or after 25 seconds.
+ * `typing_indicator.type` is always `"text"` — Meta has no audio-typing
+ * variant; the same animation covers a forthcoming voice reply.
+ *
+ * https://developers.facebook.com/docs/whatsapp/cloud-api/typing-indicators
+ */
+export async function sendTypingIndicator(
+  args: SendTypingIndicatorArgs,
+): Promise<void> {
+  const { phoneNumberId, accessToken, messageId } = args
+  if (!messageId.trim()) {
+    throw new Error('sendTypingIndicator requires a messageId.')
+  }
+  // Typing indicators landed after Graph v21. Pin a version Meta documents
+  // for this payload so a v21 reject can't silently skip the animation.
+  const url = `https://graph.facebook.com/v22.0/${phoneNumberId}/messages`
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify({
+      messaging_product: 'whatsapp',
+      status: 'read',
+      message_id: messageId,
+      typing_indicator: { type: 'text' },
+    }),
+  })
+  if (!response.ok) {
+    await throwMetaError(response, `Meta API error: ${response.status}`)
+  }
+}
+
 export type MediaKind = 'image' | 'video' | 'document' | 'audio'
 
 export interface SendMediaMessageArgs {
@@ -272,6 +315,11 @@ export interface SendMediaMessageArgs {
   caption?: string
   /** Document-only. Shown in the recipient's chat as the file name. Ignored for image/video/audio. */
   filename?: string
+  /**
+   * Audio-only. When true, Meta renders the OGG/Opus file as a native
+   * WhatsApp voice note (waveform + mic icon) instead of a file attachment.
+   */
+  voice?: boolean
   contextMessageId?: string
 }
 
@@ -283,14 +331,23 @@ export interface SendMediaMessageArgs {
  * throws on non-2xx, returns Meta's message id.
  *
  * Audio is special-cased: Meta rejects `caption` and `filename` on audio
- * messages, so we send `{ link }` only. WhatsApp auto-renders an
- * OGG/Opus file as a playable voice note (waveform) rather than a file
- * attachment.
+ * messages. Pass `voice: true` with an OGG/Opus link so WhatsApp renders
+ * a native voice note (waveform) rather than a downloadable audio file.
  */
 export async function sendMediaMessage(
   args: SendMediaMessageArgs,
 ): Promise<MetaSendResult> {
-  const { phoneNumberId, accessToken, to, kind, link, caption, filename, contextMessageId } = args
+  const {
+    phoneNumberId,
+    accessToken,
+    to,
+    kind,
+    link,
+    caption,
+    filename,
+    voice,
+    contextMessageId,
+  } = args
   if (!link) throw new Error('sendMediaMessage requires a link.')
   const url = `${META_API_BASE}/${phoneNumberId}/messages`
 
@@ -300,6 +357,7 @@ export async function sendMediaMessage(
   const media: Record<string, unknown> = { link }
   if (caption && kind !== 'audio') media.caption = caption
   if (kind === 'document' && filename) media.filename = filename
+  if (kind === 'audio' && voice) media.voice = true
 
   const body: Record<string, unknown> = {
     messaging_product: 'whatsapp',
@@ -819,6 +877,91 @@ export async function sendInteractiveButtons(
 
   const url = `${META_API_BASE}/${phoneNumberId}/messages`
   const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify(body),
+  })
+  if (!response.ok) {
+    await throwMetaError(response, `Meta API error: ${response.status}`)
+  }
+  const data = await response.json()
+  return { messageId: data.messages[0].id }
+}
+
+export interface SendInteractiveCtaUrlArgs {
+  phoneNumberId: string
+  accessToken: string
+  to: string
+  bodyText: string
+  /** Visible button label (≤ 20 chars), e.g. Checkout. */
+  displayText: string
+  /** https URL opened on tap. */
+  url: string
+  headerText?: string
+  footerText?: string
+  contextMessageId?: string
+}
+
+/**
+ * Send an interactive CTA URL message — one button that opens a link
+ * (Shopify checkout). Unlike reply buttons, this does not echo a tap
+ * id back to the webhook.
+ */
+export async function sendInteractiveCtaUrl(
+  args: SendInteractiveCtaUrlArgs,
+): Promise<MetaSendResult> {
+  const {
+    phoneNumberId,
+    accessToken,
+    to,
+    bodyText,
+    displayText,
+    url,
+    headerText,
+    footerText,
+    contextMessageId,
+  } = args
+  validateInteractiveBody(bodyText)
+  validateInteractiveHeaderFooter(headerText, footerText)
+  const label = displayText.trim()
+  if (!label) throw new Error('CTA URL button needs a label.')
+  if (label.length > INTERACTIVE_LIMITS.buttonTitleMaxLength) {
+    throw new Error(
+      `CTA URL label "${label}" exceeds ${INTERACTIVE_LIMITS.buttonTitleMaxLength} chars.`,
+    )
+  }
+  const href = url.trim()
+  if (!/^https?:\/\//i.test(href)) {
+    throw new Error('CTA URL must be an http(s) link.')
+  }
+
+  const interactive: Record<string, unknown> = {
+    type: 'cta_url',
+    body: { text: bodyText },
+    action: {
+      name: 'cta_url',
+      parameters: {
+        display_text: label,
+        url: href,
+      },
+    },
+  }
+  if (headerText) interactive.header = { type: 'text', text: headerText }
+  if (footerText) interactive.footer = { text: footerText }
+
+  const body: Record<string, unknown> = {
+    messaging_product: 'whatsapp',
+    recipient_type: 'individual',
+    to,
+    type: 'interactive',
+    interactive,
+  }
+  if (contextMessageId) body.context = { message_id: contextMessageId }
+
+  const response = await fetch(`${META_API_BASE}/${phoneNumberId}/messages`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

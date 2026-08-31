@@ -19,19 +19,28 @@ import { HEARTBEAT_MS, IDLE_AFTER_MS, type StoredPresence } from "@/lib/presence
  * offline). When the tab closes the beats simply stop and viewers derive
  * 'offline' from staleness — no unreliable unload write needed.
  */
+function isTransientPresenceError(message: string): boolean {
+  return (
+    message.includes("Failed to fetch") ||
+    message.includes("Lock was released") ||
+    message.includes("AbortError") ||
+    message.includes("NetworkError")
+  );
+}
+
 export function PresenceHeartbeat() {
-  const { accountId } = useAuth();
+  const { accountStatus } = useAuth();
 
   // 0 = "never recorded"; set on mount so we don't read the clock during
   // render (impure). Until the effect runs the tab counts as active.
   const lastActivityRef = useRef<number>(0);
 
   useEffect(() => {
-    // Hold off until the account is known. Beating during the brief
-    // window on a fresh signup — authed but profile/account row not yet
-    // created — would make touch_presence raise "No account for caller"
-    // and log a spurious error. The effect re-runs once accountId lands.
-    if (!accountId) return;
+    // Hold off until tenancy is fully resolved. Beating while the profile
+    // row is still in flight — or on a fresh signup before bootstrap
+    // finishes — would make touch_presence raise "No account for caller"
+    // and log a spurious error.
+    if (accountStatus !== "ready") return;
 
     const supabase = createClient();
     let cancelled = false;
@@ -48,21 +57,44 @@ export function PresenceHeartbeat() {
       return "online";
     };
 
-    const beat = async () => {
+    const beat = async (attempt = 1) => {
       if (cancelled) return;
+      if (typeof navigator !== "undefined" && !navigator.onLine) return;
       // Coalesce bursts: a tab refocus fires visibilitychange AND focus
       // together, so skip a beat within 1s of the last to avoid two RPCs
       // in the same frame. The 30s interval is never affected.
       const t = Date.now();
       if (t - lastBeatAt < 1_000) return;
       lastBeatAt = t;
-      const { error } = await supabase.rpc("touch_presence", {
-        p_status: currentStatus(),
-      });
-      if (error && !cancelled) {
-        // Non-fatal: presence is best-effort. Log once per failure so a
-        // misconfigured RPC is visible without spamming.
-        console.error("[PresenceHeartbeat] touch_presence failed:", error.message);
+
+      try {
+        const { error } = await supabase.rpc("touch_presence", {
+          p_status: currentStatus(),
+        });
+        if (!error || cancelled) return;
+
+        const message = error.message ?? String(error);
+        if (isTransientPresenceError(message) && attempt < 2) {
+          await new Promise((resolve) => setTimeout(resolve, 750));
+          if (!cancelled) await beat(attempt + 1);
+          return;
+        }
+        if (!isTransientPresenceError(message)) {
+          // Non-fatal: presence is best-effort. Log real RPC/config errors
+          // so a misconfigured function is visible without spamming on blips.
+          console.error("[PresenceHeartbeat] touch_presence failed:", message);
+        }
+      } catch (err) {
+        if (cancelled) return;
+        const message = err instanceof Error ? err.message : String(err);
+        if (isTransientPresenceError(message) && attempt < 2) {
+          await new Promise((resolve) => setTimeout(resolve, 750));
+          if (!cancelled) await beat(attempt + 1);
+          return;
+        }
+        if (!isTransientPresenceError(message)) {
+          console.error("[PresenceHeartbeat] touch_presence threw:", message);
+        }
       }
     };
 
@@ -99,7 +131,7 @@ export function PresenceHeartbeat() {
       document.removeEventListener("visibilitychange", onReturn);
       window.removeEventListener("focus", onReturn);
     };
-  }, [accountId]);
+  }, [accountStatus]);
 
   return null;
 }

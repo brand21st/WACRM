@@ -24,6 +24,13 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
+import {
+  Popover,
+  PopoverContent,
+  PopoverHeader,
+  PopoverTitle,
+  PopoverTrigger,
+} from '@/components/ui/popover';
 import { useTranslations } from 'next-intl';
 import { Card, CardContent } from '@/components/ui/card';
 import { SettingsPanelHead } from './settings-panel-head';
@@ -52,6 +59,96 @@ import {
   extractVariableIndices,
   TEMPLATE_LIMITS,
 } from '@/lib/whatsapp/template-validators';
+import {
+  SHOPIFY_NOTIFICATION_FIELDS,
+  type ShopifyNotificationField,
+} from '@/lib/shopify/notification-triggers';
+
+const BODY_VARIABLE_SAMPLES: Record<ShopifyNotificationField, string> = {
+  customer_first_name: 'Ada',
+  customer_last_name: 'Lovelace',
+  customer_name: 'Ada Lovelace',
+  order_name: '#1001',
+  order_number: '1001',
+  total: '2499',
+  currency: 'INR',
+  checkout_url: 'https://shop.example/checkouts/abc',
+  abandoned_checkout_url: 'https://shop.example/checkouts/abc',
+  checkout_url_partial: 'checkouts/abc',
+  discount_code: 'SAVE10',
+  tracking_number: '1Z999',
+  tracking_url: 'https://track.example/1Z999',
+  tracking_url_partial: '1Z999',
+  tracking_company: 'UPS',
+  order_status_url: 'https://shop.example/123/orders/abc',
+  order_status_url_partial: '123/orders/abc',
+  product_details: '2× Silk sari (Red)',
+  customer_address: 'Kochi, Kerala',
+  shop_name: 'Aurimo',
+  refund_amount: '500',
+};
+
+const BODY_VARIABLE_GROUPS: {
+  key: string;
+  labelKey:
+    | 'addVariableGroupCustomer'
+    | 'addVariableGroupOrder'
+    | 'addVariableGroupLinks';
+  fields: ShopifyNotificationField[];
+}[] = [
+  {
+    key: 'customer',
+    labelKey: 'addVariableGroupCustomer',
+    fields: [
+      'customer_first_name',
+      'customer_last_name',
+      'customer_name',
+      'customer_address',
+    ],
+  },
+  {
+    key: 'order',
+    labelKey: 'addVariableGroupOrder',
+    fields: [
+      'shop_name',
+      'order_name',
+      'order_number',
+      'total',
+      'currency',
+      'product_details',
+      'discount_code',
+      'refund_amount',
+    ],
+  },
+  {
+    key: 'links',
+    labelKey: 'addVariableGroupLinks',
+    fields: [
+      'checkout_url',
+      'abandoned_checkout_url',
+      'checkout_url_partial',
+      'order_status_url',
+      'order_status_url_partial',
+      'tracking_number',
+      'tracking_url',
+      'tracking_url_partial',
+      'tracking_company',
+    ],
+  },
+];
+
+function insertTokenAtCursor(
+  text: string,
+  token: string,
+  start: number,
+  end: number,
+): { next: string; caret: number } {
+  const before = text.slice(0, start);
+  const after = text.slice(end);
+  const pad = before.length > 0 && !/\s$/.test(before) ? ' ' : '';
+  const insert = `${pad}${token}`;
+  return { next: before + insert + after, caret: before.length + insert.length };
+}
 
 const CATEGORIES = ['Marketing', 'Utility', 'Authentication'] as const;
 type HeaderFormat = 'none' | 'text' | 'image' | 'video' | 'document';
@@ -150,6 +247,11 @@ export function TemplateManager() {
   // submit route turns that into a Meta Resumable-Upload handle.
   const [uploadingHeader, setUploadingHeader] = useState(false);
   const headerFileRef = useRef<HTMLInputElement>(null);
+  const bodyTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const [variablePickerOpen, setVariablePickerOpen] = useState(false);
+  const tShopifyFields = useTranslations(
+    'Settings.shopifyNotifications.fields',
+  );
 
   // Body variable indices — `[1, 2, 3]` for "{{1}} {{2}} {{3}}". We
   // re-run the extractor on every render to keep the sample-value rows
@@ -158,6 +260,10 @@ export function TemplateManager() {
     () => extractVariableIndices(form.body_text).length,
     [form.body_text],
   );
+  const nextBodyVarIndex = useMemo(() => {
+    const indices = extractVariableIndices(form.body_text);
+    return indices.length === 0 ? 1 : Math.max(...indices) + 1;
+  }, [form.body_text]);
   const headerVarCount = useMemo(
     () =>
       form.header_format === 'text'
@@ -176,6 +282,35 @@ export function TemplateManager() {
       return { ...prev, body_samples: next };
     });
   }, [bodyVarCount]);
+
+  useEffect(() => {
+    if (!dialogOpen) setVariablePickerOpen(false);
+  }, [dialogOpen]);
+
+  function insertBodyVariable(field?: ShopifyNotificationField) {
+    const el = bodyTextareaRef.current;
+    const text = form.body_text;
+    const focused = Boolean(el && document.activeElement === el);
+    const start = focused ? (el?.selectionStart ?? text.length) : text.length;
+    const end = focused ? (el?.selectionEnd ?? text.length) : text.length;
+    const token = `{{${nextBodyVarIndex}}}`;
+    const sample = field ? BODY_VARIABLE_SAMPLES[field] : '';
+    const { next, caret } = insertTokenAtCursor(text, token, start, end);
+    const nextCount = extractVariableIndices(next).length;
+    setForm((prev) => {
+      const samples = prev.body_samples.slice(0, nextCount);
+      while (samples.length < nextCount) samples.push('');
+      if (sample && nextCount > 0 && !samples[nextCount - 1]) {
+        samples[nextCount - 1] = sample;
+      }
+      return { ...prev, body_text: next, body_samples: samples };
+    });
+    requestAnimationFrame(() => {
+      const ta = bodyTextareaRef.current;
+      ta?.focus();
+      ta?.setSelectionRange(caret, caret);
+    });
+  }
 
   useEffect(() => {
     if (authLoading) return;
@@ -863,8 +998,71 @@ export function TemplateManager() {
             </div>
 
             <div className="space-y-2">
-              <Label className="text-muted-foreground">{t('bodyText')}</Label>
+              <div className="flex items-center justify-between gap-2">
+                <Label className="text-muted-foreground">{t('bodyText')}</Label>
+                <Popover
+                  open={variablePickerOpen}
+                  onOpenChange={setVariablePickerOpen}
+                >
+                  <PopoverTrigger
+                    render={
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="border-border bg-transparent text-muted-foreground hover:bg-muted h-7 text-xs"
+                      />
+                    }
+                  >
+                    <Plus className="size-3.5" />
+                    {t('addVariable')}
+                  </PopoverTrigger>
+                  <PopoverContent
+                    align="end"
+                    side="bottom"
+                    className="z-[80] w-[min(22rem,calc(100vw-2.5rem))] max-h-80 overflow-y-auto p-2"
+                  >
+                    <PopoverHeader>
+                      <PopoverTitle className="text-xs font-medium">
+                        {t('addVariable')}
+                      </PopoverTitle>
+                      <p className="text-[11px] text-muted-foreground leading-snug">
+                        {t.raw('addVariableHint')}
+                      </p>
+                    </PopoverHeader>
+                    <button
+                      type="button"
+                      onClick={() => insertBodyVariable()}
+                      className="mt-1 w-full rounded-md border border-dashed border-border px-2 py-1.5 text-left text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
+                    >
+                      {t('addVariableBlank', {
+                        token: `{{${nextBodyVarIndex}}}`,
+                      })}
+                    </button>
+                    {BODY_VARIABLE_GROUPS.map((group) => (
+                      <div key={group.key} className="mt-2 space-y-1.5">
+                        <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                          {t(group.labelKey)}
+                        </p>
+                        <div className="flex flex-wrap gap-1">
+                          {group.fields.map((field) => (
+                            <button
+                              key={field}
+                              type="button"
+                              onClick={() => insertBodyVariable(field)}
+                              className="rounded-full border border-border bg-muted px-2 py-0.5 text-[11px] text-foreground hover:border-primary/40 hover:bg-primary/15"
+                            >
+                              {tShopifyFields(field)}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </PopoverContent>
+                </Popover>
+              </div>
               <Textarea
+                ref={bodyTextareaRef}
                 placeholder={t.raw('bodyPlaceholder')}
                 value={form.body_text}
                 onChange={(e) =>

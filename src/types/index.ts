@@ -300,6 +300,52 @@ export interface WhatsAppConfig {
   mirror_inbound_media?: boolean;
 }
 
+export interface ShopifyConfig {
+  id: string;
+  account_id: string;
+  shop_domain: string;
+  is_active: boolean;
+  shop_name?: string | null;
+  primary_domain?: string | null;
+  currency?: string | null;
+  client_id?: string | null;
+  meta_catalog_id?: string | null;
+  last_verified_at?: string | null;
+  last_catalog_sync_at?: string | null;
+  catalog_product_count?: number;
+  last_content_sync_at?: string | null;
+  content_item_count?: number;
+}
+
+export interface ShopifyCatalogVariant {
+  id: string;
+  variantId: string;
+  title: string;
+  sku: string | null;
+  price: string | null;
+  compareAtPrice: string | null;
+  available: boolean;
+  options: { name: string; value: string }[];
+}
+
+export interface ShopifyCatalogProduct {
+  id: string;
+  account_id: string;
+  shopify_product_id: string;
+  handle: string;
+  title: string;
+  body?: string | null;
+  body_excerpt: string | null;
+  price_min: number | null;
+  price_max: number | null;
+  currency: string | null;
+  variant_summary: ShopifyCatalogVariant[];
+  image_url: string | null;
+  product_url: string | null;
+  published_at: string | null;
+  synced_at: string;
+}
+
 // Raw Meta status enum. We persist this verbatim from Meta (sync + webhook)
 // rather than collapsing to a local TitleCase set — distinctions like
 // PAUSED vs DISABLED vs IN_APPEAL drive the edit/resubmit/delete flows.
@@ -403,6 +449,12 @@ export interface Broadcast {
   template_variables?: Record<string, unknown>;
   audience_filter?: Record<string, unknown>;
   scheduled_at?: string;
+  /**
+   * Optional IMAGE/VIDEO/DOCUMENT header override for this campaign.
+   * Frozen at plan time (migration 050) so a cron drain or resume
+   * sends the same media the wizard previewed.
+   */
+  header_media_url?: string | null;
   status: BroadcastStatus;
   total_recipients: number;
   sent_count: number;

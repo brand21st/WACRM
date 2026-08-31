@@ -48,6 +48,8 @@
 -- Idempotent — safe to run multiple times.
 -- ============================================================
 
+SET search_path TO public, extensions;
+
 -- ============================================================
 -- 1. Messages table — widen content_type, add interactive_reply_id
 -- ============================================================

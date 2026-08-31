@@ -1,17 +1,25 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { ChatMessage } from './types'
 import { aiContextMessageLimit } from './defaults'
+import { formatButtonTapForModel } from './chat-buttons'
+import { isPhotoWaitAck } from './photo-wait-ack'
 
 interface DbMessage {
   sender_type: 'customer' | 'agent' | 'bot'
   content_text: string | null
+  content_type?: string
+  interactive_reply_id?: string | null
 }
 
 /**
- * Fetch the last N text messages of a conversation and map them to the
- * provider-neutral chat shape. Customer messages become `user`; agent
- * and bot messages become `assistant`. Non-text messages (media,
- * templates, interactive) are excluded — they carry no text to model.
+ * Fetch the last N messages of a conversation that carry text the model
+ * can read, and map them to the provider-neutral chat shape. Customer
+ * messages become `user`; agent and bot messages become `assistant`.
+ *
+ * Plain-text rows always qualify. Audio rows qualify when they have a
+ * transcript in `content_text`. Image rows qualify when full-agent vision
+ * or a caption filled `content_text`. Other media without usable text are
+ * excluded.
  *
  * Ordered oldest-first (chronological) so the transcript reads
  * naturally and the most recent customer message lands last.
@@ -23,9 +31,9 @@ export async function buildConversationContext(
 ): Promise<ChatMessage[]> {
   const { data, error } = await db
     .from('messages')
-    .select('sender_type, content_text')
+    .select('sender_type, content_text, content_type, interactive_reply_id')
     .eq('conversation_id', conversationId)
-    .eq('content_type', 'text')
+    .in('content_type', ['text', 'audio', 'image'])
     .order('created_at', { ascending: false })
     .limit(limit)
 
@@ -34,8 +42,15 @@ export async function buildConversationContext(
   const rows = ((data ?? []) as DbMessage[]).reverse()
   return rows
     .filter((m) => m.content_text && m.content_text.trim())
+    .filter((m) => !isPhotoWaitAck(m.content_text))
     .map((m) => ({
       role: m.sender_type === 'customer' ? 'user' : 'assistant',
-      content: m.content_text!.trim(),
+      content:
+        m.sender_type === 'customer'
+          ? formatButtonTapForModel(
+              m.content_text!.trim(),
+              m.interactive_reply_id,
+            )
+          : m.content_text!.trim(),
     }))
 }

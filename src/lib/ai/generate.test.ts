@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { generateReply, parseGeneration } from './generate'
-import { AiError, type AiConfig } from './types'
+import { AiError, AI_VOICE_DEFAULTS, type AiConfig } from './types'
 
 function config(overrides: Partial<AiConfig> = {}): AiConfig {
   return {
@@ -10,9 +10,11 @@ function config(overrides: Partial<AiConfig> = {}): AiConfig {
     systemPrompt: null,
     isActive: true,
     autoReplyEnabled: false,
+    autoReplyUnlimited: false,
     autoReplyMaxPerConversation: 3,
     handoffAgentId: null,
     embeddingsApiKey: null,
+    ...AI_VOICE_DEFAULTS,
     ...overrides,
   }
 }
@@ -190,5 +192,116 @@ describe('generateReply — Anthropic', () => {
     const body = JSON.parse(fetchMock.mock.calls[0][1].body)
     expect(body.messages[0].role).toBe('user')
     expect(body.messages).toHaveLength(1)
+  })
+})
+
+describe('generateReply — tools', () => {
+  it('runs an OpenAI tool round then returns the final text', async () => {
+    const executeTool = vi.fn().mockResolvedValue(
+      JSON.stringify({ products: [{ title: 'Red Bag' }] }),
+    )
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        okResponse({
+          choices: [
+            {
+              message: {
+                content: null,
+                tool_calls: [
+                  {
+                    id: 'call_1',
+                    function: {
+                      name: 'search_products',
+                      arguments: '{"query":"red bag"}',
+                    },
+                  },
+                ],
+              },
+            },
+          ],
+          usage: { prompt_tokens: 10, completion_tokens: 4, total_tokens: 14 },
+        }),
+      )
+      .mockResolvedValueOnce(
+        okResponse({
+          choices: [
+            {
+              message: {
+                content: 'The Red Bag is $49. View: https://shop.example/products/red-bag',
+              },
+            },
+          ],
+          usage: { prompt_tokens: 20, completion_tokens: 12, total_tokens: 32 },
+        }),
+      )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const res = await generateReply({
+      config: config({ provider: 'openai' }),
+      systemPrompt: 'sys',
+      messages: [{ role: 'user', content: 'Do you have this bag?' }],
+      tools: [
+        {
+          name: 'search_products',
+          description: 'search',
+          parameters: { type: 'object', properties: { query: { type: 'string' } } },
+        },
+      ],
+      executeTool,
+    })
+
+    expect(executeTool).toHaveBeenCalledWith('search_products', { query: 'red bag' })
+    expect(res.text).toContain('Red Bag')
+    expect(res.handoff).toBe(false)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe('generateReply — spoken rewrite', () => {
+  it('rewrites after a Malayalam customer turn', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        okResponse({
+          choices: [{ message: { content: 'stiff formal draft' } }],
+        }),
+      )
+      .mockResolvedValueOnce(
+        okResponse({
+          choices: [{ message: { content: 'spoken shop line' } }],
+        }),
+      )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const res = await generateReply({
+      config: config({ provider: 'openai' }),
+      systemPrompt: 'sys',
+      messages: [{ role: 'user', content: 'ethra und alle' }],
+    })
+
+    expect(res.text).toBe('spoken shop line')
+    expect(res.handoff).toBe(false)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps the draft when the spoken rewrite fails', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        okResponse({
+          choices: [{ message: { content: 'stiff formal draft' } }],
+        }),
+      )
+      .mockRejectedValueOnce(new Error('rewrite down'))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const res = await generateReply({
+      config: config({ provider: 'openai' }),
+      systemPrompt: 'sys',
+      messages: [{ role: 'user', content: 'ethra und alle' }],
+    })
+
+    expect(res.text).toBe('stiff formal draft')
   })
 })

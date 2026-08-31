@@ -365,4 +365,21 @@ describe('planBroadcastResume', () => {
     );
     expect(plan.templateRow?.language).toBe('en');
   });
+
+  it('carries a campaign header_media_url override onto the plan', async () => {
+    const { plan } = await planBroadcastResume(
+      planDb({
+        broadcast: {
+          ...BROADCAST,
+          header_media_url: 'https://cdn.example.com/promo.jpg',
+        },
+        config: CONFIG,
+        recipients: [recipient('r1', '+15551234567')],
+      }),
+      'acct-1',
+      'bc-1',
+      'pending',
+    );
+    expect(plan.headerMediaUrl).toBe('https://cdn.example.com/promo.jpg');
+  });
 });
