@@ -77,6 +77,8 @@ export interface InteractiveCtaUrlPayload {
   display_text: string
   /** https URL opened when the customer taps Checkout. */
   url: string
+  /** Optional product photo shown above the body (CTA image header). */
+  header_image?: string
 }
 
 export type InteractiveMessagePayload =

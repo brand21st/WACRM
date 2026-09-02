@@ -346,6 +346,7 @@ interface SendInteractiveCtaUrlEngineArgs {
   url: string
   headerText?: string
   footerText?: string
+  headerImageUrl?: string
   aiGenerated?: boolean
 }
 
@@ -418,6 +419,7 @@ async function sendInteractiveViaMeta(
         url: input.url,
         headerText: input.headerText,
         footerText: input.footerText,
+        headerImageUrl: input.headerImageUrl,
       })
       return r.messageId
     }
@@ -487,6 +489,7 @@ async function sendInteractiveViaMeta(
             footer: input.footerText,
             display_text: input.displayText,
             url: input.url,
+            header_image: input.headerImageUrl,
           }
         : {
             kind: 'list',

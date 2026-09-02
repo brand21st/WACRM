@@ -29,6 +29,14 @@ export function InteractivePreview({
       )}
     >
       <div className="px-3 py-2">
+        {payload.kind === "cta_url" && payload.header_image ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={payload.header_image}
+            alt=""
+            className="-mx-3 -mt-2 mb-2 h-32 w-[calc(100%+1.5rem)] object-cover"
+          />
+        ) : null}
         {payload.header ? (
           <p className="mb-1 break-words text-sm font-semibold">
             {payload.header}

@@ -696,13 +696,15 @@ async function sendProductCards(
       imageUrl = await liveImageForCard(shopify, card)
     }
     const checkout = cardHasCheckout(card)
+    if (checkout && imageUrl) {
+      const ok = await sendCheckoutProductCard(sendArgs, card, imageUrl)
+      if (ok) {
+        sent += 1
+        continue
+      }
+    }
     if (imageUrl) {
-      const ok = await sendCatalogImage(sendArgs, {
-        ...card,
-        imageUrl,
-        // Photo stays a photo; the Checkout CTA carries the product card.
-        caption: checkout ? card.title.slice(0, 1024) : card.caption,
-      })
+      const ok = await sendCatalogImage(sendArgs, { ...card, imageUrl })
       if (!ok) continue
     } else if (!checkout) {
       if (!card.caption.trim()) continue
@@ -719,6 +721,29 @@ async function sendProductCards(
     }
     await sendCheckoutCtaIfInStock(sendArgs, card)
     sent += 1
+  }
+}
+
+async function sendCheckoutProductCard(
+  sendArgs: SendArgs,
+  card: ShopifyProductCard,
+  imageUrl: string,
+): Promise<boolean> {
+  const url = card.checkoutUrl?.trim()
+  if (!url) return false
+  try {
+    await engineSendCtaUrl({
+      ...sendArgs,
+      bodyText: ctaBodyFromCard(card),
+      displayText: CHECKOUT_BUTTON_LABEL,
+      url,
+      headerImageUrl: imageUrl,
+      aiGenerated: true,
+    })
+    return true
+  } catch (err) {
+    console.error('[ai auto-reply] checkout product card send failed:', err)
+    return false
   }
 }
 

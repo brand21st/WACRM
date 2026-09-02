@@ -904,6 +904,8 @@ export interface SendInteractiveCtaUrlArgs {
   url: string
   headerText?: string
   footerText?: string
+  /** Public product photo. Meta fetches it as the CTA card header. */
+  headerImageUrl?: string
   contextMessageId?: string
 }
 
@@ -924,10 +926,11 @@ export async function sendInteractiveCtaUrl(
     url,
     headerText,
     footerText,
+    headerImageUrl,
     contextMessageId,
   } = args
   validateInteractiveBody(bodyText)
-  validateInteractiveHeaderFooter(headerText, footerText)
+  if (!headerImageUrl) validateInteractiveHeaderFooter(headerText, footerText)
   const label = displayText.trim()
   if (!label) throw new Error('CTA URL button needs a label.')
   if (label.length > INTERACTIVE_LIMITS.buttonTitleMaxLength) {
@@ -951,7 +954,14 @@ export async function sendInteractiveCtaUrl(
       },
     },
   }
-  if (headerText) interactive.header = { type: 'text', text: headerText }
+  if (headerImageUrl?.trim()) {
+    interactive.header = {
+      type: 'image',
+      image: { link: headerImageUrl.trim() },
+    }
+  } else if (headerText) {
+    interactive.header = { type: 'text', text: headerText }
+  }
   if (footerText) interactive.footer = { text: footerText }
 
   const body: Record<string, unknown> = {

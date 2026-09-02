@@ -877,13 +877,9 @@ describe('dispatchInboundToAiReply — OpenAI Realtime voice', () => {
       }
     })
     await dispatchInboundToAiReply({ ...ARGS, inboundContentType: 'image' })
-    expect(h.engineSendMedia).toHaveBeenCalledWith(
-      expect.objectContaining({
-        kind: 'image',
-        link: 'https://cdn.example/bag.jpg',
-        caption: 'Red Bag',
-      }),
-    )
+    expect(
+      h.engineSendMedia.mock.calls.filter((c) => c[0].kind === 'image'),
+    ).toHaveLength(0)
     expect(h.engineSendText).toHaveBeenCalledWith(
       expect.objectContaining({
         text: expect.not.stringContaining(
@@ -895,16 +891,10 @@ describe('dispatchInboundToAiReply — OpenAI Realtime voice', () => {
       expect.objectContaining({
         displayText: 'Checkout',
         url: 'https://shop.example/cart/99:1?checkout',
+        headerImageUrl: 'https://cdn.example/bag.jpg',
         bodyText:
           'Red Bag\n49 USD\nStock in\nView: https://shop.example/products/red-bag',
       }),
-    )
-    const imageCall = h.engineSendMedia.mock.calls.findIndex(
-      (c) => c[0].kind === 'image',
-    )
-    expect(imageCall).toBeGreaterThanOrEqual(0)
-    expect(h.engineSendCtaUrl.mock.invocationCallOrder[0]).toBeGreaterThan(
-      h.engineSendMedia.mock.invocationCallOrder[imageCall],
     )
   })
 
@@ -958,15 +948,15 @@ describe('dispatchInboundToAiReply — OpenAI Realtime voice', () => {
     })
     await dispatchInboundToAiReply(ARGS)
 
-    const imageCalls = h.engineSendMedia.mock.calls
-      .map((c, i) => ({ kind: c[0].kind as string, order: h.engineSendMedia.mock.invocationCallOrder[i] }))
-      .filter((c) => c.kind === 'image')
-    expect(imageCalls).toHaveLength(2)
+    expect(
+      h.engineSendMedia.mock.calls.filter((c) => c[0].kind === 'image'),
+    ).toHaveLength(0)
     expect(h.engineSendCtaUrl).toHaveBeenCalledTimes(2)
     expect(h.engineSendCtaUrl).toHaveBeenNthCalledWith(
       1,
       expect.objectContaining({
         url: 'https://shop.example/cart/99:1?checkout',
+        headerImageUrl: 'https://cdn.example/bag.jpg',
         bodyText:
           'Red Bag\n49 USD\nStock in\nView: https://shop.example/products/red-bag',
       }),
@@ -975,14 +965,11 @@ describe('dispatchInboundToAiReply — OpenAI Realtime voice', () => {
       2,
       expect.objectContaining({
         url: 'https://shop.example/cart/88:1?checkout',
+        headerImageUrl: 'https://cdn.example/hat.jpg',
         bodyText:
           'Blue Hat\n19 USD\nStock in\nView: https://shop.example/products/blue-hat',
       }),
     )
-    const ctaOrders = h.engineSendCtaUrl.mock.invocationCallOrder
-    expect(imageCalls[0].order).toBeLessThan(ctaOrders[0])
-    expect(ctaOrders[0]).toBeLessThan(imageCalls[1].order)
-    expect(imageCalls[1].order).toBeLessThan(ctaOrders[1])
     expect(h.engineSendText).toHaveBeenCalledWith(
       expect.objectContaining({
         text: expect.not.stringContaining(
@@ -1172,13 +1159,9 @@ describe('dispatchInboundToAiReply — vision photo match', () => {
     expect(h.generateReply.mock.calls[0][0].systemPrompt).toMatch(
       /Vision catalog search already ran/,
     )
-    expect(h.engineSendMedia).toHaveBeenCalledWith(
-      expect.objectContaining({
-        kind: 'image',
-        link: 'https://cdn.example/bag.jpg',
-        caption: 'Red Bag',
-      }),
-    )
+    expect(
+      h.engineSendMedia.mock.calls.filter((c) => c[0].kind === 'image'),
+    ).toHaveLength(0)
     expect(h.engineSendInteractiveButtons).toHaveBeenCalledWith(
       expect.objectContaining({
         bodyText: expect.not.stringContaining(
@@ -1190,6 +1173,7 @@ describe('dispatchInboundToAiReply — vision photo match', () => {
       expect.objectContaining({
         displayText: 'Checkout',
         url: 'https://shop.example/cart/99:1?checkout',
+        headerImageUrl: 'https://cdn.example/bag.jpg',
         bodyText: expect.stringMatching(
           /Red Bag[\s\S]*Stock in[\s\S]*Variants: S, L[\s\S]*View:/,
         ),
@@ -1254,8 +1238,13 @@ describe('dispatchInboundToAiReply — vision photo match', () => {
     const imageSends = h.engineSendMedia.mock.calls.filter(
       (c) => c[0].kind === 'image',
     )
-    expect(imageSends).toHaveLength(1)
-    expect(imageSends[0][0].link).toBe('https://cdn.example/bag.jpg')
+    expect(imageSends).toHaveLength(0)
+    expect(h.engineSendCtaUrl).toHaveBeenCalledTimes(1)
+    expect(h.engineSendCtaUrl).toHaveBeenCalledWith(
+      expect.objectContaining({
+        headerImageUrl: 'https://cdn.example/bag.jpg',
+      }),
+    )
   })
 
   it('live-fetches a catalog image when the snapshot hit has none', async () => {
@@ -1298,10 +1287,10 @@ describe('dispatchInboundToAiReply — vision photo match', () => {
     await dispatchInboundToAiReply({ ...ARGS, inboundContentType: 'image' })
 
     expect(h.getProductLive).toHaveBeenCalledWith(shopifyRow, 'gid://shopify/Product/1')
-    expect(h.engineSendMedia).toHaveBeenCalledWith(
+    expect(h.engineSendCtaUrl).toHaveBeenCalledWith(
       expect.objectContaining({
-        kind: 'image',
-        link: 'https://cdn.example/live-bag.jpg',
+        headerImageUrl: 'https://cdn.example/live-bag.jpg',
+        displayText: 'Checkout',
       }),
     )
   })

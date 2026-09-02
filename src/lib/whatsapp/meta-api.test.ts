@@ -184,6 +184,36 @@ describe("sendInteractiveCtaUrl", () => {
     });
   });
 
+  it("sends the product photo as an image header", async () => {
+    let captured: { body: unknown } | null = null;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init: RequestInit) => {
+        captured = { body: JSON.parse(String(init.body)) };
+        return new Response(
+          JSON.stringify({ messages: [{ id: "wamid.CTA" }] }),
+          { status: 200 },
+        );
+      }),
+    );
+
+    await sendInteractiveCtaUrl({
+      ...BASE_ARGS,
+      displayText: "Checkout",
+      url: "https://shop.example/cart/99:1?checkout",
+      headerImageUrl: "https://cdn.example/bag.jpg",
+    });
+
+    expect(captured!.body).toMatchObject({
+      interactive: {
+        header: {
+          type: "image",
+          image: { link: "https://cdn.example/bag.jpg" },
+        },
+      },
+    });
+  });
+
   it("rejects a non-http URL", async () => {
     vi.stubGlobal("fetch", vi.fn(neverFetch));
     await expect(
