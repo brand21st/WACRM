@@ -99,8 +99,7 @@ describe('toCard', () => {
     const card = toCard(fixtureProduct())
     expect(card.inStock).toBe(true)
     expect(card.caption).toContain('Stock in')
-    expect(card.caption).toContain('Variants:')
-    expect(card.caption).toContain('Red — in stock')
+    expect(card.caption).toContain('Variants: Red')
     expect(card.caption).toContain(
       'View: https://shop.example/products/red-leather-tote',
     )
@@ -128,7 +127,7 @@ describe('toCard', () => {
     )
     expect(card.inStock).toBe(false)
     expect(card.caption).toContain('Stock out')
-    expect(card.caption).toContain('Red — out of stock')
+    expect(card.caption).toContain('Variants: Red')
     expect(card.caption).toContain(
       'View: https://shop.example/products/red-leather-tote',
     )
@@ -136,7 +135,7 @@ describe('toCard', () => {
     expect(card.caption).not.toContain('https://shop.example/cart/11:1?checkout')
   })
 
-  it('lists multiple variants with prices when they differ, and skips Default Title', () => {
+  it('lists sizes on one Variants line and skips Default Title', () => {
     const card = toCard(
       fixtureProduct({
         priceMin: '49.00',
@@ -181,9 +180,40 @@ describe('toCard', () => {
         ],
       }),
     )
-    expect(card.caption).toContain('Red / S · 49.00 — in stock')
-    expect(card.caption).toContain('Blue / L · 69.00 — out of stock')
     expect(card.caption).not.toContain('Default Title')
+    expect(card.caption.split('\n')).toEqual([
+      'Red Leather Tote',
+      '49.00–69.00 USD',
+      'Stock in',
+      'Variants: S, L',
+      'View: https://shop.example/products/red-leather-tote',
+    ])
+  })
+
+  it('lists apparel sizes as Variants: M, XL, XXL', () => {
+    const card = toCard(
+      fixtureProduct({
+        variants: ['M', 'XL', 'XXL'].map((size, i) => ({
+          id: `gid://shopify/ProductVariant/${20 + i}`,
+          variantId: String(20 + i),
+          title: size,
+          sku: `TOTE-${size}`,
+          price: '49.00',
+          compareAtPrice: null,
+          available: true,
+          options: [{ name: 'Size', value: size }],
+        })),
+      }),
+    )
+    expect(card.caption).toBe(
+      [
+        'Red Leather Tote',
+        '49.00 USD',
+        'Stock in',
+        'Variants: M, XL, XXL',
+        'View: https://shop.example/products/red-leather-tote',
+      ].join('\n'),
+    )
   })
 })
 

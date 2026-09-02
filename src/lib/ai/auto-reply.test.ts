@@ -192,22 +192,23 @@ beforeEach(() => {
       p.priceMin && p.priceMax && p.priceMin !== p.priceMax
         ? `${p.priceMin}–${p.priceMax}${p.currency ? ` ${p.currency}` : ''}`
         : `${p.priceMin ?? ''}${p.currency ? ` ${p.currency}` : ''}`.trim()
-    const showPrice = Boolean(
-      p.priceMin && p.priceMax && p.priceMin !== p.priceMax,
-    )
-    const variantLines: string[] = []
+    const seen = new Set<string>()
+    const variantLabels: string[] = []
     for (const v of p.variants ?? []) {
+      const size = (v.options ?? []).find((o) => /^size$/i.test(o.name))
+        ?.value.trim()
       const fromOptions = (v.options ?? [])
         .map((o) => o.value.trim())
         .filter((value) => value && !/^(default(?: title)?)$/i.test(value))
       const label =
+        (size && !/^(default(?: title)?)$/i.test(size) ? size : '') ||
         fromOptions.join(' / ') ||
         (v.title && !/^(default(?: title)?)$/i.test(v.title) ? v.title : '')
       if (!label) continue
-      const variantPrice = showPrice && v.price?.trim() ? ` · ${v.price}` : ''
-      variantLines.push(
-        `${label}${variantPrice} — ${v.available ? 'in stock' : 'out of stock'}`,
-      )
+      const key = label.toLowerCase()
+      if (seen.has(key)) continue
+      seen.add(key)
+      variantLabels.push(label)
     }
     return {
       title: p.title,
@@ -220,7 +221,7 @@ beforeEach(() => {
         p.title,
         price,
         inStock ? 'Stock in' : 'Stock out',
-        ...(variantLines.length > 0 ? ['Variants:', ...variantLines] : []),
+        variantLabels.length > 0 ? `Variants: ${variantLabels.join(', ')}` : '',
         p.productUrl ? `View: ${p.productUrl}` : '',
       ]
         .filter(Boolean)
@@ -1171,7 +1172,7 @@ describe('dispatchInboundToAiReply — vision photo match', () => {
       expect.objectContaining({
         kind: 'image',
         link: 'https://cdn.example/bag.jpg',
-        caption: expect.stringMatching(/Variants:[\s\S]*Red \/ S — in stock/),
+        caption: expect.stringMatching(/Variants: S, L/),
       }),
     )
     expect(h.engineSendInteractiveButtons).toHaveBeenCalledWith(
@@ -1186,7 +1187,7 @@ describe('dispatchInboundToAiReply — vision photo match', () => {
         displayText: 'Checkout',
         url: 'https://shop.example/cart/99:1?checkout',
         bodyText: expect.stringMatching(
-          /Red Bag[\s\S]*Variants:[\s\S]*Red \/ S — in stock[\s\S]*Blue \/ L — out of stock/,
+          /Red Bag[\s\S]*Stock in[\s\S]*Variants: S, L/,
         ),
       }),
     )

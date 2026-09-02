@@ -251,9 +251,19 @@ export function productInStock(p: ShopifyProductHit): boolean {
 }
 
 const PLACEHOLDER_VARIANT = /^(default(?: title)?)$/i
-const MAX_VARIANT_CAPTION_LINES = 8
+const MAX_VARIANT_LABELS = 8
+
+function optionValue(
+  v: ShopifyProductHit['variants'][number],
+  name: RegExp,
+): string {
+  const value = v.options.find((o) => name.test(o.name))?.value.trim() ?? ''
+  return value && !PLACEHOLDER_VARIANT.test(value) ? value : ''
+}
 
 function variantDisplayLabel(v: ShopifyProductHit['variants'][number]): string {
+  const size = optionValue(v, /^size$/i)
+  if (size) return size
   const fromOptions = v.options
     .map((o) => o.value.trim())
     .filter((value) => value && !PLACEHOLDER_VARIANT.test(value))
@@ -265,22 +275,23 @@ function variantDisplayLabel(v: ShopifyProductHit['variants'][number]): string {
 
 function variantCaptionLines(
   variants: ShopifyProductHit['variants'],
-  showPrice: boolean,
 ): string[] {
-  const lines: string[] = []
+  const seen = new Set<string>()
+  const labels: string[] = []
   for (const v of variants) {
     const label = variantDisplayLabel(v)
     if (!label) continue
-    const price = showPrice && v.price?.trim() ? ` · ${v.price}` : ''
-    const stock = v.available ? 'in stock' : 'out of stock'
-    lines.push(`${label}${price} — ${stock}`)
+    const key = label.toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    labels.push(label)
   }
-  if (lines.length === 0) return []
-  const shown = lines.slice(0, MAX_VARIANT_CAPTION_LINES)
-  const extra = lines.length - shown.length
-  const block = ['Variants:', ...shown]
-  if (extra > 0) block.push(`+${extra} more`)
-  return block
+  if (labels.length === 0) return []
+  const shown = labels.slice(0, MAX_VARIANT_LABELS)
+  const extra = labels.length - shown.length
+  const list =
+    shown.join(', ') + (extra > 0 ? `, +${extra} more` : '')
+  return [`Variants: ${list}`]
 }
 
 export function toCard(p: ShopifyProductHit): ShopifyProductCard {
@@ -293,10 +304,7 @@ export function toCard(p: ShopifyProductHit): ShopifyProductCard {
     p.title,
     price,
     inStock ? 'Stock in' : 'Stock out',
-    ...variantCaptionLines(
-      p.variants,
-      Boolean(p.priceMin && p.priceMax && p.priceMin !== p.priceMax),
-    ),
+    ...variantCaptionLines(p.variants),
     p.productUrl ? `View: ${p.productUrl}` : '',
   ].filter(Boolean)
   return {

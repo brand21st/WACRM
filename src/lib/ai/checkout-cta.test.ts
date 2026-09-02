@@ -72,10 +72,10 @@ describe('ctaBodyFromCard', () => {
       ctaBodyFromCard({
         title: 'Red Leather Tote',
         caption:
-          'Red Leather Tote\n49.00 USD\nStock in\nVariants:\nRed / S — in stock\nBlue / L — out of stock\nView: https://shop.example/products/red-leather-tote',
+          'Red Leather Tote\n49.00–69.00 USD\nStock in\nVariants: M, XL, XXL\nView: https://shop.example/products/red-leather-tote',
       }),
     ).toBe(
-      'Red Leather Tote\n49.00 USD\nStock in\nVariants:\nRed / S — in stock\nBlue / L — out of stock',
+      'Red Leather Tote\n49.00–69.00 USD\nStock in\nVariants: M, XL, XXL',
     )
   })
 
