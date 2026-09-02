@@ -881,6 +881,7 @@ describe('dispatchInboundToAiReply — OpenAI Realtime voice', () => {
       expect.objectContaining({
         kind: 'image',
         link: 'https://cdn.example/bag.jpg',
+        caption: 'Red Bag',
       }),
     )
     expect(h.engineSendText).toHaveBeenCalledWith(
@@ -894,7 +895,8 @@ describe('dispatchInboundToAiReply — OpenAI Realtime voice', () => {
       expect.objectContaining({
         displayText: 'Checkout',
         url: 'https://shop.example/cart/99:1?checkout',
-        bodyText: 'Red Bag\n49 USD\nStock in',
+        bodyText:
+          'Red Bag\n49 USD\nStock in\nView: https://shop.example/products/red-bag',
       }),
     )
     const imageCall = h.engineSendMedia.mock.calls.findIndex(
@@ -965,14 +967,16 @@ describe('dispatchInboundToAiReply — OpenAI Realtime voice', () => {
       1,
       expect.objectContaining({
         url: 'https://shop.example/cart/99:1?checkout',
-        bodyText: 'Red Bag\n49 USD\nStock in',
+        bodyText:
+          'Red Bag\n49 USD\nStock in\nView: https://shop.example/products/red-bag',
       }),
     )
     expect(h.engineSendCtaUrl).toHaveBeenNthCalledWith(
       2,
       expect.objectContaining({
         url: 'https://shop.example/cart/88:1?checkout',
-        bodyText: 'Blue Hat\n19 USD\nStock in',
+        bodyText:
+          'Blue Hat\n19 USD\nStock in\nView: https://shop.example/products/blue-hat',
       }),
     )
     const ctaOrders = h.engineSendCtaUrl.mock.invocationCallOrder
@@ -1172,7 +1176,7 @@ describe('dispatchInboundToAiReply — vision photo match', () => {
       expect.objectContaining({
         kind: 'image',
         link: 'https://cdn.example/bag.jpg',
-        caption: expect.stringMatching(/Variants: S, L/),
+        caption: 'Red Bag',
       }),
     )
     expect(h.engineSendInteractiveButtons).toHaveBeenCalledWith(
@@ -1187,11 +1191,10 @@ describe('dispatchInboundToAiReply — vision photo match', () => {
         displayText: 'Checkout',
         url: 'https://shop.example/cart/99:1?checkout',
         bodyText: expect.stringMatching(
-          /Red Bag[\s\S]*Stock in[\s\S]*Variants: S, L/,
+          /Red Bag[\s\S]*Stock in[\s\S]*Variants: S, L[\s\S]*View:/,
         ),
       }),
     )
-    expect(h.engineSendCtaUrl.mock.calls[0][0].bodyText).not.toMatch(/View:/)
   })
 
   it('does not skip photo matching when the LLM would not call a tool', async () => {

@@ -15,6 +15,7 @@ import { canSpeak as ttsReady, synthesizeSpeech } from './speech'
 import { prepareIndicSpeechText, stripUrlsForSpeech } from './speech-text'
 import {
   CHECKOUT_BUTTON_LABEL,
+  cardHasCheckout,
   ctaBodyFromCard,
   stripCheckoutUrlsFromReply,
 } from './checkout-cta'
@@ -694,10 +695,16 @@ async function sendProductCards(
     if (!imageUrl && shopify) {
       imageUrl = await liveImageForCard(shopify, card)
     }
+    const checkout = cardHasCheckout(card)
     if (imageUrl) {
-      const ok = await sendCatalogImage(sendArgs, { ...card, imageUrl })
+      const ok = await sendCatalogImage(sendArgs, {
+        ...card,
+        imageUrl,
+        // Photo stays a photo; the Checkout CTA carries the product card.
+        caption: checkout ? card.title.slice(0, 1024) : card.caption,
+      })
       if (!ok) continue
-    } else {
+    } else if (!checkout) {
       if (!card.caption.trim()) continue
       try {
         await engineSendText({

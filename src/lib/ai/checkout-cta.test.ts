@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   CHECKOUT_BUTTON_LABEL,
+  cardHasCheckout,
   ctaBodyFromCard,
   firstCheckoutFromCards,
   stripCheckoutFromReply,
@@ -66,8 +67,23 @@ describe('CHECKOUT_BUTTON_LABEL', () => {
   })
 })
 
+describe('cardHasCheckout', () => {
+  it('is true only when the item is in stock with a checkout URL', () => {
+    expect(
+      cardHasCheckout({
+        inStock: true,
+        checkoutUrl: 'https://shop.example/cart/1:1?checkout',
+      }),
+    ).toBe(true)
+    expect(cardHasCheckout({ inStock: false, checkoutUrl: 'https://x' })).toBe(
+      false,
+    )
+    expect(cardHasCheckout({ inStock: true, checkoutUrl: '' })).toBe(false)
+  })
+})
+
 describe('ctaBodyFromCard', () => {
-  it('puts variants on the WhatsApp card and drops the View permalink', () => {
+  it('is the product card above the Checkout button, including View', () => {
     expect(
       ctaBodyFromCard({
         title: 'Red Leather Tote',
@@ -75,7 +91,7 @@ describe('ctaBodyFromCard', () => {
           'Red Leather Tote\n49.00–69.00 USD\nStock in\nVariants: M, XL, XXL\nView: https://shop.example/products/red-leather-tote',
       }),
     ).toBe(
-      'Red Leather Tote\n49.00–69.00 USD\nStock in\nVariants: M, XL, XXL',
+      'Red Leather Tote\n49.00–69.00 USD\nStock in\nVariants: M, XL, XXL\nView: https://shop.example/products/red-leather-tote',
     )
   })
 
