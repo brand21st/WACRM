@@ -7,7 +7,7 @@ import {
   parseRecordingAnnouncementLanguage,
 } from '@/lib/calling/settings'
 import { loadAiConfig } from '@/lib/ai/config'
-import { canSpeak, canTranscribe } from '@/lib/ai/speech'
+import { canLiveAiRealtime, LIVE_AI_NOT_READY_MESSAGE } from '@/lib/calling/live-ai-ready'
 import {
   CallActionError,
   setCallingEnabled,
@@ -22,7 +22,7 @@ async function extras(
   let liveAiReady = false
   try {
     const config = await loadAiConfig(supabase, accountId)
-    liveAiReady = Boolean(config && canTranscribe(config) && canSpeak(config))
+    liveAiReady = canLiveAiRealtime(config)
   } catch {
     liveAiReady = false
   }
@@ -131,11 +131,10 @@ export async function PATCH(request: Request) {
         } catch {
           config = null
         }
-        if (!config || !canTranscribe(config) || !canSpeak(config)) {
+        if (!canLiveAiRealtime(config)) {
           return NextResponse.json(
             {
-              error:
-                'Live AI answering needs an active Chat Agent key and Voice Agent speech-to-text plus text-to-speech.',
+              error: LIVE_AI_NOT_READY_MESSAGE,
               code: 'live_ai_not_ready',
             },
             { status: 400 },
