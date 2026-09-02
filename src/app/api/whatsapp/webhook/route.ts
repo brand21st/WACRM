@@ -273,8 +273,11 @@ async function processWebhook(body: { entry?: WhatsAppWebhookEntry[] }) {
         }
       }
 
-      // Handle incoming messages
-      if (!value.messages || !value.contacts) continue
+      // Handle incoming messages. Bind to locals so TS keeps the
+      // narrowed type inside the `.map()` / `mapPool` closures below.
+      const messages = value.messages
+      const contacts = value.contacts
+      if (!messages || !contacts) continue
 
       const phoneNumberId = value.metadata.phone_number_id
 
@@ -327,9 +330,9 @@ async function processWebhook(body: { entry?: WhatsAppWebhookEntry[] }) {
         continue
       }
 
-      const jobs = value.messages.map((message, i) => ({
+      const jobs = messages.map((message, i) => ({
         message,
-        contact: value.contacts[i] || value.contacts[0],
+        contact: contacts[i] || contacts[0],
       }))
       await mapPool(jobs, 8, async ({ message, contact }) => {
         try {
