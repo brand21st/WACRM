@@ -8,6 +8,7 @@ import { Button, buttonVariants } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { useCallSession } from '@/components/calls/call-session-context'
 import { formatCallDuration } from '@/lib/calls/preview'
+import { prefetchLiveAiRealtimeRoute } from '@/lib/calls/live-ai-realtime'
 
 type Payload = {
   settings?: { live_ai_answer?: string }
@@ -39,6 +40,7 @@ export function LiveAiStation() {
 
   useEffect(() => {
     void load()
+    void prefetchLiveAiRealtimeRoute()
     const onVis = () => {
       if (document.visibilityState === 'visible') void load()
     }

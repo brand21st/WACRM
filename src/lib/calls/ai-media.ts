@@ -23,6 +23,131 @@ export async function primeAiAudio(): Promise<void> {
   }
 }
 
+export type CallerAudioBridge = {
+  track: MediaStreamTrack
+  attach: (stream: MediaStream) => void
+  stop: () => void
+}
+
+/**
+ * Forward WhatsApp remote audio into a local track for the OpenAI peer.
+ * Chrome cannot reliably replaceTrack() a receive-only WebRTC track onto
+ * a second peer connection, so this goes through Web Audio.
+ */
+export function createCallerAudioBridge(): CallerAudioBridge {
+  const context = primedAiContext
+  if (!context || context.state === 'closed') {
+    throw new Error('AI audio context unavailable')
+  }
+  const destination = context.createMediaStreamDestination()
+  const keepAlive = context.createGain()
+  keepAlive.gain.value = 0.0001
+  const osc = context.createOscillator()
+  osc.connect(keepAlive)
+  keepAlive.connect(destination)
+  osc.start()
+
+  let source: MediaStreamAudioSourceNode | null = null
+  let speechGain: GainNode | null = null
+  let tap: GainNode | null = null
+  const track = destination.stream.getAudioTracks()[0]
+  if (!track) throw new Error('AI audio context unavailable')
+  if ('contentHint' in track) track.contentHint = 'speech'
+
+  const disconnectSource = () => {
+    try {
+      source?.disconnect()
+    } catch {
+      // already disconnected
+    }
+    try {
+      speechGain?.disconnect()
+    } catch {
+      // already disconnected
+    }
+    try {
+      tap?.disconnect()
+    } catch {
+      // already disconnected
+    }
+    source = null
+    speechGain = null
+    tap = null
+  }
+
+  return {
+    track,
+    attach(stream) {
+      disconnectSource()
+      const live = stream.getAudioTracks().filter((t) => t.readyState !== 'ended')
+      if (live.length === 0) return
+      for (const t of live) t.enabled = true
+      if (context.state === 'suspended') {
+        void context.resume().catch(() => {})
+      }
+      source = context.createMediaStreamSource(new MediaStream(live))
+      speechGain = context.createGain()
+      speechGain.gain.value = 1.25
+      tap = context.createGain()
+      tap.gain.value = 0.0001
+      source.connect(speechGain)
+      speechGain.connect(destination)
+      // Keep Chrome rendering this graph even when the call <audio> is muted.
+      speechGain.connect(tap)
+      tap.connect(context.destination)
+    },
+    stop() {
+      disconnectSource()
+      try {
+        osc.stop()
+      } catch {
+        // already stopped
+      }
+      try {
+        osc.disconnect()
+        keepAlive.disconnect()
+      } catch {
+        // already disconnected
+      }
+      destination.stream.getTracks().forEach((t) => t.stop())
+    },
+  }
+}
+
+/**
+ * Near-silent track for the OpenAI peer until WhatsApp remote audio
+ * arrives. Uses the primed context so auto-answer still works.
+ */
+export function createSilentPlaceholderTrack(): MediaStreamTrack {
+  const context = primedAiContext
+  if (!context || context.state === 'closed') {
+    throw new Error('AI audio context unavailable')
+  }
+  const destination = context.createMediaStreamDestination()
+  const osc = context.createOscillator()
+  const gain = context.createGain()
+  gain.gain.value = 0.0001
+  osc.connect(gain)
+  gain.connect(destination)
+  osc.start()
+  const track = destination.stream.getAudioTracks()[0]
+  if (!track) throw new Error('AI audio context unavailable')
+  track.addEventListener('ended', () => {
+    try {
+      osc.stop()
+    } catch {
+      // already stopped
+    }
+    try {
+      osc.disconnect()
+      gain.disconnect()
+    } catch {
+      // already disconnected
+    }
+  })
+  return track
+}
+
 /**
  * Synthetic outbound WebRTC audio: comfort noise plus decoded TTS.
  * Does not use the microphone.

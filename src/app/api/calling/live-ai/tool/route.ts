@@ -20,6 +20,16 @@ function httpError(err: unknown): NextResponse | null {
   return null
 }
 
+/** Compile this route in dev before an inbound call. */
+export async function GET() {
+  try {
+    await requireRole('agent')
+    return NextResponse.json({ ok: true })
+  } catch (err) {
+    return toErrorResponse(err)
+  }
+}
+
 /**
  * POST /api/calling/live-ai/tool  (agent+)
  *

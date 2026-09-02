@@ -3,6 +3,7 @@ import { HANDOFF_SENTINEL } from '@/lib/ai/defaults'
 import { LIVE_AI_HANDOFF_SPOKEN } from './live-ai-turn'
 import {
   buildLiveAiSpokenInstructions,
+  buildRealtimeCallMultipart,
   buildRealtimeSessionConfig,
   llmToolsToRealtime,
   proxyRealtimeSdp,
@@ -66,6 +67,24 @@ describe('live AI Realtime session helpers', () => {
     expect(session.instructions).toBe('Be brief.')
     expect(session.output_modalities).toEqual(['audio'])
     expect((session.audio as { output: { voice: string } }).output.voice).toBe('marin')
+    expect(
+      (session.audio as { input: { turn_detection: { create_response: boolean } } }).input
+        .turn_detection.create_response,
+    ).toBe(true)
+  })
+
+  it('encodes sdp and session as named multipart parts', () => {
+    const { body, contentType } = buildRealtimeCallMultipart('v=0\r\noffer', {
+      type: 'realtime',
+    })
+    expect(contentType).toMatch(/^multipart\/form-data; boundary=----WebKitFormBoundary/)
+    expect(body).toContain('name="sdp"')
+    expect(body).toContain('Content-Type: application/sdp')
+    expect(body).toContain('v=0\r\noffer')
+    expect(body).toMatch(/v=0\r\noffer\r\n\r\n------WebKitFormBoundary/)
+    expect(body).toContain('name="session"')
+    expect(body).toContain('Content-Type: application/json')
+    expect(body).toContain('{"type":"realtime"}')
   })
 
   it('proxies SDP to OpenAI and returns the answer', async () => {
@@ -74,9 +93,10 @@ describe('live AI Realtime session helpers', () => {
       const headers = init?.headers as Record<string, string>
       expect(headers.Authorization).toBe('Bearer sk-test')
       expect(headers['OpenAI-Safety-Identifier']).toBe('safe')
-      const body = init?.body as FormData
-      expect(body.get('sdp')).toBe('v=0\r\noffer')
-      return new Response('v=0\r\nanswer', { status: 200 })
+      expect(headers['Content-Type']).toMatch(/^multipart\/form-data; boundary=/)
+      expect(String(init?.body)).toContain('name="sdp"')
+      expect(String(init?.body)).toContain('v=0\r\noffer')
+      return new Response('v=0\r\nanswer', { status: 201 })
     }) as unknown as typeof fetch
 
     const sdp = await proxyRealtimeSdp({

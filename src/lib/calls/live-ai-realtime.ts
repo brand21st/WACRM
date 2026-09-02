@@ -1,6 +1,11 @@
 import { HANDOFF_SENTINEL } from '@/lib/ai/defaults'
 import { TRANSFER_TO_HUMAN_TOOL } from '@/lib/calling/live-ai-constants'
-import type { AiOutbound } from './ai-media'
+import {
+  createCallerAudioBridge,
+  type AiOutbound,
+  type CallerAudioBridge,
+} from './ai-media'
+import { normalizeOfferSdp } from './sdp'
 import { closePeer, ICE_SERVERS, waitForIceGathering } from './webrtc'
 
 function parseSpoken(raw: string): { text: string; handoff: boolean } {
@@ -104,9 +109,10 @@ export class LiveAiRealtimeSession {
   private dc: RTCDataChannel | null = null
   private remote: MediaStream | null
   private sender: RTCRtpSender | null = null
-  private placeholderTrack: MediaStreamTrack | null = null
+  private callerBridge: CallerAudioBridge | null = null
   private greeted = false
   private handoffSent = false
+  private greetWhenReady = false
 
   constructor(
     private readonly callId: string,
@@ -119,10 +125,7 @@ export class LiveAiRealtimeSession {
 
   setRemote(stream: MediaStream) {
     this.remote = stream
-    const track = stream.getAudioTracks()[0]
-    if (track && this.sender) {
-      void this.sender.replaceTrack(track).catch(() => {})
-    }
+    this.wireCallerStream(stream)
   }
 
   start() {
@@ -132,6 +135,12 @@ export class LiveAiRealtimeSession {
         this.handlers.onError(err instanceof Error ? err.message : 'Realtime connect failed')
       }
     })
+  }
+
+  /** Call after WhatsApp accept unmutes the send track so the greeting is heard. */
+  enableGreeting() {
+    this.greetWhenReady = true
+    this.requestGreeting()
   }
 
   stop() {
@@ -145,12 +154,21 @@ export class LiveAiRealtimeSession {
     closePeer(this.pc, null)
     this.pc = null
     this.sender = null
-    try {
-      this.placeholderTrack?.stop()
-    } catch {
-      // ignore
+    this.callerBridge?.stop()
+    this.callerBridge = null
+  }
+
+  private wireCallerStream(stream: MediaStream) {
+    this.callerBridge?.attach(stream)
+    stream.onaddtrack = () => {
+      if (!this.stopped) this.callerBridge?.attach(stream)
     }
-    this.placeholderTrack = null
+    for (const track of stream.getAudioTracks()) {
+      track.enabled = true
+      track.addEventListener('unmute', () => {
+        if (!this.stopped && this.remote) this.callerBridge?.attach(this.remote)
+      })
+    }
   }
 
   private async connect() {
@@ -162,8 +180,10 @@ export class LiveAiRealtimeSession {
       this.outbound.attachRealtime(stream)
     })
 
-    const localTrack = this.remote?.getAudioTracks()[0] ?? this.silentTrack()
-    this.sender = pc.addTrack(localTrack, new MediaStream([localTrack]))
+    const bridge = createCallerAudioBridge()
+    this.callerBridge = bridge
+    if (this.remote) this.wireCallerStream(this.remote)
+    this.sender = pc.addTrack(bridge.track, new MediaStream([bridge.track]))
 
     const dc = pc.createDataChannel('oai-events')
     this.dc = dc
@@ -176,6 +196,8 @@ export class LiveAiRealtimeSession {
 
     const offer = await pc.createOffer()
     await pc.setLocalDescription(offer)
+    // Do not cut ICE gathering short. A partial localDescription can leave
+    // OpenAI's SDP parser at EOF, especially for Web Audio destination tracks.
     await waitForIceGathering(pc)
     if (this.stopped) return
 
@@ -191,29 +213,9 @@ export class LiveAiRealtimeSession {
     if (!res.ok || !json.sdp) {
       throw new Error(json.error || 'Realtime session failed')
     }
-    await pc.setRemoteDescription({ type: 'answer', sdp: json.sdp })
-  }
-
-  private silentTrack(): MediaStreamTrack {
-    const ctx = new AudioContext()
-    const dest = ctx.createMediaStreamDestination()
-    const osc = ctx.createOscillator()
-    const gain = ctx.createGain()
-    gain.gain.value = 0.0001
-    osc.connect(gain)
-    gain.connect(dest)
-    osc.start()
-    const track = dest.stream.getAudioTracks()[0]
-    this.placeholderTrack = track
-    track.addEventListener('ended', () => {
-      try {
-        osc.stop()
-      } catch {
-        // ignore
-      }
-      void ctx.close()
-    })
-    return track
+    const answerSdp = normalizeOfferSdp(json.sdp)
+    if (!answerSdp) throw new Error('OpenAI returned an empty SDP answer')
+    await pc.setRemoteDescription({ type: 'answer', sdp: answerSdp })
   }
 
   private send(event: Record<string, unknown>) {
@@ -222,7 +224,8 @@ export class LiveAiRealtimeSession {
   }
 
   private requestGreeting() {
-    if (this.greeted || this.stopped) return
+    if (!this.greetWhenReady || this.greeted || this.stopped) return
+    if (this.dc?.readyState !== 'open') return
     this.greeted = true
     this.send({ type: 'response.create' })
   }
@@ -338,4 +341,13 @@ async function persistTranscript(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ type: 'transcript', callId, role, text, itemId }),
   }).catch(() => {})
+}
+
+/** Compile Realtime + tool routes before an inbound call (dev cold compile is 50s+). */
+export async function prefetchLiveAiRealtimeRoute(): Promise<void> {
+  await Promise.all([
+    fetch('/api/calling/live-ai/realtime').catch(() => {}),
+    fetch('/api/calling/live-ai/tool').catch(() => {}),
+    fetch('/api/calling/live-ai/warmup', { method: 'POST' }).catch(() => {}),
+  ])
 }

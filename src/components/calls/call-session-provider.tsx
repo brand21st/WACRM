@@ -30,7 +30,7 @@ import {
   waitForIceConnected,
 } from '@/lib/calls/webrtc'
 import { createAiOutbound, primeAiAudio, type AiOutbound } from '@/lib/calls/ai-media'
-import { LiveAiRealtimeSession } from '@/lib/calls/live-ai-realtime'
+import { LiveAiRealtimeSession, prefetchLiveAiRealtimeRoute } from '@/lib/calls/live-ai-realtime'
 import { liveAiTimeoutMs } from '@/lib/calling/settings'
 import {
   CallSessionContext,
@@ -439,34 +439,11 @@ export function CallSessionProvider({ children }: { children: ReactNode }) {
         sdp,
         aiAnswered: ai,
       })
-      await waitForIceConnected(pc)
-      await postAction(`/api/whatsapp/calls/${call.id}/accept`, { sdp })
-      const remote =
-        audioEl.srcObject instanceof MediaStream ? audioEl.srcObject : null
-      if (remote) {
-        remoteStreamRef.current = remote
-        player.attach(remote, speakerOnRef.current, audioEl)
-        wave.attachRemote(remote)
-      } else {
-        player.setSpeaker(speakerOnRef.current)
-      }
-      publishWaves()
-      setLocalAudioEnabled(localStream, true)
-      outbound?.setTrackEnabled(true)
-      setMuted(ai)
-      setRingingCall(null)
-      setActiveCall({
-        ...call,
-        status: 'in_progress',
-        started_at: new Date().toISOString(),
-        ai_answered: ai,
-      })
-      setAiOnCall(ai)
       if (ai && outbound) {
         const session = new LiveAiRealtimeSession(
           call.id,
           outbound,
-          remoteStreamRef.current ?? remote,
+          remoteStreamRef.current,
           {
             onTranscript: (role, text) => {
               setLiveTranscript((prev) => [...prev, { role, text }])
@@ -480,6 +457,31 @@ export function CallSessionProvider({ children }: { children: ReactNode }) {
         liveAiRealtimeRef.current = session
         session.start()
       }
+      await waitForIceConnected(pc)
+      await postAction(`/api/whatsapp/calls/${call.id}/accept`, { sdp })
+      const remote =
+        audioEl.srcObject instanceof MediaStream ? audioEl.srcObject : null
+      if (remote) {
+        remoteStreamRef.current = remote
+        liveAiRealtimeRef.current?.setRemote(remote)
+        player.attach(remote, speakerOnRef.current, audioEl)
+        wave.attachRemote(remote)
+      } else {
+        player.setSpeaker(speakerOnRef.current)
+      }
+      publishWaves()
+      setLocalAudioEnabled(localStream, true)
+      outbound?.setTrackEnabled(true)
+      liveAiRealtimeRef.current?.enableGreeting()
+      setMuted(ai)
+      setRingingCall(null)
+      setActiveCall({
+        ...call,
+        status: 'in_progress',
+        started_at: new Date().toISOString(),
+        ai_answered: ai,
+      })
+      setAiOnCall(ai)
     } catch (err) {
       teardownMedia()
       const code = (err as { code?: string }).code
@@ -584,6 +586,7 @@ export function CallSessionProvider({ children }: { children: ReactNode }) {
       await primeAiAudio()
       await refreshCallingSettings()
       if (stationArmGenRef.current !== gen) return
+      void prefetchLiveAiRealtimeRoute()
     })()
   }, [refreshCallingSettings])
 

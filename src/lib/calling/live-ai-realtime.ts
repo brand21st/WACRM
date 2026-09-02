@@ -1,4 +1,4 @@
-import { createHash } from 'crypto'
+import { createHash, randomBytes } from 'crypto'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { supabaseAdmin } from '@/lib/ai/admin-client'
 import { loadAiConfig } from '@/lib/ai/config'
@@ -20,6 +20,7 @@ import { LIVE_AI_GREETING_USER, LIVE_AI_HANDOFF_SPOKEN } from '@/lib/calling/liv
 import {
   SEARCH_KNOWLEDGE_TOOL,
   TRANSFER_TO_HUMAN_TOOL,
+  LIVE_AI_TURN_DETECTION,
 } from '@/lib/calling/live-ai-constants'
 
 export { SEARCH_KNOWLEDGE_TOOL, TRANSFER_TO_HUMAN_TOOL }
@@ -227,7 +228,7 @@ export function buildRealtimeSessionConfig(args: {
     tool_choice: 'auto',
     audio: {
       input: {
-        turn_detection: { type: 'semantic_vad' },
+        turn_detection: LIVE_AI_TURN_DETECTION,
         transcription: { model: 'gpt-4o-mini-transcribe' },
       },
       output: {
@@ -235,6 +236,30 @@ export function buildRealtimeSessionConfig(args: {
       },
     },
   }
+}
+
+/** OpenAI requires named parts with SDP/JSON content types, not Node FormData. */
+export function buildRealtimeCallMultipart(
+  sdp: string,
+  session: Record<string, unknown>,
+): { body: string; contentType: string } {
+  const boundary = `----WebKitFormBoundary${randomBytes(12).toString('hex')}`
+  const normalizedSdp = `${sdp.replace(/\r?\n/g, '\r\n').trimEnd()}\r\n`
+  const body =
+    `--${boundary}\r\n` +
+    `Content-Disposition: form-data; name="sdp"\r\n` +
+    `Content-Type: application/sdp\r\n` +
+    `\r\n` +
+    // The second CRLF belongs to multipart framing. Parsers consume it,
+    // leaving the first one as the SDP document's required terminator.
+    `${normalizedSdp}\r\n` +
+    `--${boundary}\r\n` +
+    `Content-Disposition: form-data; name="session"\r\n` +
+    `Content-Type: application/json\r\n` +
+    `\r\n` +
+    `${JSON.stringify(session)}\r\n` +
+    `--${boundary}--\r\n`
+  return { body, contentType: `multipart/form-data; boundary=${boundary}` }
 }
 
 export async function proxyRealtimeSdp(args: {
@@ -245,9 +270,7 @@ export async function proxyRealtimeSdp(args: {
   fetchImpl?: typeof fetch
 }): Promise<string> {
   const fetchImpl = args.fetchImpl ?? fetch
-  const fd = new FormData()
-  fd.set('sdp', args.sdp)
-  fd.set('session', JSON.stringify(args.session))
+  const { body, contentType } = buildRealtimeCallMultipart(args.sdp, args.session)
   let res: Response
   try {
     res = await fetchImpl(OPENAI_REALTIME_CALLS_URL, {
@@ -255,8 +278,9 @@ export async function proxyRealtimeSdp(args: {
       headers: {
         Authorization: `Bearer ${args.apiKey}`,
         'OpenAI-Safety-Identifier': args.safetyId,
+        'Content-Type': contentType,
       },
-      body: fd,
+      body,
     })
   } catch (err) {
     throw Object.assign(
@@ -277,6 +301,7 @@ export async function proxyRealtimeSdp(args: {
     } catch {
       // keep raw
     }
+    console.error('[live-ai] OpenAI realtime/calls', res.status, detail)
     throw Object.assign(new Error(detail || `OpenAI Realtime error (${res.status})`), {
       status: res.status === 401 || res.status === 403 ? 401 : 502,
       code: res.status === 401 || res.status === 403 ? 'invalid_key' : 'provider_error',
