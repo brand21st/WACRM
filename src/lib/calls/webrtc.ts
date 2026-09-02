@@ -1,6 +1,6 @@
 import { normalizeOfferSdp } from './sdp'
 
-const ICE_SERVERS: RTCIceServer[] = [
+export const ICE_SERVERS: RTCIceServer[] = [
   { urls: 'stun:stun.l.google.com:19302' },
 ]
 
@@ -80,7 +80,7 @@ export function attachRemoteAudio(
   }
 }
 
-function waitForIceGathering(pc: RTCPeerConnection, timeoutMs = 5000): Promise<void> {
+export function waitForIceGathering(pc: RTCPeerConnection, timeoutMs = 5000): Promise<void> {
   if (pc.iceGatheringState === 'complete') return Promise.resolve()
   return new Promise((resolve) => {
     const done = () => {

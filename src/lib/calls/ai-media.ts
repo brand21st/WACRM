@@ -2,6 +2,8 @@ export type AiOutbound = {
   stream: MediaStream
   setTrackEnabled: (enabled: boolean) => void
   playMp3: (bytes: ArrayBuffer) => Promise<void>
+  /** Pipe OpenAI Realtime remote audio into the WhatsApp send track. */
+  attachRealtime: (stream: MediaStream) => void
   stop: () => void
 }
 
@@ -60,6 +62,7 @@ export async function createAiOutbound(): Promise<AiOutbound> {
   }
 
   let playing: AudioBufferSourceNode | null = null
+  let realtimeSource: MediaStreamAudioSourceNode | null = null
 
   return {
     stream,
@@ -67,6 +70,22 @@ export async function createAiOutbound(): Promise<AiOutbound> {
       for (const track of stream.getAudioTracks()) {
         track.enabled = enabled
       }
+    },
+    attachRealtime(remote) {
+      try {
+        realtimeSource?.disconnect()
+      } catch {
+        // already disconnected
+      }
+      if (context.state === 'suspended') {
+        void context.resume().catch(() => {})
+      }
+      const source = context.createMediaStreamSource(remote)
+      source.connect(master)
+      realtimeSource = source
+      // Keep a whisper of tone so Chrome still renders the graph if
+      // OpenAI is silent between turns.
+      noiseGain.gain.value = 0.008
     },
     async playMp3(bytes) {
       if (context.state === 'suspended') {
@@ -106,6 +125,12 @@ export async function createAiOutbound(): Promise<AiOutbound> {
       } catch {
         // already stopped
       }
+      try {
+        realtimeSource?.disconnect()
+      } catch {
+        // already disconnected
+      }
+      realtimeSource = null
       try {
         osc.disconnect()
         noiseGain.disconnect()

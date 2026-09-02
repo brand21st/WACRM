@@ -197,6 +197,11 @@ export const RATE_LIMITS = {
   liveAiTurn: { limit: 40, windowMs: 60_000 },
   /** Live call AI turns per account, bounding shared BYO keys. */
   liveAiTurnAccount: { limit: 80, windowMs: 60_000 },
+  /** OpenAI Realtime SDP handshake to start a live call session. */
+  liveAiRealtime: { limit: 20, windowMs: 60_000 },
+  liveAiRealtimeAccount: { limit: 40, windowMs: 60_000 },
+  /** Realtime tool + transcript posts during a live call. */
+  liveAiTool: { limit: 60, windowMs: 60_000 },
 } as const;
 
 /** Test-only helper. Clears the in-memory state so unit tests don't
