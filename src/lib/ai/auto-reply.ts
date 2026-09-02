@@ -15,6 +15,7 @@ import { canSpeak as ttsReady, synthesizeSpeech } from './speech'
 import { prepareIndicSpeechText, stripUrlsForSpeech } from './speech-text'
 import {
   CHECKOUT_BUTTON_LABEL,
+  ctaBodyFromCard,
   stripCheckoutUrlsFromReply,
 } from './checkout-cta'
 import { detectSpokenIndicTarget } from './indic-language'
@@ -137,19 +138,17 @@ export async function dispatchInboundToAiReply(
     if (messages.length === 0) return
 
     // Account-wide throttle on the shared BYO key. The per-conversation
-    // cap bounds one thread; this bounds a burst across many threads (a
-    // marketing blast landing 200 replies at once) so we never run the
-    // owner's key past the provider's rate limit. Over the limit → skip
-    // the auto-reply; the inbound still sits in the inbox for a human.
+    // cap bounds one thread; this bounds a burst across many threads.
+    // Going over the budget logs a warning but still replies — dropping
+    // the turn was how overlapping voice notes never got an answer.
     const acctLimit = checkRateLimit(
       `ai-autoreply:${accountId}`,
       RATE_LIMITS.aiAutoReplyAccount,
     )
     if (!acctLimit.success) {
       console.warn(
-        `[ai auto-reply] account ${accountId} hit the per-account rate limit — skipping this inbound.`,
+        `[ai auto-reply] account ${accountId} is above the per-account budget — still replying so overlapping customers are not dropped.`,
       )
-      return
     }
 
     // Show typing before the slow retrieve/generate/TTS work so the
@@ -725,7 +724,7 @@ async function sendCheckoutCtaIfInStock(
   try {
     await engineSendCtaUrl({
       ...sendArgs,
-      bodyText: card.title.slice(0, 1024) || CHECKOUT_BUTTON_LABEL,
+      bodyText: ctaBodyFromCard(card),
       displayText: CHECKOUT_BUTTON_LABEL,
       url,
       aiGenerated: true,

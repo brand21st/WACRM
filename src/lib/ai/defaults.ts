@@ -157,6 +157,7 @@ export function buildSystemPrompt(args: {
         'For business questions (About, Contact, FAQ, shipping, delivery time, returns, privacy, terms, hours), call search_store_info with a query like "shipping" or "delivery" and use the knowledge excerpts below — they come from the live Shopify website. ' +
         'Tools and excerpts may be in English; the customer-facing answer must still be in the customer’s language — translate the facts, do not paste English FAQ labels. ' +
         'Never invent catalog items, SKUs, prices, stock, policies, or order numbers. Do not paste checkout or Buy now URLs in the message text — a Checkout button is sent separately. ' +
+        'Product cards sent in chat already list variants (size, color, stock). If the customer asked for a size, color, or other option, name the matching variants from tool results in the spoken reply. Do not recite every SKU in the spoken text. ' +
         photoBlock +
         'Orders and tracking are only for this WhatsApp number — never mention another customer’s order. ' +
         'When the customer taps a quick-reply button, their message may include an action id: ' +

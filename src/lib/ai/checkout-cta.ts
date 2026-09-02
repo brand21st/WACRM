@@ -1,5 +1,26 @@
 export const CHECKOUT_BUTTON_LABEL = 'Checkout'
 
+const CTA_BODY_MAX = 1024
+
+/**
+ * WhatsApp Checkout card body — title, price, stock, and variants.
+ * Drops the View: permalink (the button is Checkout, not the product page).
+ */
+export function ctaBodyFromCard(card: {
+  title?: string | null
+  caption?: string | null
+}): string {
+  const lines = (card.caption ?? '')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0 && !/^View:\s/i.test(line))
+  const body = lines.join('\n').trim()
+  return (body || card.title?.trim() || CHECKOUT_BUTTON_LABEL).slice(
+    0,
+    CTA_BODY_MAX,
+  )
+}
+
 export function firstCheckoutFromCards(
   cards: { checkoutUrl?: string | null; title?: string | null }[],
 ): { url: string; title: string } | null {

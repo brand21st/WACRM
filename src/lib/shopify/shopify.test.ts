@@ -95,10 +95,12 @@ describe('mapGqlProduct', () => {
 })
 
 describe('toCard', () => {
-  it('includes Stock in and View on an in-stock product', () => {
+  it('includes Stock in, variants, and View on an in-stock product', () => {
     const card = toCard(fixtureProduct())
     expect(card.inStock).toBe(true)
     expect(card.caption).toContain('Stock in')
+    expect(card.caption).toContain('Variants:')
+    expect(card.caption).toContain('Red — in stock')
     expect(card.caption).toContain(
       'View: https://shop.example/products/red-leather-tote',
     )
@@ -126,11 +128,62 @@ describe('toCard', () => {
     )
     expect(card.inStock).toBe(false)
     expect(card.caption).toContain('Stock out')
+    expect(card.caption).toContain('Red — out of stock')
     expect(card.caption).toContain(
       'View: https://shop.example/products/red-leather-tote',
     )
     expect(card.caption).not.toMatch(/Buy now/)
     expect(card.caption).not.toContain('https://shop.example/cart/11:1?checkout')
+  })
+
+  it('lists multiple variants with prices when they differ, and skips Default Title', () => {
+    const card = toCard(
+      fixtureProduct({
+        priceMin: '49.00',
+        priceMax: '69.00',
+        variants: [
+          {
+            id: 'gid://shopify/ProductVariant/11',
+            variantId: '11',
+            title: 'Small',
+            sku: 'TOTE-S',
+            price: '49.00',
+            compareAtPrice: null,
+            available: true,
+            options: [
+              { name: 'Color', value: 'Red' },
+              { name: 'Size', value: 'S' },
+            ],
+          },
+          {
+            id: 'gid://shopify/ProductVariant/12',
+            variantId: '12',
+            title: 'Large',
+            sku: 'TOTE-L',
+            price: '69.00',
+            compareAtPrice: null,
+            available: false,
+            options: [
+              { name: 'Color', value: 'Blue' },
+              { name: 'Size', value: 'L' },
+            ],
+          },
+          {
+            id: 'gid://shopify/ProductVariant/13',
+            variantId: '13',
+            title: 'Default Title',
+            sku: 'TOTE-DEF',
+            price: '49.00',
+            compareAtPrice: null,
+            available: true,
+            options: [{ name: 'Title', value: 'Default Title' }],
+          },
+        ],
+      }),
+    )
+    expect(card.caption).toContain('Red / S · 49.00 — in stock')
+    expect(card.caption).toContain('Blue / L · 69.00 — out of stock')
+    expect(card.caption).not.toContain('Default Title')
   })
 })
 

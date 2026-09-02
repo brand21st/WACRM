@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   CHECKOUT_BUTTON_LABEL,
+  ctaBodyFromCard,
   firstCheckoutFromCards,
   stripCheckoutFromReply,
   stripCheckoutUrlsFromReply,
@@ -62,5 +63,23 @@ describe('stripCheckoutUrlsFromReply', () => {
 describe('CHECKOUT_BUTTON_LABEL', () => {
   it('is Checkout', () => {
     expect(CHECKOUT_BUTTON_LABEL).toBe('Checkout')
+  })
+})
+
+describe('ctaBodyFromCard', () => {
+  it('puts variants on the WhatsApp card and drops the View permalink', () => {
+    expect(
+      ctaBodyFromCard({
+        title: 'Red Leather Tote',
+        caption:
+          'Red Leather Tote\n49.00 USD\nStock in\nVariants:\nRed / S — in stock\nBlue / L — out of stock\nView: https://shop.example/products/red-leather-tote',
+      }),
+    ).toBe(
+      'Red Leather Tote\n49.00 USD\nStock in\nVariants:\nRed / S — in stock\nBlue / L — out of stock',
+    )
+  })
+
+  it('falls back to the title when the caption is empty', () => {
+    expect(ctaBodyFromCard({ title: 'Red Bag', caption: '' })).toBe('Red Bag')
   })
 })

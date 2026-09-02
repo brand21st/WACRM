@@ -97,6 +97,8 @@ describe('buildSystemPrompt', () => {
     expect(prompt).toMatch(/Shopify is connected/)
     expect(prompt).toMatch(/Checkout button is sent separately/)
     expect(prompt).toMatch(/Do not paste checkout or Buy now URLs/)
+    expect(prompt).toMatch(/Product cards sent in chat already list variants/)
+    expect(prompt).toMatch(/matching variants from tool results/)
     expect(prompt).not.toMatch(/Do not mention Shopify/)
     expect(prompt).not.toMatch(/can’t find live products|can't find live products/)
     expect(prompt).not.toMatch(/This is their first message/)

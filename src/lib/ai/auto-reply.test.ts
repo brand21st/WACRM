@@ -177,7 +177,12 @@ beforeEach(() => {
     priceMin?: string | null
     priceMax?: string | null
     currency?: string | null
-    variants?: { available: boolean }[]
+    variants?: {
+      available: boolean
+      title?: string
+      price?: string | null
+      options?: { name: string; value: string }[]
+    }[]
   }) => {
     const inStock =
       p.variants && p.variants.length > 0
@@ -187,6 +192,23 @@ beforeEach(() => {
       p.priceMin && p.priceMax && p.priceMin !== p.priceMax
         ? `${p.priceMin}–${p.priceMax}${p.currency ? ` ${p.currency}` : ''}`
         : `${p.priceMin ?? ''}${p.currency ? ` ${p.currency}` : ''}`.trim()
+    const showPrice = Boolean(
+      p.priceMin && p.priceMax && p.priceMin !== p.priceMax,
+    )
+    const variantLines: string[] = []
+    for (const v of p.variants ?? []) {
+      const fromOptions = (v.options ?? [])
+        .map((o) => o.value.trim())
+        .filter((value) => value && !/^(default(?: title)?)$/i.test(value))
+      const label =
+        fromOptions.join(' / ') ||
+        (v.title && !/^(default(?: title)?)$/i.test(v.title) ? v.title : '')
+      if (!label) continue
+      const variantPrice = showPrice && v.price?.trim() ? ` · ${v.price}` : ''
+      variantLines.push(
+        `${label}${variantPrice} — ${v.available ? 'in stock' : 'out of stock'}`,
+      )
+    }
     return {
       title: p.title,
       imageUrl: p.imageUrl ?? null,
@@ -198,6 +220,7 @@ beforeEach(() => {
         p.title,
         price,
         inStock ? 'Stock in' : 'Stock out',
+        ...(variantLines.length > 0 ? ['Variants:', ...variantLines] : []),
         p.productUrl ? `View: ${p.productUrl}` : '',
       ]
         .filter(Boolean)
@@ -870,7 +893,7 @@ describe('dispatchInboundToAiReply — OpenAI Realtime voice', () => {
       expect.objectContaining({
         displayText: 'Checkout',
         url: 'https://shop.example/cart/99:1?checkout',
-        bodyText: 'Red Bag',
+        bodyText: 'Red Bag\n49 USD\nStock in',
       }),
     )
     const imageCall = h.engineSendMedia.mock.calls.findIndex(
@@ -941,14 +964,14 @@ describe('dispatchInboundToAiReply — OpenAI Realtime voice', () => {
       1,
       expect.objectContaining({
         url: 'https://shop.example/cart/99:1?checkout',
-        bodyText: 'Red Bag',
+        bodyText: 'Red Bag\n49 USD\nStock in',
       }),
     )
     expect(h.engineSendCtaUrl).toHaveBeenNthCalledWith(
       2,
       expect.objectContaining({
         url: 'https://shop.example/cart/88:1?checkout',
-        bodyText: 'Blue Hat',
+        bodyText: 'Blue Hat\n19 USD\nStock in',
       }),
     )
     const ctaOrders = h.engineSendCtaUrl.mock.invocationCallOrder
@@ -1102,7 +1125,34 @@ describe('dispatchInboundToAiReply — vision photo match', () => {
         priceMin: '49',
         priceMax: '49',
         currency: 'USD',
-        variants: [],
+        variants: [
+          {
+            id: 'gid://shopify/ProductVariant/9',
+            variantId: '99',
+            title: 'Small',
+            sku: 'BAG-S',
+            price: '49',
+            compareAtPrice: null,
+            available: true,
+            options: [
+              { name: 'Color', value: 'Red' },
+              { name: 'Size', value: 'S' },
+            ],
+          },
+          {
+            id: 'gid://shopify/ProductVariant/10',
+            variantId: '100',
+            title: 'Large',
+            sku: 'BAG-L',
+            price: '49',
+            compareAtPrice: null,
+            available: false,
+            options: [
+              { name: 'Color', value: 'Blue' },
+              { name: 'Size', value: 'L' },
+            ],
+          },
+        ],
       },
     ])
     h.generateReply.mockResolvedValue({
@@ -1121,6 +1171,7 @@ describe('dispatchInboundToAiReply — vision photo match', () => {
       expect.objectContaining({
         kind: 'image',
         link: 'https://cdn.example/bag.jpg',
+        caption: expect.stringMatching(/Variants:[\s\S]*Red \/ S — in stock/),
       }),
     )
     expect(h.engineSendInteractiveButtons).toHaveBeenCalledWith(
@@ -1134,9 +1185,12 @@ describe('dispatchInboundToAiReply — vision photo match', () => {
       expect.objectContaining({
         displayText: 'Checkout',
         url: 'https://shop.example/cart/99:1?checkout',
-        bodyText: 'Red Bag',
+        bodyText: expect.stringMatching(
+          /Red Bag[\s\S]*Variants:[\s\S]*Red \/ S — in stock[\s\S]*Blue \/ L — out of stock/,
+        ),
       }),
     )
+    expect(h.engineSendCtaUrl.mock.calls[0][0].bodyText).not.toMatch(/View:/)
   })
 
   it('does not skip photo matching when the LLM would not call a tool', async () => {

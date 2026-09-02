@@ -235,6 +235,7 @@ function summarizeProduct(p: ShopifyProductHit) {
       sku: v.sku,
       price: v.price,
       available: v.available,
+      options: v.options.map((o) => `${o.name}: ${o.value}`),
       cart_url: p.productUrl
         ? p.cartUrl && v.variantId
           ? p.cartUrl.replace(/\/cart\/[^/]+/, `/cart/${v.variantId}:1`)
@@ -249,6 +250,39 @@ export function productInStock(p: ShopifyProductHit): boolean {
   return p.variants.some((v) => v.available)
 }
 
+const PLACEHOLDER_VARIANT = /^(default(?: title)?)$/i
+const MAX_VARIANT_CAPTION_LINES = 8
+
+function variantDisplayLabel(v: ShopifyProductHit['variants'][number]): string {
+  const fromOptions = v.options
+    .map((o) => o.value.trim())
+    .filter((value) => value && !PLACEHOLDER_VARIANT.test(value))
+  if (fromOptions.length > 0) return fromOptions.join(' / ')
+  const title = v.title.trim()
+  if (title && !PLACEHOLDER_VARIANT.test(title)) return title
+  return ''
+}
+
+function variantCaptionLines(
+  variants: ShopifyProductHit['variants'],
+  showPrice: boolean,
+): string[] {
+  const lines: string[] = []
+  for (const v of variants) {
+    const label = variantDisplayLabel(v)
+    if (!label) continue
+    const price = showPrice && v.price?.trim() ? ` · ${v.price}` : ''
+    const stock = v.available ? 'in stock' : 'out of stock'
+    lines.push(`${label}${price} — ${stock}`)
+  }
+  if (lines.length === 0) return []
+  const shown = lines.slice(0, MAX_VARIANT_CAPTION_LINES)
+  const extra = lines.length - shown.length
+  const block = ['Variants:', ...shown]
+  if (extra > 0) block.push(`+${extra} more`)
+  return block
+}
+
 export function toCard(p: ShopifyProductHit): ShopifyProductCard {
   const price =
     p.priceMin && p.priceMax && p.priceMin !== p.priceMax
@@ -259,6 +293,10 @@ export function toCard(p: ShopifyProductHit): ShopifyProductCard {
     p.title,
     price,
     inStock ? 'Stock in' : 'Stock out',
+    ...variantCaptionLines(
+      p.variants,
+      Boolean(p.priceMin && p.priceMax && p.priceMin !== p.priceMax),
+    ),
     p.productUrl ? `View: ${p.productUrl}` : '',
   ].filter(Boolean)
   return {
