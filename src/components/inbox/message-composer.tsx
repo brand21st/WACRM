@@ -55,6 +55,9 @@ import {
 import { validateInteractivePayload } from "@/lib/whatsapp/interactive";
 import type { InteractiveMessagePayload, QuickReply } from "@/types";
 import { QuickReplyPicker } from "./quick-reply-picker";
+import { LiveRecordWaveform } from "./whatsapp-voice-wave";
+import { VoiceNotePlayer } from "./voice-note-player";
+import { playRecordBeep } from "@/lib/inbox/voice-record-beep";
 
 /** Media content types an agent can send from the composer. */
 export type ComposerMediaKind = "image" | "video" | "document" | "audio";
@@ -182,7 +185,12 @@ export function MessageComposer({
   const [recordSeconds, setRecordSeconds] = useState(0);
   const recorderRef = useRef<import("opus-recorder").default | null>(null);
   const cancelledRef = useRef(false);
+  const startingRef = useRef(false);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const micStreamRef = useRef<MediaStream | null>(null);
+  const micContextRef = useRef<AudioContext | null>(null);
+  const [liveAnalyser, setLiveAnalyser] = useState<AnalyserNode | null>(null);
+  const [micStarting, setMicStarting] = useState(false);
 
   // Viewers (read-only role) can browse the inbox but never send.
   // For solo users this is always true — single-owner accounts pass
@@ -199,6 +207,16 @@ export function MessageComposer({
     }
   }, []);
 
+  const releaseMicHardware = useCallback(() => {
+    micStreamRef.current?.getTracks().forEach((track) => track.stop());
+    micStreamRef.current = null;
+    const ctx = micContextRef.current;
+    micContextRef.current = null;
+    if (ctx && ctx.state !== "closed") {
+      void ctx.close().catch(() => {});
+    }
+  }, []);
+
   // Tear down any live recording + timer on unmount so a mid-record
   // navigation doesn't leak the mic, and GC a staged-but-unsent
   // attachment so it doesn't orphan in the bucket.
@@ -206,11 +224,11 @@ export function MessageComposer({
     return () => {
       clearTimer();
       cancelledRef.current = true;
-      // stop() releases the mic stream + audio context inside opus-recorder.
       void recorderRef.current?.stop().catch(() => {});
+      releaseMicHardware();
       removeStaged(draftRef.current?.path);
     };
-  }, [clearTimer, removeStaged]);
+  }, [clearTimer, releaseMicHardware, removeStaged]);
 
   const adjustHeight = useCallback(() => {
     const el = textareaRef.current;
@@ -427,6 +445,9 @@ export function MessageComposer({
       // Uint8Array is a valid BlobPart at runtime; the cast sidesteps the
       // lib.dom ArrayBufferLike-vs-ArrayBuffer generic mismatch.
       const file = new File([bytes as unknown as BlobPart], `voice-${Date.now()}.ogg`, {
+        // Bucket allow-list is exact-match `audio/ogg` (no codecs=).
+        // Meta still treats the Opus payload as a native voice note
+        // when the send path sets `voice: true`.
         type: "audio/ogg",
       });
       if (file.size === 0) return; // cancelled / empty take
@@ -449,51 +470,119 @@ export function MessageComposer({
   );
 
   const startRecording = useCallback(async () => {
-    if (inputsDisabled || busy || recording) return;
+    if (inputsDisabled || busy || recording || startingRef.current) return;
     if (!navigator.mediaDevices?.getUserMedia || typeof AudioContext === "undefined") {
       toast.error("Voice recording isn't supported in this browser.");
       return;
     }
+    startingRef.current = true;
+    setMicStarting(true);
+    cancelledRef.current = false;
+    // Same click turn as the mic tap — HTMLAudio is not gated by the
+    // mic AudioContext (which is still suspended / not created yet).
+    playRecordBeep("start");
     try {
-      // Lazy-load the encoder (≈400 KB worker) only when the user records,
-      // keeping it out of the main bundle.
-      const { default: Recorder } = await import("opus-recorder");
+      // Must run in the click turn. Dynamic-importing the encoder first
+      // drops transient user activation, so Chrome/Safari refuse getUserMedia
+      // with no prompt — the mic button looks dead.
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+      });
+      if (cancelledRef.current) {
+        stream.getTracks().forEach((track) => track.stop());
+        return;
+      }
+      micStreamRef.current = stream;
+
+      const audioCtx = new AudioContext();
+      if (audioCtx.state === "suspended") {
+        await audioCtx.resume().catch(() => {});
+      }
+      micContextRef.current = audioCtx;
+      const source = audioCtx.createMediaStreamSource(stream);
+      const analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 256;
+      analyser.smoothingTimeConstant = 0.55;
+      source.connect(analyser);
+      setLiveAnalyser(analyser);
+      setRecording(true);
+      setRecordSeconds(0);
+      timerRef.current = setInterval(() => setRecordSeconds((s) => s + 1), 1000);
+
+      const opus = await import("opus-recorder");
+      const Recorder = opus.default;
       const recorder = new Recorder({
         encoderPath: OPUS_ENCODER_PATH,
         numberOfChannels: 1,
         encoderApplication: 2048, // VOIP — tuned for speech
         encoderSampleRate: 48000,
-        streamPages: false, // one callback with the complete file on stop
+        streamPages: false,
+        sourceNode: source,
+        // opus-recorder connects the mic to speakers via monitorGain.
+        // Any non-zero value (or a browser click on that path) is the
+        // "record sound" leaking into the room.
+        monitorGain: 0,
       });
-      cancelledRef.current = false;
       recorder.ondataavailable = (bytes) => {
         if (cancelledRef.current) return;
         void finalizeRecording(bytes);
       };
       recorderRef.current = recorder;
       await recorder.start();
-      setRecording(true);
-      setRecordSeconds(0);
-      timerRef.current = setInterval(() => setRecordSeconds((s) => s + 1), 1000);
-    } catch {
+      recorder.setMonitorGain?.(0);
+      const monitor = (
+        recorder as unknown as { monitorGainNode?: AudioNode }
+      ).monitorGainNode;
+      try {
+        monitor?.disconnect();
+      } catch {
+        // Already disconnected — fine.
+      }
+    } catch (err) {
+      console.error("[composer] mic start failed", err);
+      cancelledRef.current = true;
+      clearTimer();
       void recorderRef.current?.stop().catch(() => {});
       recorderRef.current = null;
-      toast.error("Microphone access denied or unavailable.");
+      setLiveAnalyser(null);
+      setRecording(false);
+      releaseMicHardware();
+      const denied =
+        err instanceof DOMException &&
+        (err.name === "NotAllowedError" || err.name === "PermissionDeniedError");
+      toast.error(
+        denied
+          ? "Microphone access denied. Allow it in the browser address bar."
+          : "Couldn't start the microphone. Try again.",
+      );
+    } finally {
+      startingRef.current = false;
+      setMicStarting(false);
     }
-  }, [inputsDisabled, busy, recording, finalizeRecording]);
+  }, [inputsDisabled, busy, recording, finalizeRecording, clearTimer, releaseMicHardware]);
 
-  const stopRecording = useCallback(() => {
-    clearTimer();
-    setRecording(false);
-    void recorderRef.current?.stop().catch(() => {});
-  }, [clearTimer]);
+  const finishRecording = useCallback(
+    (cancel: boolean) => {
+      if (cancel) cancelledRef.current = true;
+      clearTimer();
+      setLiveAnalyser(null);
+      setRecording(false);
+      const recorder = recorderRef.current;
+      recorderRef.current = null;
+      if (!cancel) playRecordBeep("stop");
+      void Promise.resolve(recorder?.stop())
+        .catch(() => {})
+        .finally(() => releaseMicHardware());
+    },
+    [clearTimer, releaseMicHardware],
+  );
 
-  const cancelRecording = useCallback(() => {
-    cancelledRef.current = true;
-    clearTimer();
-    setRecording(false);
-    void recorderRef.current?.stop().catch(() => {});
-  }, [clearTimer]);
+  const stopRecording = useCallback(() => finishRecording(false), [finishRecording]);
+  const cancelRecording = useCallback(() => finishRecording(true), [finishRecording]);
 
   // Auto-stop at the cap so a forgotten recording can't blow the
   // upload size limit.
@@ -609,8 +698,18 @@ export function MessageComposer({
         // Recording bar — replaces the composer while the mic is live.
         <div className="flex items-center gap-3 rounded-xl border border-border bg-muted px-4 py-2.5">
           <span className="flex h-2.5 w-2.5 shrink-0 animate-pulse rounded-full bg-red-500" />
-          <span className="flex-1 text-sm text-foreground">
+          <div className="min-w-0 flex-1">
+            {liveAnalyser ? (
+              <LiveRecordWaveform analyser={liveAnalyser} />
+            ) : (
+              <div className="h-8 w-full rounded-md bg-background/40" />
+            )}
+          </div>
+          <span className="sr-only">
             {t("recording", { current: formatDuration(recordSeconds), max: formatDuration(MAX_RECORDING_SECONDS) })}
+          </span>
+          <span className="shrink-0 text-sm tabular-nums text-foreground">
+            {formatDuration(recordSeconds)}
           </span>
           <button
             type="button"
@@ -760,16 +859,21 @@ export function MessageComposer({
             </GatedButton>
           ) : (
             <GatedButton
+              type="button"
               size="sm"
               canAct={!readOnly}
               gateReason="send messages"
-              disabled={inputsDisabled || busy}
+              disabled={inputsDisabled || busy || micStarting}
               title={readOnly ? undefined : t("recordVoiceNote")}
               aria-label={t("recordVoiceNote")}
               onClick={() => void startRecording()}
               className="h-9 w-9 shrink-0 bg-primary p-0 hover:bg-primary/90 disabled:opacity-40"
             >
-              <Mic className="h-4 w-4" />
+              {micStarting ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Mic className="h-4 w-4" />
+              )}
             </GatedButton>
           )}
         </div>
@@ -850,6 +954,47 @@ function MediaDraftPreview({
   onSend: () => void;
   t: ReturnType<typeof useTranslations>;
 }) {
+  const sendButton = (
+    <GatedButton
+      size="sm"
+      canAct={!readOnly}
+      gateReason="send messages"
+      disabled={busy}
+      onClick={onSend}
+      className="h-9 w-9 shrink-0 bg-primary p-0 hover:bg-primary/90 disabled:opacity-40"
+    >
+      <Send className="h-4 w-4" />
+    </GatedButton>
+  );
+
+  const discardButton = (
+    <button
+      type="button"
+      onClick={onDiscard}
+      aria-label={t("removeAttachment")}
+      className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+    >
+      <X className="h-4 w-4" />
+    </button>
+  );
+
+  if (draft.kind === "audio") {
+    return (
+      <div className="flex items-center gap-2 rounded-xl border border-border bg-muted/40 p-3">
+        <div className="min-w-0 flex-1">
+          <VoiceNotePlayer
+            src={draft.mediaUrl}
+            playLabel={t("voiceNote")}
+            pauseLabel={t("voiceNote")}
+            variant="preview"
+          />
+        </div>
+        {sendButton}
+        {discardButton}
+      </div>
+    );
+  }
+
   return (
     <div className="rounded-xl border border-border bg-muted/40 p-3">
       <div className="flex items-start gap-3">
@@ -865,9 +1010,6 @@ function MediaDraftPreview({
           {draft.kind === "video" && (
             <video src={draft.mediaUrl} controls className="max-h-40 rounded-lg" />
           )}
-          {draft.kind === "audio" && (
-            <audio src={draft.mediaUrl} controls className="w-full" />
-          )}
           {draft.kind === "document" && (
             <div className="flex items-center gap-2 text-sm text-foreground">
               <FileText className="h-5 w-5 shrink-0 text-muted-foreground" />
@@ -875,45 +1017,24 @@ function MediaDraftPreview({
             </div>
           )}
         </div>
-        <button
-          type="button"
-          onClick={onDiscard}
-          aria-label={t("removeAttachment")}
-          className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
-        >
-          <X className="h-4 w-4" />
-        </button>
+        {discardButton}
       </div>
 
-      <div className="mt-2 flex items-end gap-2">
-        {draft.kind !== "audio" && (
-          <input
-            value={draft.caption}
-            maxLength={MEDIA_CAPTION_MAX}
-            onChange={(e) => onCaptionChange(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                onSend();
-              }
-            }}
-            placeholder={t("addCaption")}
-            className="flex-1 rounded-xl border border-border bg-muted px-4 py-2.5 text-sm text-foreground placeholder-muted-foreground outline-none transition-colors focus:border-primary/50"
-          />
-        )}
-        <GatedButton
-          size="sm"
-          canAct={!readOnly}
-          gateReason="send messages"
-          disabled={busy}
-          onClick={onSend}
-          className={cn(
-            "h-9 w-9 shrink-0 bg-primary p-0 hover:bg-primary/90 disabled:opacity-40",
-            draft.kind === "audio" && "ml-auto",
-          )}
-        >
-          <Send className="h-4 w-4" />
-        </GatedButton>
+      <div className="mt-2 flex w-full items-end justify-end gap-2">
+        <input
+          value={draft.caption}
+          maxLength={MEDIA_CAPTION_MAX}
+          onChange={(e) => onCaptionChange(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              onSend();
+            }
+          }}
+          placeholder={t("addCaption")}
+          className="min-w-0 flex-1 rounded-xl border border-border bg-muted px-4 py-2.5 text-sm text-foreground placeholder-muted-foreground outline-none transition-colors focus:border-primary/50"
+        />
+        {sendButton}
       </div>
     </div>
   );

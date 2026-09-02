@@ -361,6 +361,10 @@ export async function sendMessageToConversation(
         link: mediaUrl!,
         caption: contentText || undefined,
         filename: filename || undefined,
+        // Inbox audio is always a recorded Ogg/Opus clip. Without this
+        // flag Meta renders a downloadable file instead of a native
+        // WhatsApp voice note (waveform + mic).
+        voice: messageType === 'audio',
         contextMessageId,
       });
       return result.messageId;

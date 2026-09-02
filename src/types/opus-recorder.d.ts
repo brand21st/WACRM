@@ -17,6 +17,10 @@ declare module "opus-recorder" {
     encoderBitRate?: number;
     /** When false (default), ondataavailable fires once with the full file. */
     streamPages?: boolean;
+    /** When set, the caller owns the AudioContext and mic stream. */
+    sourceNode?: MediaStreamAudioSourceNode;
+    /** 0–1 monitor volume to speakers. Must stay 0 so the mic isn't echoed. */
+    monitorGain?: number;
   }
 
   export default class Recorder {
@@ -25,6 +29,10 @@ declare module "opus-recorder" {
     ondataavailable: ((data: Uint8Array) => void) | null;
     start(): Promise<void>;
     stop(): Promise<void>;
+    setMonitorGain?(gain: number): void;
+    /** Set after start() — used to tap a live AnalyserNode. */
+    sourceNode?: AudioNode;
+    audioContext?: AudioContext;
     /** Browser support probe exposed as a static on the class. */
     static isRecordingSupported(): boolean;
   }

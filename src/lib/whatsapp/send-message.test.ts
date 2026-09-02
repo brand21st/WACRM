@@ -163,6 +163,7 @@ describe('SendMessageError', () => {
 // ============================================================
 
 const sendTemplateMessage = vi.fn(async () => ({ messageId: 'wamid.1' }));
+const sendMediaMessage = vi.fn(async () => ({ messageId: 'wamid.media' }));
 
 // Stub only the senders — the module also exports INTERACTIVE_LIMITS,
 // which `interactive.ts` needs for the payload validation covered above.
@@ -171,7 +172,8 @@ vi.mock('@/lib/whatsapp/meta-api', async (importOriginal) => ({
   sendTextMessage: vi.fn(async () => ({ messageId: 'wamid.text' })),
   sendTemplateMessage: (...args: unknown[]) =>
     (sendTemplateMessage as unknown as (...a: unknown[]) => unknown)(...args),
-  sendMediaMessage: vi.fn(async () => ({ messageId: 'wamid.media' })),
+  sendMediaMessage: (...args: unknown[]) =>
+    (sendMediaMessage as unknown as (...a: unknown[]) => unknown)(...args),
   sendInteractiveButtons: vi.fn(async () => ({ messageId: 'wamid.btn' })),
   sendInteractiveList: vi.fn(async () => ({ messageId: 'wamid.list' })),
 }));
@@ -344,5 +346,25 @@ describe('sendMessageToConversation — template persistence (#483)', () => {
     // name rather than inventing a body.
     expect(captured.message?.content_text).toBeNull();
     expect(captured.conversation?.last_message_text).toBe('[template]');
+  });
+});
+
+describe('sendMessageToConversation — audio voice notes', () => {
+  it('sends Ogg audio as a native WhatsApp voice note', async () => {
+    sendMediaMessage.mockClear();
+    const captured: CapturedWrites = {};
+    await sendMessageToConversation(sendPathDb([], captured), 'acct-1', {
+      conversationId: 'cv-1',
+      messageType: 'audio',
+      mediaUrl: 'https://cdn.test/voice.ogg',
+    });
+    expect(sendMediaMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: 'audio',
+        link: 'https://cdn.test/voice.ogg',
+        voice: true,
+      }),
+    );
+    expect(captured.message?.content_type).toBe('audio');
   });
 });

@@ -9,6 +9,7 @@ import {
   Maximize2,
   type LucideIcon,
 } from "lucide-react";
+import { VoiceNotePlayer } from "./voice-note-player";
 import { toast } from "sonner";
 import { useTranslations } from "next-intl";
 import { cn } from "@/lib/utils";
@@ -232,9 +233,22 @@ export function MediaAudioBubble({
 }) {
   const { downloading, download } = useMediaDownload(message, t);
 
+  if (!message.media_url) {
+    return <MediaUnavailable label={t("audio")} t={t} />;
+  }
+
   return (
     <div className="flex items-center gap-2">
-      <audio src={message.media_url} controls className="max-w-60" />
+      <VoiceNotePlayer
+        src={message.media_url}
+        playLabel={t("playVoiceNote")}
+        pauseLabel={t("pauseVoiceNote")}
+        variant={
+          message.sender_type === "agent" || message.sender_type === "bot"
+            ? "outbound"
+            : "inbound"
+        }
+      />
       <MediaActionButton
         icon={Download}
         label={t("download")}

@@ -236,6 +236,8 @@
       "photo": "Photo",
       "video": "Video",
       "audio": "Audio",
+      "playVoiceNote": "Play voice note",
+      "pauseVoiceNote": "Pause voice note",
       "unavailable": "{label} unavailable",
       "document": "Document",
       "locationShared": "Location shared",
