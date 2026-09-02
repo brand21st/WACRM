@@ -106,6 +106,8 @@ describe('transcribeInboundVoiceNote', () => {
     expect(h.elevenLabsStt).toHaveBeenCalled()
     warn.mockRestore()
   })
+
+  it('never throws when STT fails', async () => {
     h.elevenLabsStt.mockRejectedValue(new Error('down'))
     await expect(transcribeInboundVoiceNote(BASE)).resolves.toBeNull()
   })

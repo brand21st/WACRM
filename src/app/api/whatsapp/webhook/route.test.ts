@@ -5,6 +5,8 @@ const h = vi.hoisted(() => ({
   runAutomationsForTrigger: vi.fn(),
   dispatchInboundToFlows: vi.fn(),
   dispatchInboundToAiReply: vi.fn(),
+  enqueueVoiceInboundJob: vi.fn(),
+  transcribeInboundVoiceNote: vi.fn(),
   dispatchWebhookEvent: vi.fn(),
   loadAiConfig: vi.fn(),
   state: {
@@ -79,6 +81,9 @@ vi.mock('@supabase/supabase-js', () => ({
                 }),
               }),
             }),
+            update: () => ({
+              eq: () => Promise.resolve({ error: null }),
+            }),
           }
         case 'broadcast_recipients':
           // flagBroadcastReplyIfAny: select().eq().eq().in().order().limit()
@@ -136,6 +141,9 @@ vi.mock('@supabase/supabase-js', () => ({
                   }),
               }
             },
+            update: () => ({
+              eq: () => Promise.resolve({ error: null }),
+            }),
           }
         default:
           throw new Error(`unexpected table: ${table}`)
@@ -198,6 +206,12 @@ vi.mock('@/lib/flows/engine', () => ({
 }))
 vi.mock('@/lib/ai/auto-reply', () => ({
   dispatchInboundToAiReply: h.dispatchInboundToAiReply,
+}))
+vi.mock('@/lib/ai/voice-inbound-jobs', () => ({
+  enqueueVoiceInboundJob: h.enqueueVoiceInboundJob,
+}))
+vi.mock('@/lib/ai/transcribe-inbound', () => ({
+  transcribeInboundVoiceNote: h.transcribeInboundVoiceNote,
 }))
 vi.mock('@/lib/ai/config', () => ({
   loadAiConfig: h.loadAiConfig,
@@ -278,6 +292,8 @@ beforeEach(() => {
   })
   h.dispatchInboundToFlows.mockResolvedValue({ consumed: false })
   h.dispatchInboundToAiReply.mockResolvedValue(undefined)
+  h.enqueueVoiceInboundJob.mockResolvedValue(true)
+  h.transcribeInboundVoiceNote.mockResolvedValue(null)
   h.dispatchWebhookEvent.mockResolvedValue(undefined)
   h.loadAiConfig.mockResolvedValue(null)
   h.runAutomationsForTrigger.mockImplementation(() => {
@@ -602,5 +618,77 @@ describe('inbound webhook: after() awaits automations (#368)', () => {
     // If the dispatches were fire-and-forget, completed would still be 0
     // here — the callback would have resolved before the timers fired.
     expect(h.state.automationCompleted).toBe(3)
+  })
+})
+
+describe('inbound webhook: voice notes are queued for cron', () => {
+  const AUDIO_MESSAGE = {
+    id: 'wamid.AUD1',
+    from: '15551230000',
+    timestamp: '1700000000',
+    type: 'audio',
+    audio: { id: 'media-voice-1', mime_type: 'audio/ogg; codecs=opus' },
+  }
+
+  beforeEach(() => {
+    mockGetMediaUrl.mockResolvedValue({
+      url: 'https://lookaside.fbsbx.com/whatsapp/ogg',
+      mimeType: 'audio/ogg',
+      fileSize: 4096,
+    })
+    mockDownloadMedia.mockResolvedValue({
+      buffer: Buffer.alloc(4096),
+      contentType: 'audio/ogg',
+    })
+  })
+
+  it('enqueues a job and does not transcribe or auto-reply inline', async () => {
+    h.loadAiConfig.mockResolvedValue({
+      autoReplyEnabled: true,
+      fullAgentEnabled: false,
+    })
+
+    await runWebhook(AUDIO_MESSAGE)
+
+    expect(h.enqueueVoiceInboundJob).toHaveBeenCalledWith(
+      expect.objectContaining({
+        accountId: 'acc-1',
+        conversationId: 'conv-1',
+        contactId: 'contact-1',
+        messageId: 'msg-1',
+        userId: 'user-1',
+        metaMessageId: 'wamid.AUD1',
+        mediaId: 'media-voice-1',
+        mimeType: 'audio/ogg; codecs=opus',
+      }),
+    )
+    expect(h.transcribeInboundVoiceNote).not.toHaveBeenCalled()
+    expect(h.dispatchInboundToAiReply).not.toHaveBeenCalled()
+    expect(h.dispatchInboundToFlows).not.toHaveBeenCalled()
+  })
+
+  it('falls back to inline STT + AI when enqueue fails', async () => {
+    h.enqueueVoiceInboundJob.mockResolvedValueOnce(false)
+    h.transcribeInboundVoiceNote.mockResolvedValueOnce('hello from voice')
+    h.loadAiConfig.mockResolvedValue({
+      autoReplyEnabled: true,
+      fullAgentEnabled: false,
+    })
+
+    await runWebhook(AUDIO_MESSAGE)
+
+    expect(h.transcribeInboundVoiceNote).toHaveBeenCalled()
+    expect(h.dispatchInboundToAiReply).toHaveBeenCalledWith(
+      expect.objectContaining({
+        inboundContentType: 'audio',
+        inboundMetaMessageId: 'wamid.AUD1',
+      }),
+    )
+  })
+
+  it('does not enqueue on an idempotent Meta replay', async () => {
+    h.state.messageUpsertResult = []
+    await runWebhook(AUDIO_MESSAGE)
+    expect(h.enqueueVoiceInboundJob).not.toHaveBeenCalled()
   })
 })

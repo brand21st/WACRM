@@ -10,6 +10,7 @@ const PUBLIC_API_PREFIXES = [
   '/api/automations/cron',
   '/api/flows/cron',
   '/api/shopify/notifications/cron',
+  '/api/voice/cron',
 ]
 
 // Public legal pages Meta's go-live crawler fetches (no session).

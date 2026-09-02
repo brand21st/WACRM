@@ -289,7 +289,7 @@ node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 
 | Variable | Purpose |
 |----------|---------|
-| `AUTOMATION_CRON_SECRET` | Protects `GET /api/automations/cron`, `/api/flows/cron`, `/api/shopify/notifications/cron`, and `/api/whatsapp/broadcast/cron` |
+| `AUTOMATION_CRON_SECRET` | Protects `GET /api/automations/cron`, `/api/flows/cron`, `/api/shopify/notifications/cron`, `/api/whatsapp/broadcast/cron`, and `/api/voice/cron` |
 | `META_APP_ID` | Required for image-header message templates |
 | `AI_REQUEST_TIMEOUT_MS` | AI call timeout (default `30000`) |
 | `AI_CONTEXT_MESSAGE_LIMIT` | Messages sent to AI (default `20`) |
@@ -500,9 +500,11 @@ curl -s -H "x-cron-secret: <AUTOMATION_CRON_SECRET>" \
 
 Also schedule `GET /api/flows/cron` if using Flows,
 `GET /api/shopify/notifications/cron` if using delayed Shopify
-templates (abandoned checkout / after delivered), and
+templates (abandoned checkout / after delivered),
 `GET /api/whatsapp/broadcast/cron` if using scheduled broadcasts
-(one due campaign per minute tick).
+(one due campaign per minute tick), and `GET /api/voice/cron`
+every 10–30s if inbound voice notes should be transcribed and
+answered off the webhook request.
 
 Returns `503` until `AUTOMATION_CRON_SECRET` is set.
 

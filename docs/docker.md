@@ -70,8 +70,11 @@ docker run -d --env-file .env.local -e PORT=3000 -p 3000:3000 wacrm
   Wait steps, flow timeouts, delayed Shopify order templates, or
   scheduled broadcasts, point an external scheduler at
   `GET /api/automations/cron`, `GET /api/flows/cron`,
-  `GET /api/shopify/notifications/cron`, and
-  `GET /api/whatsapp/broadcast/cron` on this
+  `GET /api/shopify/notifications/cron`,
+  `GET /api/whatsapp/broadcast/cron`, and
+  `GET /api/voice/cron` on this
   deployment, sending the shared secret in the `x-cron-secret` header
-  (`AUTOMATION_CRON_SECRET`, see `.env.local.example`). All four return
-  503 until that variable is set.
+  (`AUTOMATION_CRON_SECRET`, see `.env.local.example`). All five return
+  503 until that variable is set. Hit `/api/voice/cron` every 10–30s
+  so overlapping inbound voice notes transcribe and get a spoken
+  reply without holding Meta's webhook open.

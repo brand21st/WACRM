@@ -38,7 +38,7 @@ Teams use one WhatsApp Business number as a shared workspace: talk to customers,
 | Data + auth | Supabase (Postgres, RLS, Auth, Storage, Realtime) |
 | WhatsApp | Official Meta Cloud API |
 | Secrets | AES-256-GCM (`ENCRYPTION_KEY`) |
-| Jobs | External HTTP cron hits `/api/automations/cron`, `/api/flows/cron`, `/api/whatsapp/broadcast/cron`, `/api/shopify/notifications/cron` |
+| Jobs | External HTTP cron hits `/api/automations/cron`, `/api/flows/cron`, `/api/whatsapp/broadcast/cron`, `/api/shopify/notifications/cron`, `/api/voice/cron` |
 
 There is no separate backend and no ORM. Server routes talk to Supabase via `@supabase/ssr`.
 

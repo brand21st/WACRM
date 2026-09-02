@@ -167,20 +167,18 @@ export const RATE_LIMITS = {
   aiDraftAccount: { limit: 60, windowMs: 60_000 },
   /** AI auto-reply generation, per account. The per-conversation cap
    *  (`auto_reply_max_per_conversation`) bounds one thread; this bounds
-   *  the whole account across threads, so a burst of inbound from many
-   *  customers at once can't run the BYO key past the provider's limit
-   *  or the owner's budget. 30/min is generous for organic inbound while
-   *  capping a stampede; excess inbounds simply don't get an auto-reply
-   *  (they still land in the inbox for a human). */
-  aiAutoReplyAccount: { limit: 30, windowMs: 60_000 },
+   *  the whole account across threads. Sized for a burst of concurrent
+   *  inbound (many customers speaking at once). Excess still attempts
+   *  a reply — dropping it was the overlapping-voice failure mode. */
+  aiAutoReplyAccount: { limit: 180, windowMs: 60_000 },
   /** Playground push-to-talk (STT + generation + TTS), per user. */
   aiVoice: { limit: 15, windowMs: 60_000 },
   /** Playground voice + ElevenLabs test/preview, per account. Caps
    *  spend on the shared BYO ElevenLabs key. */
   aiVoiceAccount: { limit: 40, windowMs: 60_000 },
-  /** Inbound WhatsApp STT, per account. Voice notes that miss this
-   *  bucket are kept without a transcript for a human to handle. */
-  aiSttAccount: { limit: 40, windowMs: 60_000 },
+  /** Inbound WhatsApp STT, per account. Soft budget only — overlapping
+   *  voice notes still transcribe so a burst cannot drop customers. */
+  aiSttAccount: { limit: 300, windowMs: 60_000 },
   /** OpenAI Realtime WhatsApp voice replies, per account. Costlier
    *  than batch TTS; excess inbounds fall back to ElevenLabs or skip
    *  speech. */

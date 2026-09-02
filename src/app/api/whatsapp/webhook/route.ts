@@ -17,6 +17,7 @@ import { sendPhotoWaitAck } from '@/lib/ai/photo-wait-ack'
 import { engineSendTypingIndicator } from '@/lib/flows/meta-send'
 import { loadShopifyConfig } from '@/lib/shopify/config'
 import { transcribeInboundVoiceNote } from '@/lib/ai/transcribe-inbound'
+import { enqueueVoiceInboundJob } from '@/lib/ai/voice-inbound-jobs'
 import { dispatchWebhookEvent } from '@/lib/webhooks/deliver'
 import { mapPool } from '@/lib/concurrency'
 import {
@@ -806,38 +807,54 @@ async function processMessage(
   // SQL — see the helper for why that matters.
   await reopenClosedConversation(supabaseAdmin(), conversation)
 
-  // Speech-to-text for inbound voice notes. Runs AFTER the insert so a
-  // Meta replay that loses the insert race (ignoreDuplicates → empty)
-  // never re-transcribes. Failures are non-fatal: the audio row stays
-  // and a human can listen. The transcript is written to the existing
-  // `content_text` column — no extra transcript field.
+  // Speech-to-text + spoken auto-reply run off this request via
+  // `voice_inbound_jobs` (GET /api/voice/cron). Holding Meta's webhook
+  // open for overlapping OGG downloads + ElevenLabs used to 500 the
+  // lookaside CDN and skip the reply. Queue after insert so a replay
+  // that loses the insert race never double-queues. If enqueue itself
+  // fails, fall back to the old inline path so one DB blip does not
+  // drop the transcript.
+  let queuedVoice = false
   if (
     contentType === 'audio' &&
     message.audio?.id &&
     insertedRows?.[0]?.id
   ) {
-    const transcript = await transcribeInboundVoiceNote({
+    queuedVoice = await enqueueVoiceInboundJob({
+      db: supabaseAdmin(),
       accountId,
+      conversationId: conversation.id,
+      contactId: contactRecord.id,
+      messageId: insertedRows[0].id,
+      userId: configOwnerUserId,
+      metaMessageId: message.id,
       mediaId: message.audio.id,
-      accessToken,
       mimeType: mediaType,
-      contentText,
-      contentType,
-      audio: mediaBuffer,
     })
-    if (transcript) {
-      contentText = transcript
-      const { error: trErr } = await supabaseAdmin()
-        .from('messages')
-        .update({ content_text: transcript })
-        .eq('id', insertedRows[0].id)
-      if (trErr) {
-        console.error('[webhook] failed to persist audio transcript:', trErr)
-      } else {
-        await supabaseAdmin()
-          .from('conversations')
-          .update({ last_message_text: transcript })
-          .eq('id', conversation.id)
+    if (!queuedVoice) {
+      const transcript = await transcribeInboundVoiceNote({
+        accountId,
+        mediaId: message.audio.id,
+        accessToken,
+        mimeType: mediaType,
+        contentText,
+        contentType,
+        audio: mediaBuffer,
+      })
+      if (transcript) {
+        contentText = transcript
+        const { error: trErr } = await supabaseAdmin()
+          .from('messages')
+          .update({ content_text: transcript })
+          .eq('id', insertedRows[0].id)
+        if (trErr) {
+          console.error('[webhook] failed to persist audio transcript:', trErr)
+        } else {
+          await supabaseAdmin()
+            .from('conversations')
+            .update({ last_message_text: transcript })
+            .eq('id', conversation.id)
+        }
       }
     }
   }
@@ -1040,6 +1057,7 @@ async function processMessage(
         ? 'image'
         : 'text'
   const shouldAiReply =
+    !queuedVoice &&
     aiConfig?.autoReplyEnabled &&
     inboundText.trim() &&
     (!interactiveReplyId || aiConfig.fullAgentEnabled) &&
@@ -1228,9 +1246,11 @@ async function parseMessageContent(
 
     case 'audio':
       if (message.audio?.id) {
-        const audio = await verifyAndBuildUrl(message.audio.id, null, {
-          needBytes: true,
-        })
+        // Bytes are for the inbox mirror (and the enqueue-failed
+        // inline STT fallback). The cron worker re-fetches from Meta
+        // for transcription so overlapping customers are not all
+        // downloading OGGs inside one webhook POST.
+        const audio = await verifyAndBuildUrl(message.audio.id)
         return {
           ...empty,
           mediaUrl: audio.url,
