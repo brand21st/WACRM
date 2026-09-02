@@ -103,7 +103,7 @@ export function LiveAiStation() {
                 ok={liveAiReady}
                 okLabel={t('stationVoiceReady')}
                 badLabel={t('stationVoiceMissing')}
-                href="/agents/voice"
+                href="/agents"
               />
               <CheckRow
                 ok={shopifyConnected}
