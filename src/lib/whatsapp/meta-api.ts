@@ -1380,6 +1380,15 @@ export async function downloadWhatsAppMedia(
 export interface CallSettingsCalling {
   status?: 'ENABLED' | 'DISABLED'
   call_icon_visibility?: 'DEFAULT' | 'DISABLE_ALL'
+  call_hours?: {
+    status?: 'ENABLED' | 'DISABLED'
+    timezone_id?: string
+    weekly_operating_hours?: Array<{
+      day_of_week: string
+      open_time: string
+      close_time: string
+    }>
+  }
 }
 
 export interface GetCallSettingsArgs {
@@ -1427,16 +1436,24 @@ export async function updateCallSettings(
 
 export type CallGraphAction = 'pre_accept' | 'accept' | 'reject' | 'terminate'
 
+export interface CallRecordingPayload {
+  status: 'ENABLED' | 'DISABLED'
+  purpose?: string
+  announcement_language?: string
+}
+
 export interface CallActionArgs {
   phoneNumberId: string
   accessToken: string
   callId: string
   action: CallGraphAction
   session?: { sdpType: 'answer' | 'offer'; sdp: string }
+  /** Official Meta call recording. Docs: send on `accept` only, not `pre_accept`. */
+  recording?: CallRecordingPayload
 }
 
 export async function callAction(args: CallActionArgs): Promise<void> {
-  const { phoneNumberId, accessToken, callId, action, session } = args
+  const { phoneNumberId, accessToken, callId, action, session, recording } = args
   const url = `${META_API_BASE}/${phoneNumberId}/calls`
   const body: Record<string, unknown> = {
     messaging_product: 'whatsapp',
@@ -1445,6 +1462,9 @@ export async function callAction(args: CallActionArgs): Promise<void> {
   }
   if (session) {
     body.session = { sdp_type: session.sdpType, sdp: session.sdp }
+  }
+  if (recording) {
+    body.recording = recording
   }
   const response = await fetch(url, {
     method: 'POST',

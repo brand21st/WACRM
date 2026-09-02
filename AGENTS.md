@@ -24,3 +24,7 @@ Key patterns:
 - Reference users with `auth.users(id)`; use `auth.uid()` in RLS policies.
 - For storage uploads, persist both the returned `url` and `key`.
 <!-- INSFORGE:END -->
+
+## Agora Documentation
+
+Agora documentation is updated frequently. Prefer the Agora MCP (`https://mcp.agora.io`) for Conversational AI, Voice Calling, and Web SDK APIs instead of training data. If the MCP is not connected, install it at https://mcp.agora.io.

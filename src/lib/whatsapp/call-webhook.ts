@@ -2,8 +2,8 @@
  * WhatsApp Cloud API `calls` webhook field.
  *
  * Connect: persist SDP + ringing row + thread bubble, bump the
- * conversation. Terminate: finalize status/duration. No automations,
- * no media download — Meta's accept window is 30–60 seconds.
+ * conversation. Terminate: finalize status/duration. Recording:
+ * download Meta's mixed audio after hang-up and attach it to the thread.
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js'
@@ -11,7 +11,10 @@ import type { CallStatus } from '@/types'
 
 import { findExistingContact, isUniqueViolation } from '@/lib/contacts/dedupe'
 import { encodeCallPreview } from '@/lib/calls/preview'
+import { persistMetaCallRecording } from '@/lib/calling/persist-meta-recording'
+import { processCallRecording } from '@/lib/calling/process-recording'
 import { normalizeOfferSdp } from '@/lib/calls/sdp'
+import { decrypt } from '@/lib/whatsapp/encryption'
 import { normalizePhone } from '@/lib/whatsapp/phone-utils'
 
 export interface CallsWebhookCall {
@@ -28,6 +31,15 @@ export interface CallsWebhookCall {
   session?: { sdp_type?: string; sdp?: string }
   connection?: { webrtc?: { sdp?: string } }
   errors?: Array<{ code?: number; message?: string }>
+  call_recording?: {
+    type?: string
+    audio?: {
+      id?: string
+      sha256?: string
+      mime_type?: string
+      url?: string
+    }
+  }
 }
 
 export interface CallsWebhookValue {
@@ -53,7 +65,7 @@ export async function handleCallsWebhook(
   const phoneNumberId = value.metadata.phone_number_id
   const { data: configRows, error: configError } = await db
     .from('whatsapp_config')
-    .select('account_id, user_id')
+    .select('account_id, user_id, access_token')
     .eq('phone_number_id', phoneNumberId)
 
   if (configError) {
@@ -79,7 +91,11 @@ export async function handleCallsWebhook(
     return
   }
 
-  const config = configRows[0] as { account_id: string; user_id: string }
+  const config = configRows[0] as {
+    account_id: string
+    user_id: string
+    access_token?: string
+  }
 
   for (const call of calls) {
     if (!call?.id || !call.event) continue
@@ -88,6 +104,8 @@ export async function handleCallsWebhook(
         await handleConnect(db, value, call, config)
       } else if (call.event === 'terminate') {
         await handleTerminate(db, call)
+      } else if (call.event === 'call_recording_available') {
+        await handleRecordingAvailable(db, call, config)
       } else {
         console.info('[calls webhook] ignoring event:', call.event, call.id)
       }
@@ -283,6 +301,50 @@ async function handleTerminate(
       })
       .eq('id', row.conversation_id)
   }
+}
+
+async function handleRecordingAvailable(
+  db: SupabaseClient,
+  call: CallsWebhookCall,
+  config: { account_id: string; access_token?: string },
+): Promise<void> {
+  const audio = call.call_recording?.audio
+  if (!audio?.id) {
+    console.warn('[calls webhook] recording event missing audio id:', call.id)
+    return
+  }
+  if (!config.access_token) {
+    console.error('[calls webhook] recording missing access token')
+    return
+  }
+  let accessToken: string
+  try {
+    accessToken = decrypt(config.access_token)
+  } catch {
+    console.error('[calls webhook] recording token decrypt failed')
+    return
+  }
+
+  const persisted = await persistMetaCallRecording({
+    db,
+    accountId: config.account_id,
+    metaCallId: call.id,
+    accessToken,
+    audio: {
+      id: audio.id,
+      sha256: audio.sha256,
+      mime_type: audio.mime_type,
+    },
+  })
+  if (!persisted) return
+
+  void processCallRecording({
+    accountId: config.account_id,
+    callId: persisted.callId,
+    settings: persisted.settings,
+  }).catch((err) => {
+    console.error('[calls webhook] post-recording pipeline', err)
+  })
 }
 
 function parseTerminateOutcome(raw: unknown): CallStatus {

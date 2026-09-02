@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState, useCallback } from 'react';
+import Link from 'next/link';
 import { toast } from 'sonner';
 import {
   Eye,
@@ -87,7 +88,6 @@ export function WhatsAppConfig() {
   const [mirrorMedia, setMirrorMedia] = useState(true);
   const [savingMirror, setSavingMirror] = useState(false);
   const [callingEnabled, setCallingEnabled] = useState(false);
-  const [savingCalling, setSavingCalling] = useState(false);
   const [callingError, setCallingError] = useState<string | null>(null);
 
   // True once /register has succeeded on Meta's side (timestamp set
@@ -230,43 +230,6 @@ export function WhatsAppConfig() {
       toast.error(t('mirrorInboundSaveFailed'));
     } finally {
       setSavingMirror(false);
-    }
-  }
-
-  async function handleToggleCalling(next: boolean) {
-    if (!config || savingCalling) return;
-    const previous = callingEnabled;
-    setCallingEnabled(next);
-    setSavingCalling(true);
-    setCallingError(null);
-    try {
-      const res = await fetch('/api/whatsapp/calls/settings', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ enabled: next }),
-      });
-      const payload = (await res.json().catch(() => ({}))) as {
-        error?: string;
-        calling_status?: string;
-      };
-      if (!res.ok) {
-        throw new Error(payload.error || t('callingSaveFailed'));
-      }
-      setCallingEnabled(payload.calling_status === 'enabled');
-      setConfig({
-        ...config,
-        calling_status: payload.calling_status === 'enabled' ? 'enabled' : 'disabled',
-        last_calling_error: null,
-      });
-      toast.success(next ? t('callingEnabledToast') : t('callingDisabledToast'));
-    } catch (error) {
-      console.error('Failed to update calling setting:', error);
-      setCallingEnabled(previous);
-      const message = error instanceof Error ? error.message : t('callingSaveFailed');
-      setCallingError(message);
-      toast.error(message);
-    } finally {
-      setSavingCalling(false);
     }
   }
 
@@ -817,26 +780,15 @@ export function WhatsAppConfig() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
-              <div className="flex items-center justify-between gap-4 rounded-md border border-border p-3">
-                <div>
-                  <p className="text-sm font-medium text-foreground">
-                    {t('callingEnable')}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    {t('callingEnableDesc')}
-                  </p>
-                </div>
-                <Switch
-                  checked={callingEnabled}
-                  onCheckedChange={handleToggleCalling}
-                  disabled={
-                    savingCalling ||
-                    !canEditSettings ||
-                    connectionStatus !== 'connected'
-                  }
-                  aria-label={t('callingEnable')}
-                />
-              </div>
+              <p className="text-sm text-muted-foreground">
+                {callingEnabled ? t('callingEnable') : t('callingEnableDesc')}
+              </p>
+              <Link
+                href="/calling/settings"
+                className="inline-flex text-sm font-medium text-primary underline-offset-4 hover:underline"
+              >
+                {t('callingHubLink')}
+              </Link>
               {callingError && (
                 <p className="text-xs text-destructive">{callingError}</p>
               )}

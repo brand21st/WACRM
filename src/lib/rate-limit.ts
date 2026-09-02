@@ -133,6 +133,8 @@ export const RATE_LIMITS = {
   react: { limit: 120, windowMs: 60_000 },
   /** Inbound WhatsApp call accept/reject/hang-up. Same budget as send. */
   callAction: { limit: 60, windowMs: 60_000 },
+  /** Upload a mixed call recording after hang-up. */
+  callRecording: { limit: 20, windowMs: 60_000 },
   /** Invitation peek (public, per-IP). 30/min lets a forwarded link
    *  retry a handful of times under flaky connectivity without
    *  enabling brute-force token enumeration. With 256-bit tokens the
@@ -191,6 +193,10 @@ export const RATE_LIMITS = {
   /** Shopify catalog sync, per user. A full catalog page-walk is
    *  expensive; a handful of clicks a minute is plenty. */
   shopifyCatalogSync: { limit: 6, windowMs: 60_000 },
+  /** Live call AI turns (STT + ChatGPT + TTS) per user. */
+  liveAiTurn: { limit: 40, windowMs: 60_000 },
+  /** Live call AI turns per account, bounding shared BYO keys. */
+  liveAiTurnAccount: { limit: 80, windowMs: 60_000 },
 } as const;
 
 /** Test-only helper. Clears the in-memory state so unit tests don't

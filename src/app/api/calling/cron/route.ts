@@ -1,0 +1,28 @@
+import { timingSafeEqual } from 'node:crypto'
+import { NextResponse } from 'next/server'
+import { expireCallRecordings } from '@/lib/calling/retention'
+
+export async function GET(request: Request) {
+  const expected = process.env.AUTOMATION_CRON_SECRET
+  if (!expected) {
+    return NextResponse.json({ error: 'cron not configured' }, { status: 503 })
+  }
+  const supplied = request.headers.get('x-cron-secret') ?? ''
+  const suppliedBuf = Buffer.from(supplied)
+  const expectedBuf = Buffer.from(expected)
+  if (
+    suppliedBuf.length !== expectedBuf.length ||
+    !timingSafeEqual(suppliedBuf, expectedBuf)
+  ) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
+  try {
+    const result = await expireCallRecordings()
+    return NextResponse.json(result)
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    console.error('[calling/cron]', err)
+    return NextResponse.json({ error: message }, { status: 500 })
+  }
+}

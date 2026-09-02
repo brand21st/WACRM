@@ -127,6 +127,15 @@ export async function dispatchInboundToAiReply(
     if (convErr || !conv) return
     if (conv.assigned_agent_id) return // a human owns this thread
     if (conv.ai_autoreply_disabled && !config.fullAgentEnabled) return
+
+    const { data: liveCalls } = await db
+      .from('calls')
+      .select('id')
+      .eq('conversation_id', conversationId)
+      .in('status', ['connecting', 'in_progress'])
+      .limit(1)
+    if (liveCalls && liveCalls.length > 0) return
+
     // Cheap early-out; the authoritative cap check is the atomic claim
     // below (this read can race a concurrent inbound).
     if (
@@ -551,7 +560,7 @@ async function claimReplySlot(
   return claimed === true
 }
 
-async function generateCustomerFacingReply(args: {
+export async function generateCustomerFacingReply(args: {
   db: SupabaseClient
   config: AiConfig
   accountId: string
@@ -626,7 +635,7 @@ async function generateCustomerFacingReply(args: {
   }
 }
 
-function bindShopifyTools(
+export function bindShopifyTools(
   db: SupabaseClient,
   shopify: ShopifyStoreConfig | null,
   contactPhone: string | null,
@@ -674,7 +683,7 @@ async function hydrateCardImages(
 
 const MAX_PRODUCT_CARDS = 3
 
-async function sendProductCards(
+export async function sendProductCards(
   sendArgs: {
     accountId: string
     userId: string

@@ -19,6 +19,7 @@ import {
   Radio,
   Settings,
   Shield,
+  Phone,
   User,
   UserCog,
   Users,
@@ -99,6 +100,20 @@ interface NavItem {
 const navItems: NavItem[] = [
   { href: "/dashboard", labelKey: "dashboard", icon: LayoutDashboard },
   { href: "/inbox", labelKey: "inbox", icon: MessageSquare },
+  {
+    href: "/calling",
+    labelKey: "whatsappCalling",
+    icon: Phone,
+    children: [
+      { href: "/calling", labelKey: "callingAnalytics" },
+      { href: "/calling/settings", labelKey: "callingSettings" },
+      { href: "/calling/recording", labelKey: "callingRecording" },
+      { href: "/calling/transcription", labelKey: "callingTranscription" },
+      { href: "/calling/ai", labelKey: "callingAi" },
+      { href: "/calling/live-ai", labelKey: "callingLiveAi" },
+      { href: "/calling/forwarding", labelKey: "callingForwarding" },
+    ],
+  },
   { href: "/notifications", labelKey: "notifications", icon: Bell },
   { href: "/contacts", labelKey: "contacts", icon: Users },
   { href: "/pipelines", labelKey: "pipelines", icon: GitBranch },
@@ -129,7 +144,7 @@ interface SidebarProps {
 import { useTranslations } from "next-intl";
 
 function childIsActive(pathname: string, href: string): boolean {
-  if (href === "/agents") return pathname === "/agents";
+  if (href === "/agents" || href === "/calling") return pathname === href;
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
@@ -139,6 +154,9 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
   const { profile, profileLoading, account, accountRole, signOut } = useAuth();
   const [agentsOpen, setAgentsOpen] = useState(() =>
     pathname.startsWith("/agents"),
+  );
+  const [callingOpen, setCallingOpen] = useState(() =>
+    pathname.startsWith("/calling"),
   );
   const totalUnread = useTotalUnread();
   const unreadNotifications = useUnreadNotifications();
@@ -165,6 +183,7 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
 
   useEffect(() => {
     if (pathname.startsWith("/agents")) setAgentsOpen(true);
+    if (pathname.startsWith("/calling")) setCallingOpen(true);
   }, [pathname]);
 
   // Lock body scroll and allow Escape to close while the drawer is open on
@@ -251,7 +270,12 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
                 item.href === "/notifications" && unreadNotifications > 0;
 
               if (item.children?.length) {
-                const expanded = item.href === "/agents" ? agentsOpen : isGroupActive;
+                const expanded =
+                  item.href === "/agents"
+                    ? agentsOpen
+                    : item.href === "/calling"
+                      ? callingOpen
+                      : isGroupActive;
                 return (
                   <li key={item.href}>
                     <button
@@ -259,6 +283,7 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
                       aria-expanded={expanded}
                       onClick={() => {
                         if (item.href === "/agents") setAgentsOpen((open) => !open);
+                        if (item.href === "/calling") setCallingOpen((open) => !open);
                       }}
                       className={cn(
                         "flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors lg:py-2",

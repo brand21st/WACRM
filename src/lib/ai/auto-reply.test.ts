@@ -29,6 +29,7 @@ const h = vi.hoisted(() => ({
   state: {
     conv: null as Record<string, unknown> | null,
     autoResponders: [] as { id: string }[],
+    liveCalls: [] as { id: string }[],
     claim: true as boolean,
     updatePayload: null as Record<string, unknown> | null,
     rpcCalls: [] as { name: string; args: unknown }[],
@@ -83,6 +84,16 @@ vi.mock('@/lib/audio/pcm-to-opus', () => ({
 vi.mock('./admin-client', () => ({
   supabaseAdmin: () => ({
     from: (table: string) => {
+      if (table === 'calls') {
+        const chain = {
+          select: () => chain,
+          eq: () => chain,
+          in: () => chain,
+          limit: () =>
+            Promise.resolve({ data: h.state.liveCalls, error: null }),
+        }
+        return chain
+      }
       if (table === 'automations') {
         // .select().eq().eq().in().limit() → active auto-responders
         const chain = {
@@ -158,6 +169,7 @@ beforeEach(() => {
     ai_reply_count: 0,
   }
   h.state.autoResponders = []
+  h.state.liveCalls = []
   h.state.claim = true
   h.state.updatePayload = null
   h.state.rpcCalls = []
@@ -280,6 +292,13 @@ describe('dispatchInboundToAiReply — eligibility gates', () => {
       expect.objectContaining({ conversationId: 'conv-1', text: 'Hello!' }),
     )
     expect(h.engineSendTypingIndicator).not.toHaveBeenCalled()
+  })
+
+  it('skips auto-reply while a live WhatsApp call is in progress', async () => {
+    h.state.liveCalls = [{ id: 'call-1' }]
+    await dispatchInboundToAiReply(ARGS)
+    expect(h.generateReply).not.toHaveBeenCalled()
+    expect(h.engineSendText).not.toHaveBeenCalled()
   })
 
   it('grounds the reply in retrieved knowledge', async () => {

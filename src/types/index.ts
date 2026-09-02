@@ -341,6 +341,53 @@ export interface Call {
   created_at: string;
   updated_at: string;
   contact?: Pick<Contact, 'id' | 'name' | 'phone'> | null;
+  recording_key?: string | null;
+  recording_url?: string | null;
+  recording_bytes?: number | null;
+  recorded_at?: string | null;
+  transcript?: string | null;
+  transcript_status?: 'pending' | 'ready' | 'failed' | 'skipped' | null;
+  ai_summary?: string | null;
+  ai_followup_draft?: string | null;
+  ai_status?: 'pending' | 'ready' | 'failed' | 'skipped' | null;
+  consent_announced?: boolean;
+  /** True when the Live AI station claimed this call. */
+  ai_answered?: boolean;
+}
+
+export type CallHoursDay = {
+  day_of_week: 'MONDAY' | 'TUESDAY' | 'WEDNESDAY' | 'THURSDAY' | 'FRIDAY' | 'SATURDAY' | 'SUNDAY' | string;
+  open_time: string;
+  close_time: string;
+};
+
+export type CallHours = {
+  status?: 'ENABLED' | 'DISABLED';
+  timezone_id?: string;
+  weekly_operating_hours?: CallHoursDay[];
+};
+
+export type LiveAiAnswer = 'off' | 'ai_first' | 'after_timeout';
+
+export interface CallingSettings {
+  account_id: string;
+  recording_enabled: boolean;
+  announce_recording: boolean;
+  /** Spoken after Meta's recording announcement prefix. Max 250 characters. */
+  recording_purpose: string;
+  /** Meta `announcement_language` locale, e.g. en_US. */
+  recording_announcement_language: string;
+  retention_days: number;
+  transcribe_enabled: boolean;
+  ai_enabled: boolean;
+  ai_auto_send_followup: boolean;
+  ring_timeout_seconds: number;
+  answer_policy: 'any_agent' | 'assigned_only';
+  call_hours: CallHours | null;
+  call_icon_visibility: 'DEFAULT' | 'DISABLE_ALL';
+  live_ai_answer: LiveAiAnswer;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface ShopifyConfig {

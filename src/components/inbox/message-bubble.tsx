@@ -25,6 +25,7 @@ import {
 } from "./message-media";
 import { InteractivePreview } from "@/components/interactive/interactive-preview";
 import { parseCallPreview, formatCallDuration } from "@/lib/calls/preview";
+import { CallBubbleRecording } from "./call-bubble-recording";
 import { useTranslations } from "next-intl";
 
 interface MessageBubbleProps {
@@ -202,9 +203,12 @@ function MessageContent({
         label = t("callInProgress");
       }
       return (
-        <div className="flex items-center gap-2 text-sm">
-          <Phone className="h-4 w-4 shrink-0 text-muted-foreground" />
-          <span>{label}</span>
+        <div>
+          <div className="flex items-center gap-2 text-sm">
+            <Phone className="h-4 w-4 shrink-0 text-muted-foreground" />
+            <span>{label}</span>
+          </div>
+          <CallBubbleRecording metaCallId={message.message_id} />
         </div>
       );
     }
@@ -311,6 +315,18 @@ export function MessageBubble({
             >
               <Sparkles className="h-2.5 w-2.5" />
               {t("aiBadge")}
+            </span>
+          )}
+          {message.message_id?.startsWith("callturn:") && (
+            <span
+              className={cn(
+                "inline-flex items-center rounded-full px-1.5 py-px text-[9px] font-semibold uppercase leading-none tracking-wide",
+                isAgent
+                  ? "bg-primary-foreground/20 text-primary-foreground"
+                  : "bg-background/60 text-muted-foreground",
+              )}
+            >
+              {t("onCallBadge")}
             </span>
           )}
           <span

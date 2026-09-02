@@ -15,8 +15,11 @@ import {
   MetaApiError,
   updateCallSettings,
   type CallGraphAction,
+  type CallRecordingPayload,
+  type CallSettingsCalling,
 } from '@/lib/whatsapp/meta-api'
 import { encodeCallPreview } from '@/lib/calls/preview'
+import { ensureCallingSettings, metaRecordingPayload } from '@/lib/calling/settings'
 
 let _admin: SupabaseClient | null = null
 function admin(): SupabaseClient {
@@ -94,6 +97,7 @@ async function graphCall(
   metaCallId: string,
   action: CallGraphAction,
   sdp?: string,
+  recording?: CallRecordingPayload,
 ): Promise<void> {
   try {
     await callAction({
@@ -104,6 +108,7 @@ async function graphCall(
       session: sdp
         ? { sdpType: 'answer', sdp }
         : undefined,
+      recording,
     })
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Calling API failed'
@@ -141,12 +146,14 @@ export async function claimRingingCall(
   accountId: string,
   callId: string,
   userId: string,
+  opts?: { aiAnswered?: boolean },
 ): Promise<Call | null> {
   const { data, error } = await admin()
     .from('calls')
     .update({
       status: 'connecting',
       answered_by: userId,
+      ai_answered: Boolean(opts?.aiAnswered),
     })
     .eq('id', callId)
     .eq('account_id', accountId)
@@ -165,13 +172,16 @@ export async function preAcceptCall(args: {
   userId: string
   callId: string
   sdp: string
+  aiAnswered?: boolean
 }): Promise<Call> {
   const { accountId, userId, callId, sdp } = args
   if (!sdp.trim()) {
     throw new CallActionError(400, 'sdp is required')
   }
 
-  const claimed = await claimRingingCall(accountId, callId, userId)
+  const claimed = await claimRingingCall(accountId, callId, userId, {
+    aiAnswered: args.aiAnswered,
+  })
   if (!claimed) {
     throw new CallActionError(409, 'Call already claimed', 'already_claimed')
   }
@@ -182,7 +192,7 @@ export async function preAcceptCall(args: {
   } catch (err) {
     await admin()
       .from('calls')
-      .update({ status: 'ringing', answered_by: null })
+      .update({ status: 'ringing', answered_by: null, ai_answered: false })
       .eq('id', claimed.id)
       .eq('status', 'connecting')
     throw err
@@ -212,7 +222,12 @@ export async function acceptCall(args: {
   }
 
   const creds = await loadCreds(accountId)
-  await graphCall(creds, call.meta_call_id, 'accept', sdp)
+  const settings = await ensureCallingSettings(admin(), accountId)
+  const recording = metaRecordingPayload(settings)
+  if (settings.recording_enabled && !recording) {
+    throw new CallActionError(400, 'Recording purpose is required', 'recording_purpose')
+  }
+  await graphCall(creds, call.meta_call_id, 'accept', sdp, recording ?? undefined)
 
   const startedAt = new Date().toISOString()
   const { data, error } = await admin()
@@ -336,17 +351,19 @@ export function callingErrorMessage(err: unknown): {
 export async function setCallingEnabled(args: {
   accountId: string
   enabled: boolean
+  call_icon_visibility?: 'DEFAULT' | 'DISABLE_ALL'
 }): Promise<{ calling_status: 'enabled' | 'disabled' }> {
   const { accountId, enabled } = args
   const creds = await loadCreds(accountId)
   const status = enabled ? 'ENABLED' : 'DISABLED'
+  const icon = args.call_icon_visibility ?? 'DEFAULT'
 
   try {
     await updateCallSettings({
       phoneNumberId: creds.phoneNumberId,
       accessToken: creds.accessToken,
       calling: enabled
-        ? { status, call_icon_visibility: 'DEFAULT' }
+        ? { status, call_icon_visibility: icon }
         : { status },
     })
   } catch (err) {
@@ -373,6 +390,38 @@ export async function setCallingEnabled(args: {
   }
 
   return { calling_status }
+}
+
+export async function syncMetaCallAppearance(args: {
+  accountId: string
+  enabled: boolean
+  call_icon_visibility: 'DEFAULT' | 'DISABLE_ALL'
+  call_hours?: CallSettingsCalling['call_hours'] | null
+}): Promise<void> {
+  const creds = await loadCreds(args.accountId)
+  const calling: CallSettingsCalling = {
+    status: args.enabled ? 'ENABLED' : 'DISABLED',
+    call_icon_visibility: args.call_icon_visibility,
+  }
+  if (args.call_hours) calling.call_hours = args.call_hours
+  try {
+    await updateCallSettings({
+      phoneNumberId: creds.phoneNumberId,
+      accessToken: creds.accessToken,
+      calling,
+    })
+  } catch (err) {
+    const { message, code } = callingErrorMessage(err)
+    await admin()
+      .from('whatsapp_config')
+      .update({ last_calling_error: message })
+      .eq('account_id', args.accountId)
+    throw new CallActionError(
+      400,
+      mapCallingEnableError(code, message),
+      code != null ? String(code) : undefined,
+    )
+  }
 }
 
 export function mapCallingEnableError(code: number | undefined, fallback: string): string {

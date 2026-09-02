@@ -5,6 +5,9 @@ import { encodeCallPreview } from '@/lib/calls/preview'
 const h = vi.hoisted(() => ({
   findExistingContact: vi.fn(),
   isUniqueViolation: vi.fn(() => false),
+  persistRecording: vi.fn(),
+  processRecording: vi.fn(),
+  decrypt: vi.fn((value: string) => `plain:${value}`),
   calls: {
     existing: null as { id: string; status: string } | null,
     inserted: { id: 'call-row-1' } as { id: string } | null,
@@ -16,9 +19,10 @@ const h = vi.hoisted(() => ({
       duration_seconds: number | null
     } | null,
   },
-  configRows: [{ account_id: 'acc-1', user_id: 'user-1' }] as Array<{
+  configRows: [{ account_id: 'acc-1', user_id: 'user-1', access_token: 'enc' }] as Array<{
     account_id: string
     user_id: string
+    access_token?: string
   }>,
   messageUpserts: [] as Record<string, unknown>[],
   rpcCalls: [] as { name: string; args: Record<string, unknown> }[],
@@ -28,6 +32,18 @@ const h = vi.hoisted(() => ({
 vi.mock('@/lib/contacts/dedupe', () => ({
   findExistingContact: h.findExistingContact,
   isUniqueViolation: h.isUniqueViolation,
+}))
+
+vi.mock('@/lib/calling/persist-meta-recording', () => ({
+  persistMetaCallRecording: h.persistRecording,
+}))
+
+vi.mock('@/lib/calling/process-recording', () => ({
+  processCallRecording: h.processRecording,
+}))
+
+vi.mock('@/lib/whatsapp/encryption', () => ({
+  decrypt: h.decrypt,
 }))
 
 function chain(result: unknown) {
@@ -185,6 +201,8 @@ describe('handleCallsWebhook', () => {
     h.messageUpserts = []
     h.rpcCalls = []
     h.callUpdates = []
+    h.persistRecording.mockReset()
+    h.processRecording.mockReset()
     currentSelectIsTerminate = false
   })
 
@@ -275,5 +293,65 @@ describe('handleCallsWebhook', () => {
       db as never,
     )
     expect(h.callUpdates[0]).toMatchObject({ status: 'rejected' })
+  })
+
+  it('downloads and attaches audio on call_recording_available', async () => {
+    h.persistRecording.mockResolvedValue({
+      callId: 'call-row-1',
+      settings: { recording_enabled: true },
+    })
+    h.processRecording.mockResolvedValue(undefined)
+    await handleCallsWebhook(
+      {
+        metadata: { phone_number_id: 'pn-1' },
+        calls: [
+          {
+            id: 'wacid.ABC',
+            event: 'call_recording_available',
+            call_recording: {
+              type: 'audio',
+              audio: {
+                id: 'media-1',
+                sha256: 'abc',
+                mime_type: 'audio/ogg; codecs=opus',
+              },
+            },
+          },
+        ],
+      },
+      db as never,
+    )
+    expect(h.persistRecording).toHaveBeenCalledWith(
+      expect.objectContaining({
+        accountId: 'acc-1',
+        metaCallId: 'wacid.ABC',
+        accessToken: 'plain:enc',
+        audio: { id: 'media-1', sha256: 'abc', mime_type: 'audio/ogg; codecs=opus' },
+      }),
+    )
+    await Promise.resolve()
+    expect(h.processRecording).toHaveBeenCalledWith(
+      expect.objectContaining({ accountId: 'acc-1', callId: 'call-row-1' }),
+    )
+  })
+
+  it('does not persist a replayed recording when persist returns null', async () => {
+    h.persistRecording.mockResolvedValue(null)
+    await handleCallsWebhook(
+      {
+        metadata: { phone_number_id: 'pn-1' },
+        calls: [
+          {
+            id: 'wacid.ABC',
+            event: 'call_recording_available',
+            call_recording: { audio: { id: 'media-1' } },
+          },
+        ],
+      },
+      db as never,
+    )
+    expect(h.persistRecording).toHaveBeenCalledTimes(1)
+    await Promise.resolve()
+    expect(h.processRecording).not.toHaveBeenCalled()
   })
 })

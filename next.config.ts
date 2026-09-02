@@ -44,11 +44,14 @@ const SECURITY_HEADERS = [
   { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
   {
     // Microphone is allowed for same-origin (`self`) so the inbox
-    // composer can record voice notes via MediaRecorder. Everything
-    // else stays denied — a compromised dependency can't silently grab
-    // the camera / geolocation / etc.
+    // composer can record voice notes via MediaRecorder and WhatsApp
+    // calling can capture the agent's mic. speaker-selection lets the
+    // call popup route remote audio with setSinkId. Everything else
+    // stays denied — a compromised dependency can't silently grab the
+    // camera / geolocation / etc.
     key: "Permissions-Policy",
-    value: "camera=(), microphone=(self), geolocation=(), payment=(), usb=()",
+    value:
+      "camera=(), microphone=(self), speaker-selection=(self), geolocation=(), payment=(), usb=()",
   },
   {
     key: "Content-Security-Policy-Report-Only",

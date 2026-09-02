@@ -4,14 +4,25 @@ const ICE_SERVERS: RTCIceServer[] = [
   { urls: 'stun:stun.l.google.com:19302' },
 ]
 
-export async function createInboundPeerConnection(offerSdp: string): Promise<{
+export async function createInboundPeerConnection(
+  offerSdp: string,
+  /**
+   * Must be registered *before* setRemoteDescription — Chromium fires
+   * `track` during that call, and a handler attached afterwards never
+   * sees the remote audio.
+   */
+  wireRemote?: (pc: RTCPeerConnection) => void,
+  options?: { localStream?: MediaStream },
+): Promise<{
   pc: RTCPeerConnection
   localStream: MediaStream
 }> {
-  const localStream = await navigator.mediaDevices.getUserMedia({
-    audio: true,
-    video: false,
-  })
+  const localStream =
+    options?.localStream ??
+    (await navigator.mediaDevices.getUserMedia({
+      audio: true,
+      video: false,
+    }))
   // Keep muted until Meta's accept returns 200 — sending RTP early
   // makes WhatsApp treat the call as already answered.
   for (const track of localStream.getAudioTracks()) {
@@ -19,6 +30,7 @@ export async function createInboundPeerConnection(offerSdp: string): Promise<{
   }
 
   const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS })
+  wireRemote?.(pc)
   for (const track of localStream.getTracks()) {
     pc.addTrack(track, localStream)
   }
@@ -33,16 +45,38 @@ export async function createInboundPeerConnection(offerSdp: string): Promise<{
   return { pc, localStream }
 }
 
+export function bindRemoteStream(
+  audioEl: HTMLAudioElement,
+  stream: MediaStream,
+  onAttached?: (el: HTMLAudioElement) => void,
+): void {
+  for (const track of stream.getAudioTracks()) {
+    track.enabled = true
+  }
+  audioEl.srcObject = stream
+  audioEl.autoplay = true
+  void audioEl.play().catch(() => {
+    // Autoplay may still block; speaker toggle / Answer retries play().
+  })
+  onAttached?.(audioEl)
+}
+
 export function attachRemoteAudio(
   pc: RTCPeerConnection,
   audioEl: HTMLAudioElement,
+  onAttached?: (el: HTMLAudioElement) => void,
 ): void {
-  pc.ontrack = (event) => {
-    const [stream] = event.streams
-    if (stream) audioEl.srcObject = stream
-    void audioEl.play().catch(() => {
-      // Autoplay may still block; the Answer click usually unlocks it.
-    })
+  const onTrack = (event: RTCTrackEvent) => {
+    if (event.track.kind !== 'audio') return
+    event.track.enabled = true
+    const stream = event.streams[0] ?? new MediaStream([event.track])
+    bindRemoteStream(audioEl, stream, onAttached)
+  }
+  pc.addEventListener('track', onTrack)
+  for (const receiver of pc.getReceivers()) {
+    const track = receiver.track
+    if (!track || track.kind !== 'audio' || track.readyState === 'ended') continue
+    bindRemoteStream(audioEl, new MediaStream([track]), onAttached)
   }
 }
 
@@ -65,30 +99,40 @@ export function waitForIceConnected(
   pc: RTCPeerConnection,
   timeoutMs = 15000,
 ): Promise<void> {
-  const ok = (s: RTCIceConnectionState) => s === 'connected' || s === 'completed'
-  if (ok(pc.iceConnectionState)) return Promise.resolve()
+  const iceOk = (s: RTCIceConnectionState) => s === 'connected' || s === 'completed'
+  const connOk = (s: RTCPeerConnectionState) => s === 'connected'
+  if (iceOk(pc.iceConnectionState) || connOk(pc.connectionState)) {
+    return Promise.resolve()
+  }
   return new Promise((resolve, reject) => {
     const cleanup = () => {
       clearTimeout(timer)
       pc.removeEventListener('iceconnectionstatechange', onChange)
+      pc.removeEventListener('connectionstatechange', onChange)
+    }
+    const succeed = () => {
+      cleanup()
+      resolve()
     }
     const timer = setTimeout(() => {
       cleanup()
       reject(new Error('ICE timeout'))
     }, timeoutMs)
     const onChange = () => {
-      if (ok(pc.iceConnectionState)) {
-        cleanup()
-        resolve()
+      if (iceOk(pc.iceConnectionState) || connOk(pc.connectionState)) {
+        succeed()
       } else if (
         pc.iceConnectionState === 'failed' ||
-        pc.iceConnectionState === 'closed'
+        pc.iceConnectionState === 'closed' ||
+        pc.connectionState === 'failed' ||
+        pc.connectionState === 'closed'
       ) {
         cleanup()
         reject(new Error('ICE failed'))
       }
     }
     pc.addEventListener('iceconnectionstatechange', onChange)
+    pc.addEventListener('connectionstatechange', onChange)
   })
 }
 
@@ -97,6 +141,21 @@ export function setLocalAudioEnabled(stream: MediaStream | null, enabled: boolea
   for (const track of stream.getAudioTracks()) {
     track.enabled = enabled
   }
+}
+
+export async function replaceSenderAudio(
+  pc: RTCPeerConnection | null,
+  nextStream: MediaStream,
+): Promise<void> {
+  if (!pc) return
+  const track = nextStream.getAudioTracks()[0]
+  if (!track) return
+  const sender = pc.getSenders().find((s) => s.track?.kind === 'audio')
+  if (sender) {
+    await sender.replaceTrack(track)
+    return
+  }
+  pc.addTrack(track, nextStream)
 }
 
 export function closePeer(

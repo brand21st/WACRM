@@ -22,6 +22,13 @@ import { SoundToggle } from "@/components/layout/sound-toggle";
 const pageTitles: Record<string, string> = {
   "/dashboard": "dashboard",
   "/inbox": "inbox",
+  "/calling/settings": "callingSettings",
+  "/calling/recording": "callingRecording",
+  "/calling/transcription": "callingTranscription",
+  "/calling/ai": "callingAi",
+  "/calling/live-ai": "callingLiveAi",
+  "/calling/forwarding": "callingForwarding",
+  "/calling": "whatsappCalling",
   "/notifications": "notifications",
   "/contacts": "contacts",
   "/pipelines": "pipelines",

@@ -20,7 +20,10 @@ export async function POST(
     if (!limit.success) return rateLimitResponse(limit)
 
     const { id } = await context.params
-    const body = (await request.json().catch(() => ({}))) as { sdp?: string }
+    const body = (await request.json().catch(() => ({}))) as {
+      sdp?: string
+      aiAnswered?: boolean
+    }
     const sdp = typeof body.sdp === 'string' ? body.sdp : ''
 
     const call = await preAcceptCall({
@@ -28,6 +31,7 @@ export async function POST(
       userId,
       callId: id,
       sdp,
+      aiAnswered: body.aiAnswered === true,
     })
     const { sdp_offer: _omit, ...rest } = call
     return NextResponse.json({ call: rest })
