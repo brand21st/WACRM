@@ -202,7 +202,8 @@
       "noCustomerMessages": "No customer messages"
     },
     "composer": {
-      "draftHint": "Tap the ✨ to draft a reply with AI — you can edit it before sending",
+      "draftHint": "Tap ✨ to draft with AI, or the mic to send a voice note",
+      "recordVoiceNote": "Record a voice note",
       "sessionExpiredHint": "24-hour session expired. Use a template to re-engage.",
       "templates": "Templates",
       "readOnlyPlaceholder": "Read-only — viewers can browse but not reply",
