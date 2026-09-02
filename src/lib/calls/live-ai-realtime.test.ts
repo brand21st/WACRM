@@ -55,6 +55,27 @@ describe('interpretRealtimeEvent', () => {
     })
   })
 
+  it('reads assistant text when OpenAI does not emit audio', () => {
+    expect(
+      interpretRealtimeEvent({
+        type: 'response.output_text.done',
+        text: '  Hello from the shop  ',
+        item_id: 'item_t',
+      }),
+    ).toEqual({
+      type: 'bot_transcript',
+      text: 'Hello from the shop',
+      itemId: 'item_t',
+      handoff: false,
+    })
+  })
+
+  it('flags barge-in when the caller starts speaking', () => {
+    expect(interpretRealtimeEvent({ type: 'input_audio_buffer.speech_started' })).toEqual({
+      type: 'barge_in',
+    })
+  })
+
   it('surfaces Realtime errors', () => {
     expect(
       interpretRealtimeEvent({

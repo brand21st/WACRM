@@ -1,7 +1,9 @@
-import type { CallingSettings, CallHours, LiveAiAnswer } from '@/types'
+import type { CallingSettings, CallHours, LiveAiAnswer, LiveAiVoice } from '@/types'
+import { normalizeLiveAiPromptField } from '@/lib/calling/live-ai-prompt'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 export const LIVE_AI_ANSWER_VALUES = ['off', 'ai_first', 'after_timeout'] as const
+export const LIVE_AI_VOICE_VALUES = ['elevenlabs', 'openai'] as const
 
 /** Graph `recording.purpose` when recording is ENABLED. Meta prepends its own prefix. */
 export const DEFAULT_RECORDING_PURPOSE = 'quality and training purposes'
@@ -46,10 +48,18 @@ const DEFAULTS = {
   call_hours: null as CallHours | null,
   call_icon_visibility: 'DEFAULT' as const,
   live_ai_answer: 'off' as LiveAiAnswer,
+  live_ai_voice: 'elevenlabs' as LiveAiVoice,
+  live_ai_behaviour: null as string | null,
+  live_ai_business_context: null as string | null,
+  live_ai_instructions: null as string | null,
 }
 
 export function parseLiveAiAnswer(value: unknown): LiveAiAnswer {
   return value === 'ai_first' || value === 'after_timeout' ? value : 'off'
+}
+
+export function parseLiveAiVoice(value: unknown): LiveAiVoice {
+  return value === 'openai' ? 'openai' : 'elevenlabs'
 }
 
 export function parseRecordingAnnouncementLanguage(
@@ -160,6 +170,10 @@ function normalizeCallingSettings(row: CallingSettings): CallingSettings {
   return {
     ...row,
     live_ai_answer: parseLiveAiAnswer(row.live_ai_answer),
+    live_ai_voice: parseLiveAiVoice(row.live_ai_voice),
+    live_ai_behaviour: normalizeLiveAiPromptField(row.live_ai_behaviour),
+    live_ai_business_context: normalizeLiveAiPromptField(row.live_ai_business_context),
+    live_ai_instructions: normalizeLiveAiPromptField(row.live_ai_instructions),
     recording_purpose:
       typeof row.recording_purpose === 'string'
         ? row.recording_purpose

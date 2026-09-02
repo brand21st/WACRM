@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   parseLiveAiAnswer,
+  parseLiveAiVoice,
   liveAiTimeoutMs,
   parseRecordingAnnouncementLanguage,
   sanitizeRecordingPurpose,
@@ -16,6 +17,13 @@ describe('live AI settings helpers', () => {
     expect(parseLiveAiAnswer('off')).toBe('off')
     expect(parseLiveAiAnswer('nope')).toBe('off')
     expect(parseLiveAiAnswer(undefined)).toBe('off')
+  })
+
+  it('parses live call voice and defaults to ElevenLabs', () => {
+    expect(parseLiveAiVoice('openai')).toBe('openai')
+    expect(parseLiveAiVoice('elevenlabs')).toBe('elevenlabs')
+    expect(parseLiveAiVoice('nope')).toBe('elevenlabs')
+    expect(parseLiveAiVoice(undefined)).toBe('elevenlabs')
   })
 
   it('caps auto-answer wait under Meta’s accept window', () => {

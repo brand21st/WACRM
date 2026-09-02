@@ -135,6 +135,31 @@ describe('textToSpeech', () => {
     expect(JSON.parse(fetchImpl.mock.calls[0][1].body).language_code).toBe('ml')
   })
 
+  it('retries without language_code when the model rejects that language', async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(
+        errResponse(400, {
+          detail: {
+            message: "Model 'eleven_flash_v2_5' does not support language_code 'ml'.",
+          },
+        }),
+      )
+      .mockResolvedValueOnce(okAudio(new Uint8Array([3])))
+    const out = await textToSpeech({
+      apiKey: 'xi-test',
+      voiceId: 'voice-1',
+      text: 'നമസ്കാരം',
+      languageCode: 'ml',
+      modelId: 'eleven_flash_v2_5',
+      fetchImpl,
+    })
+    expect(Array.from(out.bytes)).toEqual([3])
+    expect(fetchImpl).toHaveBeenCalledTimes(2)
+    expect(JSON.parse(fetchImpl.mock.calls[0][1].body).model_id).toBe('eleven_flash_v2_5')
+    expect(JSON.parse(fetchImpl.mock.calls[1][1].body).language_code).toBeUndefined()
+  })
+
   it('retries without language_code when v3 rejects the field', async () => {
     const fetchImpl = vi
       .fn()

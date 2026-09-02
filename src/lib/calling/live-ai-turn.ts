@@ -20,6 +20,8 @@ import {
 } from '@/lib/shopify'
 import type { ShopifyProductCard } from '@/lib/shopify'
 import { persistCallTurnMessage } from '@/lib/calling/persist-call-turn'
+import { loadCallingSettings } from '@/lib/calling/settings'
+import { liveAiCallUserPrompt } from '@/lib/calling/live-ai-prompt'
 import type { Call } from '@/types'
 import type { ChatMessage } from '@/lib/ai/types'
 
@@ -175,8 +177,14 @@ export async function runLiveAiTurn(args: {
   const customerName = speakableFirstName(contactRow?.name)
   const firstInbound =
     args.kind === 'greeting' || !contextMessages.some((m) => m.role === 'user')
+  const settings = await loadCallingSettings(db, args.accountId)
   const systemPrompt = buildSystemPrompt({
-    userPrompt: config.systemPrompt,
+    userPrompt: liveAiCallUserPrompt({
+      behaviour: settings.live_ai_behaviour,
+      businessContext: settings.live_ai_business_context,
+      instructions: settings.live_ai_instructions,
+      chatPrompt: config.systemPrompt,
+    }),
     mode: 'auto_reply',
     knowledge,
     shopify: Boolean(shopify),

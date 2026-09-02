@@ -369,6 +369,9 @@ export type CallHours = {
 
 export type LiveAiAnswer = 'off' | 'ai_first' | 'after_timeout';
 
+/** Spoken engine for Live AI inbound calls. */
+export type LiveAiVoice = 'elevenlabs' | 'openai';
+
 export interface CallingSettings {
   account_id: string;
   recording_enabled: boolean;
@@ -386,6 +389,13 @@ export interface CallingSettings {
   call_hours: CallHours | null;
   call_icon_visibility: 'DEFAULT' | 'DISABLE_ALL';
   live_ai_answer: LiveAiAnswer;
+  live_ai_voice: LiveAiVoice;
+  /** Tone / persona for live voice calls. Null inherits Chat Agent prompt. */
+  live_ai_behaviour: string | null;
+  /** Business facts for live voice calls. Null inherits Chat Agent prompt. */
+  live_ai_business_context: string | null;
+  /** Must / must-not rules for live voice calls. Null inherits Chat Agent prompt. */
+  live_ai_instructions: string | null;
   created_at: string;
   updated_at: string;
 }

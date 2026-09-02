@@ -4,15 +4,29 @@ import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useTranslations } from 'next-intl'
 import { Phone, PhoneOff, Mic } from 'lucide-react'
+import { toast } from 'sonner'
 import { Button, buttonVariants } from '@/components/ui/button'
+import { Switch } from '@/components/ui/switch'
+import { Textarea } from '@/components/ui/textarea'
+import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { useCallSession } from '@/components/calls/call-session-context'
+import { useAuth } from '@/hooks/use-auth'
 import { formatCallDuration } from '@/lib/calls/preview'
 import { prefetchLiveAiRealtimeRoute } from '@/lib/calls/live-ai-realtime'
+import type { LiveAiVoice } from '@/types'
 
 type Payload = {
-  settings?: { live_ai_answer?: string }
+  settings?: {
+    live_ai_answer?: string
+    live_ai_voice?: LiveAiVoice
+    live_ai_behaviour?: string | null
+    live_ai_business_context?: string | null
+    live_ai_instructions?: string | null
+  }
   live_ai_ready?: boolean
+  live_ai_tts_available?: boolean
+  live_ai_tts_voice?: boolean
   shopify_connected?: boolean
   calling_status?: string
 }
@@ -29,7 +43,13 @@ function canArmStation(payload: Payload | null): boolean {
 export function LiveAiStation() {
   const t = useTranslations('Calling')
   const session = useCallSession()
+  const { canEditSettings } = useAuth()
   const [payload, setPayload] = useState<Payload | null>(null)
+  const [savingVoice, setSavingVoice] = useState(false)
+  const [savingPrompt, setSavingPrompt] = useState(false)
+  const [behaviour, setBehaviour] = useState('')
+  const [businessContext, setBusinessContext] = useState('')
+  const [instructions, setInstructions] = useState('')
 
   const load = useCallback(async () => {
     const res = await fetch('/api/calling/settings')
@@ -48,6 +68,14 @@ export function LiveAiStation() {
     return () => document.removeEventListener('visibilitychange', onVis)
   }, [load])
 
+  useEffect(() => {
+    const settings = payload?.settings
+    if (!settings) return
+    setBehaviour(settings.live_ai_behaviour ?? '')
+    setBusinessContext(settings.live_ai_business_context ?? '')
+    setInstructions(settings.live_ai_instructions ?? '')
+  }, [payload])
+
   const register = session?.registerLiveAiStation
   useEffect(() => {
     return () => {
@@ -56,6 +84,9 @@ export function LiveAiStation() {
   }, [register])
 
   const liveAiReady = Boolean(payload?.live_ai_ready)
+  const liveAiTtsAvailable = Boolean(payload?.live_ai_tts_available ?? payload?.live_ai_tts_voice)
+  const liveAiVoice: LiveAiVoice =
+    payload?.settings?.live_ai_voice === 'openai' ? 'openai' : 'elevenlabs'
   const shopifyConnected = Boolean(payload?.shopify_connected)
   const liveAiAnswer = payload?.settings?.live_ai_answer ?? 'off'
   const callingEnabled = payload?.calling_status === 'enabled'
@@ -77,6 +108,66 @@ export function LiveAiStation() {
   const disarm = useCallback(() => {
     session?.registerLiveAiStation(false)
   }, [session])
+
+  const saveVoice = useCallback(
+    async (voice: LiveAiVoice) => {
+      if (voice === liveAiVoice || savingVoice || answering) return
+      if (voice === 'elevenlabs' && !liveAiTtsAvailable) return
+      setSavingVoice(true)
+      try {
+        const res = await fetch('/api/calling/settings', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ live_ai_voice: voice }),
+        })
+        const json = (await res.json().catch(() => ({}))) as Payload & { error?: string }
+        if (!res.ok) {
+          toast.error(json.error || t('stationVoiceSaveFailed'))
+          return
+        }
+        setPayload(json)
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : t('stationVoiceSaveFailed'))
+      } finally {
+        setSavingVoice(false)
+      }
+    },
+    [answering, liveAiTtsAvailable, liveAiVoice, savingVoice, t],
+  )
+
+  const savePrompt = useCallback(async () => {
+    if (!canEditSettings || savingPrompt) return
+    setSavingPrompt(true)
+    try {
+      const res = await fetch('/api/calling/settings', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          live_ai_behaviour: behaviour.trim() || null,
+          live_ai_business_context: businessContext.trim() || null,
+          live_ai_instructions: instructions.trim() || null,
+        }),
+      })
+      const json = (await res.json().catch(() => ({}))) as Payload & { error?: string }
+      if (!res.ok) {
+        toast.error(json.error || t('saveFailed'))
+        return
+      }
+      setPayload(json)
+      toast.success(t('saved'))
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t('saveFailed'))
+    } finally {
+      setSavingPrompt(false)
+    }
+  }, [
+    behaviour,
+    businessContext,
+    canEditSettings,
+    instructions,
+    savingPrompt,
+    t,
+  ])
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">
@@ -107,6 +198,39 @@ export function LiveAiStation() {
                 badLabel={t('stationVoiceMissing')}
                 href="/agents"
               />
+              {liveAiReady ? (
+                <div className="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-foreground">{t('stationVoiceLabel')}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {liveAiTtsAvailable
+                        ? liveAiVoice === 'elevenlabs'
+                          ? t('stationTtsVoice')
+                          : t('stationVoiceGptHint')
+                        : t('stationVoiceNeedKey')}
+                    </p>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <span
+                      className={`text-xs ${liveAiVoice === 'openai' ? 'font-medium text-foreground' : 'text-muted-foreground'}`}
+                    >
+                      {t('stationVoiceGpt')}
+                    </span>
+                    <Switch
+                      checked={liveAiTtsAvailable && liveAiVoice === 'elevenlabs'}
+                      disabled={!liveAiTtsAvailable || savingVoice || answering}
+                      onCheckedChange={(on) => {
+                        void saveVoice(on ? 'elevenlabs' : 'openai')
+                      }}
+                    />
+                    <span
+                      className={`text-xs ${liveAiTtsAvailable && liveAiVoice === 'elevenlabs' ? 'font-medium text-foreground' : 'text-muted-foreground'}`}
+                    >
+                      {t('stationVoiceEleven')}
+                    </span>
+                  </div>
+                </div>
+              ) : null}
               <CheckRow
                 ok={shopifyConnected}
                 okLabel={t('stationShopifyOn')}
@@ -134,6 +258,58 @@ export function LiveAiStation() {
           </div>
         </CardContent>
       </Card>
+
+      {payload != null && (
+        <Card>
+          <CardHeader>
+            <CardTitle>{t('stationPromptTitle')}</CardTitle>
+            <CardDescription>{t('stationPromptDesc')}</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="live-ai-behaviour">{t('stationBehaviour')}</Label>
+              <Textarea
+                id="live-ai-behaviour"
+                value={behaviour}
+                onChange={(e) => setBehaviour(e.target.value)}
+                placeholder={t('stationBehaviourPlaceholder')}
+                rows={3}
+                disabled={!canEditSettings || savingPrompt}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="live-ai-business">{t('stationBusinessContext')}</Label>
+              <Textarea
+                id="live-ai-business"
+                value={businessContext}
+                onChange={(e) => setBusinessContext(e.target.value)}
+                placeholder={t('stationBusinessPlaceholder')}
+                rows={4}
+                disabled={!canEditSettings || savingPrompt}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="live-ai-instructions">{t('stationInstructions')}</Label>
+              <Textarea
+                id="live-ai-instructions"
+                value={instructions}
+                onChange={(e) => setInstructions(e.target.value)}
+                placeholder={t('stationInstructionsPlaceholder')}
+                rows={4}
+                disabled={!canEditSettings || savingPrompt}
+              />
+            </div>
+            <p className="text-xs text-muted-foreground">{t('stationPromptInherit')}</p>
+            {canEditSettings ? (
+              <Button type="button" onClick={() => void savePrompt()} disabled={savingPrompt}>
+                {t('save')}
+              </Button>
+            ) : (
+              <p className="text-sm text-muted-foreground">{t('readOnly')}</p>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {session?.activeCall && (
         <Card>

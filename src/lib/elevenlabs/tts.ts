@@ -139,7 +139,7 @@ function languageCodeFieldRejected(detail: unknown): boolean {
           : ''
   return (
     /language_code/i.test(msg) &&
-    /unknown field|not supported|unexpected|extra fields?/i.test(msg)
+    /unknown field|not supported|does not support|unexpected|extra fields?/i.test(msg)
   )
 }
 

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { HANDOFF_SENTINEL } from '@/lib/ai/defaults'
 import { LIVE_AI_HANDOFF_SPOKEN } from './live-ai-turn'
+import { liveAiCallUserPrompt } from './live-ai-prompt'
 import {
   buildLiveAiSpokenInstructions,
   buildRealtimeCallMultipart,
@@ -11,6 +12,7 @@ import {
   TRANSFER_TO_HUMAN_TOOL,
   OPENAI_REALTIME_CALLS_URL,
 } from './live-ai-realtime'
+import { LIVE_AI_TTS_MODEL } from './live-ai-constants'
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -55,6 +57,38 @@ describe('live AI Realtime session helpers', () => {
     expect(text).toContain(TRANSFER_TO_HUMAN_TOOL)
     expect(text).toContain(HANDOFF_SENTINEL)
     expect(text).toContain('Customer: Hi')
+    expect(text).toContain('search_customer_memory')
+    expect(text).not.toContain('This call will be recorded')
+  })
+
+  it('carries call behaviour into spoken instructions', () => {
+    const userPrompt = liveAiCallUserPrompt({
+      behaviour: 'Warm and brief',
+      businessContext: null,
+      instructions: null,
+      chatPrompt: 'Chat-only',
+    })
+    const text = buildLiveAiSpokenInstructions({
+      systemPrompt: userPrompt ?? '',
+    })
+    expect(text).toContain('Call behaviour:')
+    expect(text).toContain('Warm and brief')
+    expect(text).not.toContain('Chat-only')
+  })
+
+  it('omits recording announcements from spoken memory', () => {
+    const text = buildLiveAiSpokenInstructions({
+      systemPrompt: 'You sell bags.',
+      thread: [
+        {
+          role: 'user',
+          content: 'This call will be recorded for the following purpose: quality',
+        },
+        { role: 'user', content: 'Need a bag' },
+      ],
+    })
+    expect(text).toContain('Customer: Need a bag')
+    expect(text).not.toContain('will be recorded')
   })
 
   it('builds a GA Realtime session with tools and voice', () => {
@@ -71,6 +105,24 @@ describe('live AI Realtime session helpers', () => {
       (session.audio as { input: { turn_detection: { create_response: boolean } } }).input
         .turn_detection.create_response,
     ).toBe(true)
+  })
+
+  it('asks Realtime for text when live TTS voice is on', () => {
+    const session = buildRealtimeSessionConfig({
+      instructions: 'Be brief.',
+      tools: [],
+      ttsVoice: true,
+    })
+    expect(session.output_modalities).toEqual(['text'])
+    expect(
+      (session.audio as { input: { turn_detection: { interrupt_response: boolean } } }).input
+        .turn_detection.interrupt_response,
+    ).toBe(false)
+    expect((session.audio as { output?: unknown }).output).toBeUndefined()
+  })
+
+  it('speaks live replies with ElevenLabs v3', () => {
+    expect(LIVE_AI_TTS_MODEL).toBe('eleven_v3')
   })
 
   it('encodes sdp and session as named multipart parts', () => {

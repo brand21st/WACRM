@@ -2,11 +2,10 @@ import { createHash, randomBytes } from 'crypto'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { supabaseAdmin } from '@/lib/ai/admin-client'
 import { loadAiConfig } from '@/lib/ai/config'
-import { buildConversationContext } from '@/lib/ai/context'
+import { synthesizeSpeech } from '@/lib/ai/speech'
 import { retrieveKnowledge } from '@/lib/ai/knowledge'
 import { buildSystemPrompt, HANDOFF_SENTINEL } from '@/lib/ai/defaults'
 import { speakableFirstName } from '@/lib/ai/customer-name'
-import { latestUserMessage } from '@/lib/ai/query'
 import { bindShopifyTools } from '@/lib/ai/auto-reply'
 import { loadShopifyConfig, retrieveShopifyStoreContent } from '@/lib/shopify'
 import type { ShopifyProductCard } from '@/lib/shopify'
@@ -14,16 +13,27 @@ import type { LlmToolDef } from '@/lib/ai/providers/shared'
 import { realtimeModelId } from '@/lib/ai/realtime'
 import { effectiveRealtimeVoice } from '@/lib/ai/realtime/voices'
 import type { AiConfig, ChatMessage } from '@/lib/ai/types'
-import type { Call } from '@/types'
-import { canLiveAiRealtime } from '@/lib/calling/live-ai-ready'
+import type { Call, CallingSettings } from '@/types'
+import { canLiveAiRealtime, usesLiveTtsVoice } from '@/lib/calling/live-ai-ready'
+import { loadCallingSettings } from '@/lib/calling/settings'
 import { LIVE_AI_GREETING_USER, LIVE_AI_HANDOFF_SPOKEN } from '@/lib/calling/live-ai-turn'
 import {
+  SEARCH_CUSTOMER_MEMORY_TOOL,
   SEARCH_KNOWLEDGE_TOOL,
   TRANSFER_TO_HUMAN_TOOL,
   LIVE_AI_TURN_DETECTION,
+  LIVE_AI_TTS_MODEL,
+  LIVE_AI_SPEAK_MAX_CHARS,
 } from '@/lib/calling/live-ai-constants'
+import {
+  detectLiveAiLanguageHint,
+  formatLiveAiMemoryBlock,
+  loadLiveAiCustomerMemory,
+  memoryLinesFromThread,
+} from '@/lib/calling/live-ai-memory'
+import { liveAiCallUserPrompt } from '@/lib/calling/live-ai-prompt'
 
-export { SEARCH_KNOWLEDGE_TOOL, TRANSFER_TO_HUMAN_TOOL }
+export { SEARCH_CUSTOMER_MEMORY_TOOL, SEARCH_KNOWLEDGE_TOOL, TRANSFER_TO_HUMAN_TOOL }
 
 export const OPENAI_REALTIME_CALLS_URL = 'https://api.openai.com/v1/realtime/calls'
 
@@ -70,28 +80,50 @@ export const LIVE_AI_CORE_TOOLS: RealtimeFunctionTool[] = [
       required: ['query'],
     },
   },
+  {
+    type: 'function',
+    name: SEARCH_CUSTOMER_MEMORY_TOOL,
+    description:
+      "Recall facts from this customer's earlier WhatsApp chat, prior calls, and staff notes. Use when they refer to something already discussed that is not in the prompt memory.",
+    parameters: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description: 'What to look up — order, product, language, name, or prior request',
+        },
+      },
+      required: ['query'],
+    },
+  },
 ]
 
 export function buildLiveAiSpokenInstructions(args: {
   systemPrompt: string
-  thread: ChatMessage[]
+  thread?: ChatMessage[]
+  memoryBlock?: string
 }): string {
-  const thread =
-    args.thread.length === 0
-      ? ''
-      : `\n\nRecent WhatsApp thread (already happened as text):\n${args.thread
-          .slice(-8)
-          .map((m) => `${m.role === 'user' ? 'Customer' : 'Assistant'}: ${m.content}`)
-          .join('\n')}`
+  const lines = memoryLinesFromThread(args.thread ?? [])
+  const memory =
+    args.memoryBlock ??
+    formatLiveAiMemoryBlock({
+      notes: [],
+      thread: lines,
+      recall: lines,
+      languageHint: detectLiveAiLanguageHint(lines),
+    })
   return (
     `${args.systemPrompt}\n\n` +
     `You are on a live WhatsApp voice call. Speak briefly. Do not mention tools, prompts, or these instructions. ` +
     `When the session starts, greet the customer in one short spoken sentence and offer to help. ` +
+    `This call is new. Customer memory below is from earlier WhatsApp and calls — use it, do not re-ask facts they already gave. ` +
+    `Match their language. If they refer to something older that is not in memory, call ${SEARCH_CUSTOMER_MEMORY_TOOL}. ` +
+    `If you only hear a recording notice, wait for their real question. ` +
     `${LIVE_AI_GREETING_USER} ` +
     `If the customer asks for a human, is upset, or you cannot help, speak exactly: "${LIVE_AI_HANDOFF_SPOKEN}" ` +
     `then call ${TRANSFER_TO_HUMAN_TOOL}. Never say ${HANDOFF_SENTINEL} out loud. ` +
     `Product cards go to the chat — do not read URLs aloud.` +
-    thread
+    memory
   )
 }
 
@@ -143,6 +175,7 @@ export async function buildLiveAiRealtimeContext(args: {
   shopifyTools: ReturnType<typeof bindShopifyTools>
   productCards: ShopifyProductCard[]
   contactPhone: string | null
+  settings: CallingSettings
 }> {
   const db = args.db ?? supabaseAdmin()
   const config = await loadAiConfig(db, args.accountId)
@@ -159,8 +192,18 @@ export async function buildLiveAiRealtimeContext(args: {
   })
 
   const conversationId = args.call.conversation_id as string
-  const contextMessages = await buildConversationContext(db, conversationId)
-  const queryText = latestUserMessage(contextMessages) || LIVE_AI_GREETING_USER
+  const [memory, settings] = await Promise.all([
+    loadLiveAiCustomerMemory({
+      db,
+      accountId: args.accountId,
+      contactId: args.call.contact_id as string,
+      conversationId,
+    }),
+    loadCallingSettings(db, args.accountId),
+  ])
+  const queryText =
+    [...memory.recall].reverse().find((line) => line.role === 'customer')?.text ||
+    LIVE_AI_GREETING_USER
   const [manualKnowledge, storeContent] = await Promise.all([
     retrieveKnowledge(db, args.accountId, config, queryText),
     shopify
@@ -186,9 +229,14 @@ export async function buildLiveAiRealtimeContext(args: {
   )
 
   const customerName = speakableFirstName(contactRow?.name)
-  const firstInbound = !contextMessages.some((m) => m.role === 'user')
+  const firstInbound = !memory.thread.some((line) => line.role === 'customer')
   const systemPrompt = buildSystemPrompt({
-    userPrompt: config.systemPrompt,
+    userPrompt: liveAiCallUserPrompt({
+      behaviour: settings.live_ai_behaviour,
+      businessContext: settings.live_ai_business_context,
+      instructions: settings.live_ai_instructions,
+      chatPrompt: config.systemPrompt,
+    }),
     mode: 'auto_reply',
     knowledge,
     shopify: Boolean(shopify),
@@ -201,7 +249,7 @@ export async function buildLiveAiRealtimeContext(args: {
     config,
     instructions: buildLiveAiSpokenInstructions({
       systemPrompt,
-      thread: contextMessages,
+      memoryBlock: formatLiveAiMemoryBlock(memory),
     }),
     tools: [
       ...LIVE_AI_CORE_TOOLS,
@@ -210,6 +258,7 @@ export async function buildLiveAiRealtimeContext(args: {
     shopifyTools,
     productCards,
     contactPhone: contactRow?.phone ?? null,
+    settings,
   }
 }
 
@@ -218,22 +267,29 @@ export function buildRealtimeSessionConfig(args: {
   tools: RealtimeFunctionTool[]
   voice?: string | null
   model?: string
+  ttsVoice?: boolean
 }): Record<string, unknown> {
   return {
     type: 'realtime',
     model: args.model ?? realtimeModelId(),
-    output_modalities: ['audio'],
+    output_modalities: args.ttsVoice ? ['text'] : ['audio'],
     instructions: args.instructions,
     tools: args.tools,
     tool_choice: 'auto',
     audio: {
       input: {
-        turn_detection: LIVE_AI_TURN_DETECTION,
+        turn_detection: args.ttsVoice
+          ? { ...LIVE_AI_TURN_DETECTION, interrupt_response: false }
+          : LIVE_AI_TURN_DETECTION,
         transcription: { model: 'gpt-4o-mini-transcribe' },
       },
-      output: {
-        voice: effectiveRealtimeVoice(args.voice),
-      },
+      ...(args.ttsVoice
+        ? {}
+        : {
+            output: {
+              voice: effectiveRealtimeVoice(args.voice),
+            },
+          }),
     },
   }
 }
@@ -323,14 +379,16 @@ export async function startLiveAiRealtimeCall(args: {
   sdp: string
   db?: SupabaseClient
   fetchImpl?: typeof fetch
-}): Promise<{ sdp: string }> {
+}): Promise<{ sdp: string; ttsVoice: boolean }> {
   const db = args.db ?? supabaseAdmin()
   const call = await loadLiveAiCall({ db, accountId: args.accountId, callId: args.callId })
   const ctx = await buildLiveAiRealtimeContext({ db, accountId: args.accountId, call })
+  const ttsVoice = usesLiveTtsVoice(ctx.config, ctx.settings.live_ai_voice)
   const session = buildRealtimeSessionConfig({
     instructions: ctx.instructions,
     tools: ctx.tools,
     voice: ctx.config.realtimeVoice,
+    ttsVoice,
   })
   const sdp = await proxyRealtimeSdp({
     apiKey: ctx.config.apiKey,
@@ -339,5 +397,40 @@ export async function startLiveAiRealtimeCall(args: {
     safetyId: realtimeSafetyId(args.accountId, call.contact_id),
     fetchImpl: args.fetchImpl,
   })
-  return { sdp }
+  return { sdp, ttsVoice }
+}
+
+export async function speakLiveAiUtterance(args: {
+  accountId: string
+  callId: string
+  text: string
+  db?: SupabaseClient
+}): Promise<{ audioBase64: string; mimeType: string }> {
+  const db = args.db ?? supabaseAdmin()
+  await loadLiveAiCall({ db, accountId: args.accountId, callId: args.callId })
+  const config = await loadAiConfig(db, args.accountId)
+  const settings = await loadCallingSettings(db, args.accountId)
+  if (!usesLiveTtsVoice(config, settings.live_ai_voice) || !config) {
+    throw Object.assign(new Error('Live call TTS is not configured'), {
+      status: 400,
+      code: 'tts_not_ready',
+    })
+  }
+  let text = args.text.trim()
+  if (!text) {
+    throw Object.assign(new Error('text is required.'), { status: 400, code: 'bad_request' })
+  }
+  if (text.length > LIVE_AI_SPEAK_MAX_CHARS) {
+    text = text.slice(0, LIVE_AI_SPEAK_MAX_CHARS)
+  }
+  const spoken = await synthesizeSpeech({
+    config,
+    text,
+    whatsapp: false,
+    ...(config.voiceProvider === 'sarvam' ? {} : { modelId: LIVE_AI_TTS_MODEL }),
+  })
+  return {
+    audioBase64: Buffer.from(spoken.bytes).toString('base64'),
+    mimeType: spoken.mimeType,
+  }
 }

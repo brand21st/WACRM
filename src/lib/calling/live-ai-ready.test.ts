@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { AI_VOICE_DEFAULTS } from '@/lib/ai/types'
 import type { AiConfig } from '@/lib/ai/types'
-import { canLiveAiRealtime } from './live-ai-ready'
+import { canLiveAiRealtime, usesLiveTtsVoice } from './live-ai-ready'
 
 function config(overrides: Partial<AiConfig> = {}): AiConfig {
   return {
@@ -31,6 +31,34 @@ describe('canLiveAiRealtime', () => {
         }),
       ),
     ).toBe(true)
+  })
+
+  it('uses Voice Agent TTS on live calls when ElevenLabs can speak', () => {
+    expect(
+      usesLiveTtsVoice(
+        config({
+          elevenlabsApiKey: 'xi-test',
+          ttsEnabled: true,
+        }),
+      ),
+    ).toBe(true)
+    expect(
+      usesLiveTtsVoice(
+        config({
+          elevenlabsApiKey: null,
+          ttsEnabled: true,
+        }),
+      ),
+    ).toBe(false)
+    expect(
+      usesLiveTtsVoice(
+        config({
+          elevenlabsApiKey: 'xi-test',
+          ttsEnabled: true,
+        }),
+        'openai',
+      ),
+    ).toBe(false)
   })
 
   it('is false for Anthropic-only accounts', () => {

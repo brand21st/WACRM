@@ -4,27 +4,36 @@ import {
   ensureCallingSettings,
   loadCallingSettings,
   parseLiveAiAnswer,
+  parseLiveAiVoice,
   parseRecordingAnnouncementLanguage,
 } from '@/lib/calling/settings'
+import { LIVE_AI_PROMPT_MAX, parseLiveAiPromptField } from '@/lib/calling/live-ai-prompt'
 import { loadAiConfig } from '@/lib/ai/config'
-import { canLiveAiRealtime, LIVE_AI_NOT_READY_MESSAGE } from '@/lib/calling/live-ai-ready'
+import { canLiveAiRealtime, LIVE_AI_NOT_READY_MESSAGE, usesLiveTtsVoice } from '@/lib/calling/live-ai-ready'
 import {
   CallActionError,
   setCallingEnabled,
   syncMetaCallAppearance,
 } from '@/lib/whatsapp/call-actions'
-import type { CallHours, CallingSettings } from '@/types'
+import type { CallHours, CallingSettings, LiveAiVoice } from '@/types'
 
 async function extras(
   supabase: Awaited<ReturnType<typeof requireRole>>['supabase'],
   accountId: string,
+  voice?: LiveAiVoice,
 ) {
   let liveAiReady = false
+  let liveAiTtsAvailable = false
+  let liveAiTtsVoice = false
   try {
     const config = await loadAiConfig(supabase, accountId)
     liveAiReady = canLiveAiRealtime(config)
+    liveAiTtsAvailable = usesLiveTtsVoice(config)
+    liveAiTtsVoice = usesLiveTtsVoice(config, voice)
   } catch {
     liveAiReady = false
+    liveAiTtsAvailable = false
+    liveAiTtsVoice = false
   }
 
   const { data: shop } = await supabase
@@ -35,6 +44,8 @@ async function extras(
 
   return {
     live_ai_ready: liveAiReady,
+    live_ai_tts_available: liveAiTtsAvailable,
+    live_ai_tts_voice: liveAiTtsVoice,
     shopify_connected: Boolean(shop?.is_active),
   }
 }
@@ -48,7 +59,7 @@ export async function GET() {
       .select('calling_status, last_calling_error, status')
       .eq('account_id', accountId)
       .maybeSingle()
-    const extra = await extras(supabase, accountId)
+    const extra = await extras(supabase, accountId, settings.live_ai_voice)
 
     return NextResponse.json({
       settings,
@@ -64,8 +75,12 @@ export async function GET() {
 
 export async function PATCH(request: Request) {
   try {
-    const { supabase, accountId } = await requireRole('admin')
     const body = (await request.json().catch(() => ({}))) as Record<string, unknown>
+    const keys = Object.keys(body)
+    const voiceOnly = keys.length === 1 && keys[0] === 'live_ai_voice'
+    const { supabase, accountId } = voiceOnly
+      ? await requireRole('agent')
+      : await requireRole('admin')
     const current = await ensureCallingSettings(supabase, accountId)
 
     const patch: Partial<CallingSettings> = {}
@@ -143,6 +158,50 @@ export async function PATCH(request: Request) {
       }
       patch.live_ai_answer = next
     }
+    if (typeof body.live_ai_voice === 'string') {
+      const next = parseLiveAiVoice(body.live_ai_voice)
+      if (body.live_ai_voice !== next) {
+        return NextResponse.json(
+          { error: 'live_ai_voice must be elevenlabs or openai' },
+          { status: 400 },
+        )
+      }
+      if (next === 'elevenlabs') {
+        let config
+        try {
+          config = await loadAiConfig(supabase, accountId)
+        } catch {
+          config = null
+        }
+        if (!usesLiveTtsVoice(config)) {
+          return NextResponse.json(
+            {
+              error: 'Add a Voice Agent key to use ElevenLabs v3 on live calls.',
+              code: 'tts_not_ready',
+            },
+            { status: 400 },
+          )
+        }
+      }
+      patch.live_ai_voice = next
+    }
+    for (const key of [
+      'live_ai_behaviour',
+      'live_ai_business_context',
+      'live_ai_instructions',
+    ] as const) {
+      if (!(key in body)) continue
+      const parsed = parseLiveAiPromptField(body[key])
+      if (!parsed.ok) {
+        return NextResponse.json(
+          {
+            error: `${key} must be a string of at most ${LIVE_AI_PROMPT_MAX} characters, or null`,
+          },
+          { status: 400 },
+        )
+      }
+      patch[key] = parsed.value
+    }
 
     let callingStatus: 'enabled' | 'disabled' | undefined
     if (typeof body.enabled === 'boolean') {
@@ -192,7 +251,7 @@ export async function PATCH(request: Request) {
       .select('calling_status, last_calling_error, status')
       .eq('account_id', accountId)
       .maybeSingle()
-    const extra = await extras(supabase, accountId)
+    const extra = await extras(supabase, accountId, settings.live_ai_voice)
 
     return NextResponse.json({
       settings,

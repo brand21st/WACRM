@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
   requireRole: vi.fn(),
-  startLiveAiRealtimeCall: vi.fn(),
+  speakLiveAiUtterance: vi.fn(),
 }))
 
 vi.mock('@/lib/auth/account', () => ({
@@ -11,7 +11,7 @@ vi.mock('@/lib/auth/account', () => ({
 }))
 
 vi.mock('@/lib/calling/live-ai-realtime', () => ({
-  startLiveAiRealtimeCall: mocks.startLiveAiRealtimeCall,
+  speakLiveAiUtterance: mocks.speakLiveAiUtterance,
 }))
 
 vi.mock('@/lib/rate-limit', async () => {
@@ -35,38 +35,41 @@ const context = {
 
 beforeEach(() => {
   mocks.requireRole.mockReset()
-  mocks.startLiveAiRealtimeCall.mockReset()
+  mocks.speakLiveAiUtterance.mockReset()
   mocks.requireRole.mockResolvedValue(context)
 })
 
-describe('POST /api/calling/live-ai/realtime', () => {
-  it('proxies a valid SDP offer', async () => {
-    mocks.startLiveAiRealtimeCall.mockResolvedValue({ sdp: 'v=0\r\nanswer', ttsVoice: true })
+describe('POST /api/calling/live-ai/speak', () => {
+  it('synthesizes spoken audio for a live call', async () => {
+    mocks.speakLiveAiUtterance.mockResolvedValue({
+      audioBase64: 'Zg==',
+      mimeType: 'audio/mpeg',
+    })
     const res = await POST(
-      new Request('http://localhost/api/calling/live-ai/realtime', {
+      new Request('http://localhost/api/calling/live-ai/speak', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ callId: 'call-1', sdp: 'v=0\r\noffer' }),
+        body: JSON.stringify({ callId: 'call-1', text: 'Hello' }),
       }),
     )
     expect(res.status).toBe(200)
-    expect(await res.json()).toEqual({ sdp: 'v=0\r\nanswer', ttsVoice: true })
-    expect(mocks.startLiveAiRealtimeCall).toHaveBeenCalledWith({
+    expect(await res.json()).toEqual({ audioBase64: 'Zg==', mimeType: 'audio/mpeg' })
+    expect(mocks.speakLiveAiUtterance).toHaveBeenCalledWith({
       accountId: 'acct-1',
       callId: 'call-1',
-      sdp: 'v=0\r\noffer',
+      text: 'Hello',
     })
   })
 
-  it('rejects a missing SDP', async () => {
+  it('rejects empty text', async () => {
     const res = await POST(
-      new Request('http://localhost/api/calling/live-ai/realtime', {
+      new Request('http://localhost/api/calling/live-ai/speak', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ callId: 'call-1', sdp: 'not-sdp' }),
+        body: JSON.stringify({ callId: 'call-1', text: '  ' }),
       }),
     )
     expect(res.status).toBe(400)
-    expect(mocks.startLiveAiRealtimeCall).not.toHaveBeenCalled()
+    expect(mocks.speakLiveAiUtterance).not.toHaveBeenCalled()
   })
 })

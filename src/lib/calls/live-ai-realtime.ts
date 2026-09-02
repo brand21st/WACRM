@@ -31,6 +31,7 @@ export type RealtimeEventAction =
   | { type: 'customer_transcript'; text: string; itemId?: string }
   | { type: 'bot_transcript'; text: string; itemId?: string; handoff: boolean }
   | { type: 'function_calls'; calls: RealtimeFunctionCall[] }
+  | { type: 'barge_in' }
   | { type: 'error'; message: string }
 
 export function functionCallsFromOutput(output: unknown): RealtimeFunctionCall[] {
@@ -51,6 +52,36 @@ export function functionCallsFromOutput(output: unknown): RealtimeFunctionCall[]
     if (name && callId) calls.push({ name, callId, arguments: args })
   }
   return calls
+}
+
+function textFromRealtimeOutput(output: unknown): string {
+  if (!Array.isArray(output)) return ''
+  const parts: string[] = []
+  for (const item of output) {
+    if (!item || typeof item !== 'object') continue
+    const content = (item as { content?: unknown }).content
+    if (!Array.isArray(content)) continue
+    for (const part of content) {
+      if (!part || typeof part !== 'object') continue
+      const rec = part as { transcript?: unknown; text?: unknown }
+      if (typeof rec.transcript === 'string') parts.push(rec.transcript)
+      else if (typeof rec.text === 'string') parts.push(rec.text)
+    }
+  }
+  return parts.join('').trim()
+}
+
+function botTranscriptAction(
+  raw: string,
+  itemId?: string,
+): RealtimeEventAction {
+  const parsed = parseSpoken(raw)
+  return {
+    type: 'bot_transcript',
+    text: parsed.text || raw,
+    itemId,
+    handoff: parsed.handoff,
+  }
 }
 
 export function interpretRealtimeEvent(
@@ -78,25 +109,35 @@ export function interpretRealtimeEvent(
     return { type: 'customer_transcript', text: text.trim(), itemId }
   }
 
+  if (type === 'input_audio_buffer.speech_started') {
+    return { type: 'barge_in' }
+  }
+
   if (
     type === 'response.output_audio_transcript.done' ||
-    type === 'response.audio_transcript.done'
+    type === 'response.audio_transcript.done' ||
+    type === 'response.output_text.done' ||
+    type === 'response.text.done'
   ) {
-    const text = typeof payload.transcript === 'string' ? payload.transcript.trim() : ''
+    const text =
+      typeof payload.transcript === 'string'
+        ? payload.transcript.trim()
+        : typeof payload.text === 'string'
+          ? payload.text.trim()
+          : ''
     if (!text) return { type: 'ignore' }
-    const parsed = parseSpoken(text)
-    return {
-      type: 'bot_transcript',
-      text: parsed.text || text,
-      itemId: typeof payload.item_id === 'string' ? payload.item_id : undefined,
-      handoff: parsed.handoff,
-    }
+    return botTranscriptAction(
+      text,
+      typeof payload.item_id === 'string' ? payload.item_id : undefined,
+    )
   }
 
   if (type === 'response.done') {
     const response = (payload.response ?? {}) as { output?: unknown }
     const calls = functionCallsFromOutput(response.output)
     if (calls.length > 0) return { type: 'function_calls', calls }
+    const text = textFromRealtimeOutput(response.output)
+    if (text) return botTranscriptAction(text)
     return { type: 'ignore' }
   }
 
@@ -113,6 +154,11 @@ export class LiveAiRealtimeSession {
   private greeted = false
   private handoffSent = false
   private greetWhenReady = false
+  private ttsVoice = false
+  private lastBotText = ''
+  private pendingSpeak: { text: string; handoff: boolean } | null = null
+  private speakBusy = false
+  private handoffAfterSpeak = false
 
   constructor(
     private readonly callId: string,
@@ -145,6 +191,8 @@ export class LiveAiRealtimeSession {
 
   stop() {
     this.stopped = true
+    this.pendingSpeak = null
+    this.outbound.stopPlayback()
     try {
       this.dc?.close()
     } catch {
@@ -175,7 +223,7 @@ export class LiveAiRealtimeSession {
     const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS })
     this.pc = pc
     pc.addEventListener('track', (event) => {
-      if (event.track.kind !== 'audio' || this.stopped) return
+      if (event.track.kind !== 'audio' || this.stopped || this.ttsVoice) return
       const stream = event.streams[0] ?? new MediaStream([event.track])
       this.outbound.attachRealtime(stream)
     })
@@ -209,10 +257,15 @@ export class LiveAiRealtimeSession {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ callId: this.callId, sdp }),
     })
-    const json = (await res.json().catch(() => ({}))) as { sdp?: string; error?: string }
+    const json = (await res.json().catch(() => ({}))) as {
+      sdp?: string
+      ttsVoice?: boolean
+      error?: string
+    }
     if (!res.ok || !json.sdp) {
       throw new Error(json.error || 'Realtime session failed')
     }
+    this.ttsVoice = Boolean(json.ttsVoice)
     const answerSdp = normalizeOfferSdp(json.sdp)
     if (!answerSdp) throw new Error('OpenAI returned an empty SDP answer')
     await pc.setRemoteDescription({ type: 'answer', sdp: answerSdp })
@@ -227,7 +280,15 @@ export class LiveAiRealtimeSession {
     if (!this.greetWhenReady || this.greeted || this.stopped) return
     if (this.dc?.readyState !== 'open') return
     this.greeted = true
-    this.send({ type: 'response.create' })
+    this.sendResponseCreate()
+  }
+
+  private sendResponseCreate() {
+    this.send(
+      this.ttsVoice
+        ? { type: 'response.create', response: { output_modalities: ['text'] } }
+        : { type: 'response.create' },
+    )
   }
 
   private onData(raw: unknown) {
@@ -243,6 +304,13 @@ export class LiveAiRealtimeSession {
     }
     const action = interpretRealtimeEvent(payload)
     if (action.type === 'ignore') return
+    if (action.type === 'barge_in') {
+      // Cut speaker audio only. Do not drop in-flight ElevenLabs fetches —
+      // v3 takes several seconds, and VAD/false barge-in was discarding
+      // finished speech so the caller heard silence.
+      this.outbound.stopPlayback()
+      return
+    }
     if (action.type === 'error') {
       this.handlers.onError(action.message)
       return
@@ -253,9 +321,19 @@ export class LiveAiRealtimeSession {
       return
     }
     if (action.type === 'bot_transcript') {
-      if (action.text) {
+      const isNew = Boolean(action.text && action.text !== this.lastBotText)
+      if (isNew) {
+        this.lastBotText = action.text
         this.handlers.onTranscript('bot', action.text)
         void persistTranscript(this.callId, 'bot', action.text, action.itemId)
+        if (this.ttsVoice) {
+          this.enqueueSpeak(action.text, action.handoff)
+          return
+        }
+      } else if (this.ttsVoice && action.handoff) {
+        this.handoffAfterSpeak = true
+        if (!this.speakBusy) this.finishHandoff()
+        return
       }
       if (action.handoff) this.finishHandoff()
       return
@@ -319,7 +397,51 @@ export class LiveAiRealtimeSession {
         })
       }
     }
-    if (!this.stopped) this.send({ type: 'response.create' })
+    if (!this.stopped) this.sendResponseCreate()
+  }
+
+  private enqueueSpeak(text: string, handoff: boolean) {
+    this.pendingSpeak = { text, handoff }
+    void this.drainSpeak()
+  }
+
+  private async drainSpeak() {
+    if (this.speakBusy) return
+    this.speakBusy = true
+    try {
+      while (this.pendingSpeak && !this.stopped) {
+        const next = this.pendingSpeak
+        this.pendingSpeak = null
+        const res = await fetch('/api/calling/live-ai/speak', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ callId: this.callId, text: next.text }),
+        })
+        const json = (await res.json().catch(() => ({}))) as {
+          audioBase64?: string
+          error?: string
+        }
+        if (this.stopped) return
+        if (!res.ok || !json.audioBase64) {
+          if (json.error) this.handlers.onError(json.error)
+          if (next.handoff || this.handoffAfterSpeak) this.finishHandoff()
+          continue
+        }
+        const binary = atob(json.audioBase64)
+        const bytes = new Uint8Array(binary.length)
+        for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
+        await this.outbound.playMp3(bytes.buffer)
+        if (this.stopped) return
+        if (next.handoff || this.handoffAfterSpeak) this.finishHandoff()
+      }
+    } catch (err) {
+      if (!this.stopped) {
+        this.handlers.onError(err instanceof Error ? err.message : 'Voice playback failed')
+      }
+    } finally {
+      this.speakBusy = false
+      if (this.pendingSpeak && !this.stopped) void this.drainSpeak()
+    }
   }
 
   private finishHandoff() {
@@ -348,6 +470,7 @@ export async function prefetchLiveAiRealtimeRoute(): Promise<void> {
   await Promise.all([
     fetch('/api/calling/live-ai/realtime').catch(() => {}),
     fetch('/api/calling/live-ai/tool').catch(() => {}),
+    fetch('/api/calling/live-ai/speak').catch(() => {}),
     fetch('/api/calling/live-ai/warmup', { method: 'POST' }).catch(() => {}),
   ])
 }

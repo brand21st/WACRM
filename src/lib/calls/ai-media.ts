@@ -4,6 +4,7 @@ export type AiOutbound = {
   playMp3: (bytes: ArrayBuffer) => Promise<void>
   /** Pipe OpenAI Realtime remote audio into the WhatsApp send track. */
   attachRealtime: (stream: MediaStream) => void
+  stopPlayback: () => void
   stop: () => void
 }
 
@@ -231,13 +232,24 @@ export async function createAiOutbound(): Promise<AiOutbound> {
       ttsGain.connect(master)
       playing = src
       await new Promise<void>((resolve, reject) => {
-        src.onended = () => resolve()
+        src.onended = () => {
+          if (playing === src) playing = null
+          resolve()
+        }
         try {
           src.start()
         } catch (err) {
           reject(err)
         }
       })
+    },
+    stopPlayback() {
+      try {
+        playing?.stop()
+      } catch {
+        // already stopped
+      }
+      playing = null
     },
     stop() {
       try {
@@ -250,6 +262,7 @@ export async function createAiOutbound(): Promise<AiOutbound> {
       } catch {
         // already stopped
       }
+      playing = null
       try {
         realtimeSource?.disconnect()
       } catch {

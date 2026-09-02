@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { AI_VOICE_DEFAULTS } from '@/lib/ai/types'
 import type { AiConfig } from '@/lib/ai/types'
 import { LIVE_AI_HANDOFF_SPOKEN } from './live-ai-turn'
-import { TRANSFER_TO_HUMAN_TOOL } from './live-ai-constants'
+import { TRANSFER_TO_HUMAN_TOOL, SEARCH_CUSTOMER_MEMORY_TOOL } from './live-ai-constants'
 
 const h = vi.hoisted(() => ({
   loadAiConfig: vi.fn(),
@@ -11,6 +11,7 @@ const h = vi.hoisted(() => ({
   bindShopifyTools: vi.fn(),
   sendProductCards: vi.fn(),
   persistCallTurnMessage: vi.fn(),
+  loadLiveAiCustomerMemory: vi.fn(),
   call: null as Record<string, unknown> | null,
   contact: { phone: '1555000' } as Record<string, unknown> | null,
 }))
@@ -43,6 +44,13 @@ vi.mock('@/lib/ai/auto-reply', () => ({
 vi.mock('@/lib/calling/persist-call-turn', () => ({
   persistCallTurnMessage: h.persistCallTurnMessage,
 }))
+vi.mock('@/lib/calling/live-ai-memory', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/calling/live-ai-memory')>()
+  return {
+    ...actual,
+    loadLiveAiCustomerMemory: h.loadLiveAiCustomerMemory,
+  }
+})
 
 import { executeLiveAiTool, parseToolArguments, persistLiveAiTranscript } from './live-ai-tool'
 
@@ -69,6 +77,7 @@ beforeEach(() => {
   h.bindShopifyTools.mockReset()
   h.sendProductCards.mockReset()
   h.persistCallTurnMessage.mockReset()
+  h.loadLiveAiCustomerMemory.mockReset()
   h.call = {
     id: 'call-1',
     account_id: 'acct-1',
@@ -122,6 +131,26 @@ describe('executeLiveAiTool', () => {
     })
     expect(result.handoff).toBe(false)
     expect(JSON.parse(result.output)).toEqual({ excerpts: ['We ship in 2 days.'] })
+  })
+
+  it('recalls customer chat and staff notes', async () => {
+    h.loadLiveAiCustomerMemory.mockResolvedValue({
+      notes: ['VIP, prefers Malayalam'],
+      thread: [{ role: 'customer', text: 'Need the black bag' }],
+      recall: [{ role: 'customer', text: 'Need the black bag' }],
+      languageHint: 'Malayalam',
+    })
+    const result = await executeLiveAiTool({
+      accountId: 'acct-1',
+      userId: 'user-1',
+      callId: 'call-1',
+      name: SEARCH_CUSTOMER_MEMORY_TOOL,
+      arguments: { query: 'black bag' },
+    })
+    expect(result.handoff).toBe(false)
+    expect(JSON.parse(result.output).hits).toEqual(
+      expect.arrayContaining([expect.stringContaining('black bag')]),
+    )
   })
 
   it('runs Shopify tools and sends product cards', async () => {
@@ -184,5 +213,16 @@ describe('persistLiveAiTranscript', () => {
         seq: 'item_1',
       }),
     )
+  })
+
+  it('skips Meta recording notices so they stay out of memory', async () => {
+    const result = await persistLiveAiTranscript({
+      accountId: 'acct-1',
+      callId: 'call-1',
+      role: 'customer',
+      text: 'This call will be recorded for the following purpose: quality',
+    })
+    expect(result.persisted).toBe(false)
+    expect(h.persistCallTurnMessage).not.toHaveBeenCalled()
   })
 })

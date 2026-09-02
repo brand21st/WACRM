@@ -39,6 +39,8 @@ export interface SynthesizeArgs {
   text: string
   /** WhatsApp native voice note (ogg/opus). Browser preview uses mp3. */
   whatsapp?: boolean
+  /** Override ElevenLabs model (live calls use a faster flash model). */
+  modelId?: string
   /**
    * ISO 639-1 hint from the customer turn (Manglish → `ml`). Preferred
    * over detecting language from the generated reply so English-leaking
@@ -114,6 +116,7 @@ export async function synthesizeSpeech(
     apiKey: config.elevenlabsApiKey!,
     voiceId: effectiveVoiceId(config.elevenlabsVoiceId),
     text,
+    ...(args.modelId ? { modelId: args.modelId } : {}),
     ...(elevenLanguage ? { languageCode: elevenLanguage } : {}),
     ...(args.whatsapp
       ? { outputFormat: ELEVENLABS_WHATSAPP_VOICE_FORMAT }

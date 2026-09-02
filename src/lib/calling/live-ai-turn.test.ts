@@ -17,6 +17,7 @@ const h = vi.hoisted(() => ({
   persistCallTurnMessage: vi.fn(),
   call: null as Record<string, unknown> | null,
   contact: { name: 'Ada', phone: '1555000' } as Record<string, unknown> | null,
+  settings: null as Record<string, unknown> | null,
 }))
 
 vi.mock('@/lib/ai/admin-client', () => ({
@@ -28,6 +29,7 @@ vi.mock('@/lib/ai/admin-client', () => ({
         maybeSingle: async () => {
           if (table === 'calls') return { data: h.call, error: null }
           if (table === 'contacts') return { data: h.contact, error: null }
+          if (table === 'calling_settings') return { data: h.settings, error: null }
           return { data: null, error: null }
         },
       }
@@ -91,6 +93,7 @@ describe('runLiveAiTurn', () => {
       status: 'in_progress',
       ai_answered: true,
     }
+    h.settings = null
     h.loadAiConfig.mockResolvedValue(aiConfig())
     h.loadShopifyConfig.mockResolvedValue(null)
     h.retrieveShopifyStoreContent.mockResolvedValue([])
@@ -149,6 +152,32 @@ describe('runLiveAiTurn', () => {
       expect.any(Array),
       expect.anything(),
     )
+  })
+
+  it('injects call behaviour into the turn system prompt', async () => {
+    h.settings = {
+      live_ai_behaviour: 'Warm and brief',
+      live_ai_business_context: 'We sell bags.',
+      live_ai_instructions: 'Never quote prices.',
+      live_ai_answer: 'ai_first',
+      live_ai_voice: 'openai',
+    }
+    h.loadAiConfig.mockResolvedValue({
+      ...aiConfig(),
+      systemPrompt: 'Chat-only rules',
+    })
+    await runLiveAiTurn({
+      accountId: 'acct-1',
+      userId: 'user-1',
+      callId: 'call-1',
+      kind: 'greeting',
+    })
+    const systemPrompt = h.generateCustomerFacingReply.mock.calls[0][0].systemPrompt as string
+    expect(systemPrompt).toContain('Call behaviour:')
+    expect(systemPrompt).toContain('Warm and brief')
+    expect(systemPrompt).toContain('We sell bags.')
+    expect(systemPrompt).toContain('Never quote prices.')
+    expect(systemPrompt).not.toContain('Chat-only rules')
   })
 
   it('transcribes an utterance, persists both sides, and uses Shopify tools when connected', async () => {

@@ -6,9 +6,15 @@ import { persistCallTurnMessage } from '@/lib/calling/persist-call-turn'
 import { bindShopifyTools, sendProductCards } from '@/lib/ai/auto-reply'
 import { loadLiveAiCall } from '@/lib/calling/live-ai-realtime'
 import {
+  SEARCH_CUSTOMER_MEMORY_TOOL,
   SEARCH_KNOWLEDGE_TOOL,
   TRANSFER_TO_HUMAN_TOOL,
 } from '@/lib/calling/live-ai-constants'
+import {
+  isLiveAiNoiseTranscript,
+  loadLiveAiCustomerMemory,
+  searchLiveAiMemory,
+} from '@/lib/calling/live-ai-memory'
 import { loadAiConfig } from '@/lib/ai/config'
 import { LIVE_AI_HANDOFF_SPOKEN } from '@/lib/calling/live-ai-turn'
 import type { ShopifyProductCard } from '@/lib/shopify'
@@ -32,7 +38,9 @@ export async function persistLiveAiTranscript(args: {
   const db = args.db ?? supabaseAdmin()
   const call = await loadLiveAiCall({ db, accountId: args.accountId, callId: args.callId })
   const text = args.text.trim()
-  if (!text || !call.conversation_id) return { persisted: false }
+  if (!text || !call.conversation_id || isLiveAiNoiseTranscript(text)) {
+    return { persisted: false }
+  }
   await persistCallTurnMessage(db, {
     conversationId: call.conversation_id,
     direction: args.role === 'customer' ? 'in' : 'out',
@@ -80,6 +88,24 @@ export async function executeLiveAiTool(args: {
     const excerpts = await retrieveKnowledge(db, args.accountId, config, query)
     return {
       output: JSON.stringify({ excerpts }),
+      handoff: false,
+    }
+  }
+
+  if (args.name === SEARCH_CUSTOMER_MEMORY_TOOL) {
+    const query = typeof args.arguments.query === 'string' ? args.arguments.query : ''
+    if (!call.contact_id || !call.conversation_id) {
+      return { output: JSON.stringify({ hits: [] }), handoff: false }
+    }
+    const memory = await loadLiveAiCustomerMemory({
+      db,
+      accountId: args.accountId,
+      contactId: call.contact_id,
+      conversationId: call.conversation_id,
+    })
+    const hits = searchLiveAiMemory(memory, query)
+    return {
+      output: JSON.stringify({ hits }),
       handoff: false,
     }
   }
