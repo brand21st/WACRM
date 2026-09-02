@@ -51,7 +51,7 @@ describe("shouldNotifyIncoming", () => {
     ).toEqual({ sound: true, toast: true, desktop: true });
   });
 
-  it("ignores agent, bot, and duplicate rows", () => {
+  it("ignores agent, bot, duplicate rows, and call bubbles", () => {
     expect(shouldNotifyIncoming({ ...base, senderType: "agent" }).sound).toBe(
       false,
     );
@@ -59,6 +59,9 @@ describe("shouldNotifyIncoming", () => {
       false,
     );
     expect(shouldNotifyIncoming({ ...base, alreadySeen: true }).sound).toBe(
+      false,
+    );
+    expect(shouldNotifyIncoming({ ...base, contentType: "call" }).sound).toBe(
       false,
     );
   });

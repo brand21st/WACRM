@@ -198,6 +198,9 @@ vi.mock('@/lib/whatsapp/template-webhook', () => ({
   isTemplateWebhookField: () => false,
   handleTemplateWebhookChange: vi.fn(),
 }))
+vi.mock('@/lib/whatsapp/call-webhook', () => ({
+  handleCallsWebhook: vi.fn(async () => undefined),
+}))
 vi.mock('@/lib/automations/engine', () => ({
   runAutomationsForTrigger: h.runAutomationsForTrigger,
 }))
@@ -692,3 +695,40 @@ describe('inbound webhook: voice notes are queued for cron', () => {
     expect(h.enqueueVoiceInboundJob).not.toHaveBeenCalled()
   })
 })
+
+describe('POST /api/whatsapp/webhook calls field', () => {
+  it('routes field=calls to handleCallsWebhook and skips messaging', async () => {
+    const { handleCallsWebhook } = await import('@/lib/whatsapp/call-webhook')
+    const body = {
+      entry: [
+        {
+          changes: [
+            {
+              field: 'calls',
+              value: {
+                metadata: { phone_number_id: 'pn-1' },
+                contacts: [{ wa_id: '15551230000', profile: { name: 'Ada' } }],
+                calls: [
+                  {
+                    id: 'wacid.TESTCALL',
+                    event: 'connect',
+                    session: { sdp_type: 'offer', sdp: 'v=0' },
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      ],
+    }
+    const req = {
+      text: async () => JSON.stringify(body),
+      headers: { get: () => 'sha256=stub' },
+    } as unknown as Request
+    await POST(req)
+    for (const cb of h.state.afterCallbacks) await cb()
+    expect(handleCallsWebhook).toHaveBeenCalledTimes(1)
+    expect(h.state.upsertCalls).toHaveLength(0)
+  })
+})
+

@@ -11,6 +11,7 @@ import {
   LayoutTemplate,
   CornerDownLeft,
   Sparkles,
+  Phone,
 } from "lucide-react";
 import { format } from "date-fns";
 import { ReplyQuote } from "./reply-quote";
@@ -23,6 +24,7 @@ import {
   MediaVideoBubble,
 } from "./message-media";
 import { InteractivePreview } from "@/components/interactive/interactive-preview";
+import { parseCallPreview, formatCallDuration } from "@/lib/calls/preview";
 import { useTranslations } from "next-intl";
 
 interface MessageBubbleProps {
@@ -177,6 +179,35 @@ function MessageContent({
           <span>{message.content_text || t("locationShared")}</span>
         </div>
       );
+
+    case "call": {
+      const parsed = parseCallPreview(message.content_text);
+      const status = parsed?.status ?? "missed";
+      const duration =
+        parsed?.durationSeconds != null
+          ? formatCallDuration(parsed.durationSeconds)
+          : null;
+      let label = t("callMissed");
+      if (status === "completed") {
+        label = duration
+          ? t("callCompleted", { duration })
+          : t("callCompletedUnknown");
+      } else if (status === "rejected") {
+        label = t("callRejected");
+      } else if (status === "failed") {
+        label = t("callFailed");
+      } else if (status === "ringing" || status === "connecting") {
+        label = t("callIncoming");
+      } else if (status === "in_progress") {
+        label = t("callInProgress");
+      }
+      return (
+        <div className="flex items-center gap-2 text-sm">
+          <Phone className="h-4 w-4 shrink-0 text-muted-foreground" />
+          <span>{label}</span>
+        </div>
+      );
+    }
 
     case "interactive": {
       // Three cases share content_type='interactive':

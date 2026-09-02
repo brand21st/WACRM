@@ -77,6 +77,7 @@ export function ReplyQuote({
 
 /** Build the one-line preview text shown inside a reply quote. */
 export function buildReplyPreview(message: Message, t: ReturnType<typeof useTranslations>): string {
+  if (message.content_type === "call") return t("call");
   if (message.content_text) return message.content_text;
   switch (message.content_type) {
     case "image":

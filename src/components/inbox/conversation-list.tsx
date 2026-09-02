@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { InboxAiAgentPanel } from "./ai-agent-panel";
+import { callListPreview } from "@/lib/calls/preview";
 
 interface ConversationListProps {
   activeConversationId: string | null;
@@ -483,7 +484,17 @@ function ConversationItem({
         </div>
         <div className="mt-0.5 flex items-center justify-between gap-2">
           <p className="truncate text-xs text-muted-foreground">
-            {conversation.last_message_text || t("noMessagesYet")}
+            {callListPreview(conversation.last_message_text, {
+              incoming: t("callIncoming"),
+              missed: t("callMissed"),
+              completed: (duration) => t("callCompleted", { duration }),
+              completedUnknown: t("callCompletedUnknown"),
+              rejected: t("callRejected"),
+              failed: t("callFailed"),
+              inProgress: t("callInProgress"),
+            }) ||
+              conversation.last_message_text ||
+              t("noMessagesYet")}
           </p>
           <div className="flex shrink-0 items-center gap-1.5">
             {conversation.unread_count > 0 && (

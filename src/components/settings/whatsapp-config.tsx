@@ -86,6 +86,9 @@ export function WhatsAppConfig() {
   // a viewer's toggle would match zero rows and appear to work.
   const [mirrorMedia, setMirrorMedia] = useState(true);
   const [savingMirror, setSavingMirror] = useState(false);
+  const [callingEnabled, setCallingEnabled] = useState(false);
+  const [savingCalling, setSavingCalling] = useState(false);
+  const [callingError, setCallingError] = useState<string | null>(null);
 
   // True once /register has succeeded on Meta's side (timestamp set
   // in the row). When false, the saved config is metadata-only and
@@ -141,6 +144,8 @@ export function WhatsAppConfig() {
         // Undefined on a row read before migration 039 — treat that as
         // on, matching the webhook's own default.
         setMirrorMedia(data.mirror_inbound_media !== false);
+        setCallingEnabled(data.calling_status === 'enabled');
+        setCallingError(data.last_calling_error ?? null);
       } else {
         setConfig(null);
         setPhoneNumberId('');
@@ -150,6 +155,8 @@ export function WhatsAppConfig() {
         setPin('');
         setTokenEdited(false);
         setMirrorMedia(true);
+        setCallingEnabled(false);
+        setCallingError(null);
       }
       // Clear any stale probe result when reloading the row.
       setRegistrationProbe(null);
@@ -223,6 +230,43 @@ export function WhatsAppConfig() {
       toast.error(t('mirrorInboundSaveFailed'));
     } finally {
       setSavingMirror(false);
+    }
+  }
+
+  async function handleToggleCalling(next: boolean) {
+    if (!config || savingCalling) return;
+    const previous = callingEnabled;
+    setCallingEnabled(next);
+    setSavingCalling(true);
+    setCallingError(null);
+    try {
+      const res = await fetch('/api/whatsapp/calls/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: next }),
+      });
+      const payload = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        calling_status?: string;
+      };
+      if (!res.ok) {
+        throw new Error(payload.error || t('callingSaveFailed'));
+      }
+      setCallingEnabled(payload.calling_status === 'enabled');
+      setConfig({
+        ...config,
+        calling_status: payload.calling_status === 'enabled' ? 'enabled' : 'disabled',
+        last_calling_error: null,
+      });
+      toast.success(next ? t('callingEnabledToast') : t('callingDisabledToast'));
+    } catch (error) {
+      console.error('Failed to update calling setting:', error);
+      setCallingEnabled(previous);
+      const message = error instanceof Error ? error.message : t('callingSaveFailed');
+      setCallingError(message);
+      toast.error(message);
+    } finally {
+      setSavingCalling(false);
     }
   }
 
@@ -764,6 +808,42 @@ export function WhatsAppConfig() {
           </Card>
         )}
 
+        {config && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-foreground">{t('callingTitle')}</CardTitle>
+              <CardDescription className="text-muted-foreground">
+                {t('callingDesc')}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="flex items-center justify-between gap-4 rounded-md border border-border p-3">
+                <div>
+                  <p className="text-sm font-medium text-foreground">
+                    {t('callingEnable')}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {t('callingEnableDesc')}
+                  </p>
+                </div>
+                <Switch
+                  checked={callingEnabled}
+                  onCheckedChange={handleToggleCalling}
+                  disabled={
+                    savingCalling ||
+                    !canEditSettings ||
+                    connectionStatus !== 'connected'
+                  }
+                  aria-label={t('callingEnable')}
+                />
+              </div>
+              {callingError && (
+                <p className="text-xs text-destructive">{callingError}</p>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
         {/* Action Buttons */}
         <div className="flex flex-wrap gap-3">
           <Button
@@ -896,6 +976,7 @@ export function WhatsAppConfig() {
                     <li dangerouslySetInnerHTML={{ __html: t.raw('step4_3') }} />
                     <li dangerouslySetInnerHTML={{ __html: t.raw('step4_4') }} />
                     <li>{t('step4_5')}</li>
+                    <li>{t('step4_6')}</li>
                   </ol>
                 </AccordionContent>
               </AccordionItem>

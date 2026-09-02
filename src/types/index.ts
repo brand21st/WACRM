@@ -215,7 +215,9 @@ export type ContentType =
   | 'location'
   | 'template'
   /** Customer tapped a reply button or list row on a message we sent. */
-  | 'interactive';
+  | 'interactive'
+  /** WhatsApp Cloud API voice call (inbound history bubble). Migration 052. */
+  | 'call';
 export type MessageStatus = 'sending' | 'sent' | 'delivered' | 'read' | 'failed';
 
 export interface Message {
@@ -298,6 +300,47 @@ export interface WhatsAppConfig {
    * inbound attachments expire. Migration 039.
    */
   mirror_inbound_media?: boolean;
+  /**
+   * Mirror of Meta call settings (`ENABLED` / `DISABLED`) for this
+   * business number. Migration 052.
+   */
+  calling_status?: 'enabled' | 'disabled';
+  /** Last error from enabling/disabling calling; cleared on success. */
+  last_calling_error?: string | null;
+}
+
+export type CallStatus =
+  | 'ringing'
+  | 'connecting'
+  | 'in_progress'
+  | 'completed'
+  | 'missed'
+  | 'rejected'
+  | 'failed';
+
+export type CallDirection = 'user_initiated' | 'business_initiated';
+
+export interface Call {
+  id: string;
+  account_id: string;
+  conversation_id: string | null;
+  contact_id: string | null;
+  meta_call_id: string;
+  direction: CallDirection;
+  status: CallStatus;
+  answered_by?: string | null;
+  from_phone?: string | null;
+  to_phone?: string | null;
+  /** Meta SDP offer from the connect webhook. Do not log. */
+  sdp_offer?: string | null;
+  started_at?: string | null;
+  ended_at?: string | null;
+  duration_seconds?: number | null;
+  error_code?: number | null;
+  error_message?: string | null;
+  created_at: string;
+  updated_at: string;
+  contact?: Pick<Contact, 'id' | 'name' | 'phone'> | null;
 }
 
 export interface ShopifyConfig {

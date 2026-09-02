@@ -17,6 +17,7 @@ export interface IncomingNotifyInput {
   viewingConversationId: string | null;
   documentHidden: boolean;
   alreadySeen: boolean;
+  contentType?: string;
 }
 
 export interface IncomingNotifyDecision {
@@ -46,6 +47,7 @@ export function shouldNotifyIncoming(
   };
   if (input.alreadySeen) return off;
   if (input.senderType !== "customer") return off;
+  if (input.contentType === "call") return off;
   if (!input.messageId || !input.conversationId) return off;
 
   const watchingThisThread =

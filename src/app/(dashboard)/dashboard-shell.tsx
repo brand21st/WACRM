@@ -8,6 +8,7 @@ import { Header } from "@/components/layout/header";
 import { AccountAccessAlert } from "@/components/layout/account-access-alert";
 import { PresenceHeartbeat } from "@/components/presence/presence-heartbeat";
 import { IncomingMessageAlerts } from "@/components/layout/incoming-message-alerts";
+import { CallSessionProvider } from "@/components/calls/call-session-provider";
 
 // Auth-gated dashboard shell. Extracted from the layout so the layout
 // itself can stay a server component and export metadata (noindex) —
@@ -42,23 +43,25 @@ function DashboardShellInner({ children }: { children: React.ReactNode }) {
   if (!user) return null;
 
   return (
-    <div className="flex h-screen overflow-hidden bg-background">
-      {/* Reports this tab's online/away presence once we know a user is
-          signed in. Headless — renders nothing. */}
-      <PresenceHeartbeat />
-      <IncomingMessageAlerts />
-      <Sidebar open={sidebarOpen} onClose={closeSidebar} />
-      <div className="flex flex-1 flex-col overflow-hidden">
-        <Header onOpenSidebar={() => setSidebarOpen(true)} />
-        {/* Thinner horizontal padding on mobile so cards have room to breathe. */}
-        <main className="flex-1 overflow-y-auto p-4 sm:p-6">
-          {/* Above every page: writes are being rejected and here's why.
-              Renders nothing unless the account/role failed to resolve. */}
-          <AccountAccessAlert />
-          {children}
-        </main>
+    <CallSessionProvider>
+      <div className="flex h-screen overflow-hidden bg-background">
+        {/* Reports this tab's online/away presence once we know a user is
+            signed in. Headless — renders nothing. */}
+        <PresenceHeartbeat />
+        <IncomingMessageAlerts />
+        <Sidebar open={sidebarOpen} onClose={closeSidebar} />
+        <div className="flex flex-1 flex-col overflow-hidden">
+          <Header onOpenSidebar={() => setSidebarOpen(true)} />
+          {/* Thinner horizontal padding on mobile so cards have room to breathe. */}
+          <main className="flex-1 overflow-y-auto p-4 sm:p-6">
+            {/* Above every page: writes are being rejected and here's why.
+                Renders nothing unless the account/role failed to resolve. */}
+            <AccountAccessAlert />
+            {children}
+          </main>
+        </div>
       </div>
-    </div>
+    </CallSessionProvider>
   );
 }
 

@@ -22,15 +22,15 @@ import {
   ChevronDown,
   UserPlus,
   Check,
-  Clock,
   ArrowLeft,
   RefreshCw,
   PanelRightOpen,
   PanelRightClose,
 } from "lucide-react";
-import { format, isToday, isYesterday, differenceInHours } from "date-fns";
+import { format, isToday, isYesterday } from "date-fns";
 import { useTranslations } from "next-intl";
-import { Badge } from "@/components/ui/badge";
+import { customerServiceExpiresAt } from "@/lib/inbox/session-window";
+import { SessionWindowBadge } from "./session-window-badge";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -170,7 +170,6 @@ export function MessageThread({
   onToggleContactPanel,
 }: MessageThreadProps) {
   const t = useTranslations("Inbox.messageThread");
-  const tTimer = useTranslations("Inbox.sessionTimer");
   const tQuote = useTranslations("Inbox.replyQuote");
 
   const { user } = useAuth();
@@ -236,32 +235,44 @@ export function MessageThread({
     };
   }, []);
 
-  // 24-hour session timer
-  const sessionInfo = useMemo(() => {
-    if (!messages.length) return { expired: false, remaining: "" };
-
-    // Find last customer message
-    const lastCustomerMsg = [...messages]
-      .reverse()
-      .find((m) => m.sender_type === "customer");
-
-    if (!lastCustomerMsg) return { expired: true, remaining: "No customer messages" };
-
-    const hoursSince = differenceInHours(new Date(), new Date(lastCustomerMsg.created_at));
-    const expired = hoursSince >= 24;
-
-    if (expired) {
-      return { expired: true, remaining: tTimer("expired") };
+  // WhatsApp 24h window — last inbound starts the clock. The badge
+  // ticks on its own; this timeout only flips `sessionExpired` at the
+  // exact deadline so the composer locks without a 1s thread re-render.
+  const lastCustomerAt = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i]?.sender_type === "customer") {
+        return messages[i]!.created_at;
+      }
     }
-
-    const hoursLeft = 24 - hoursSince;
-    const remaining =
-      hoursLeft >= 1
-        ? tTimer("xhRemaining", { hours: Math.floor(hoursLeft) })
-        : tTimer("xmRemaining", { minutes: Math.floor(hoursLeft * 60) });
-
-    return { expired, remaining };
-  }, [messages, tTimer]);
+    return null;
+  }, [messages]);
+  const expiresAt = useMemo(
+    () => customerServiceExpiresAt(lastCustomerAt),
+    [lastCustomerAt],
+  );
+  const [sessionExpired, setSessionExpired] = useState(() => {
+    if (messages.length === 0) return false;
+    if (!expiresAt) return true;
+    return expiresAt.getTime() <= Date.now();
+  });
+  useEffect(() => {
+    if (messages.length === 0) {
+      setSessionExpired(false);
+      return;
+    }
+    if (!expiresAt) {
+      setSessionExpired(true);
+      return;
+    }
+    const ms = expiresAt.getTime() - Date.now();
+    if (ms <= 0) {
+      setSessionExpired(true);
+      return;
+    }
+    setSessionExpired(false);
+    const id = setTimeout(() => setSessionExpired(true), ms);
+    return () => clearTimeout(id);
+  }, [expiresAt, messages.length]);
 
   // Store latest callback in a ref so fetchMessages doesn't need to
   // depend on `onMessagesLoaded` — otherwise parent re-renders cause
@@ -928,18 +939,12 @@ export function MessageThread({
             <h2 className="truncate text-sm font-semibold text-foreground">{displayName}</h2>
             <p className="truncate text-xs text-muted-foreground">{contact.phone}</p>
           </div>
-          {/* Session timer badge — hidden on the narrowest phones so
-              the name + back arrow keep their room. */}
-          <Badge
-            variant="outline"
-            className={cn(
-              "ml-1 hidden gap-1 border-border text-[10px] sm:inline-flex sm:ml-2",
-              sessionInfo.expired ? "text-red-400" : "text-primary"
-            )}
-          >
-            <Clock className="h-3 w-3" />
-            {sessionInfo.remaining}
-          </Badge>
+          {messages.length > 0 && (
+            <SessionWindowBadge
+              expiresAt={expiresAt}
+              hasCustomerMessage={lastCustomerAt !== null}
+            />
+          )}
         </div>
 
         <div className="flex items-center gap-2">
@@ -1186,7 +1191,7 @@ export function MessageThread({
       {/* Composer */}
       <MessageComposer
         conversationId={conversation.id}
-        sessionExpired={sessionInfo.expired}
+        sessionExpired={sessionExpired}
         onSend={handleSend}
         onSendMedia={handleSendMedia}
         onSendInteractive={handleSendInteractive}

@@ -77,6 +77,23 @@
     "previewInteractive": "답장",
     "previewDefault": "새 메시지"
   },
+  "Calls": {
+    "incomingLabel": "WhatsApp 수신 전화",
+    "incomingHint": "음성 통화",
+    "answer": "받기",
+    "decline": "거절",
+    "connecting": "연결 중…",
+    "mute": "음소거",
+    "unmute": "음소거 해제",
+    "hangUp": "끊기",
+    "openChat": "채팅 열기",
+    "unknownCaller": "알 수 없는 발신자",
+    "micDenied": "전화를 받으려면 마이크 권한이 필요합니다.",
+    "iceFailed": "통화를 연결하지 못했습니다.",
+    "alreadyClaimed": "다른 팀원이 이미 이 전화를 받았습니다.",
+    "actionFailed": "통화 요청에 실패했습니다.",
+    "missingOffer": "통화 정보가 없습니다. 고객에게 다시 걸어 달라고 요청하세요."
+  },
   "ModeToggle": {
     "switchMode": "{mode} 모드로 전환"
   },
@@ -169,7 +186,14 @@
       "clearAll": "모두 지우기",
       "noConversations": "대화를 찾을 수 없습니다",
       "noMessagesYet": "아직 메시지가 없습니다",
-      "unknown": "알 수 없음"
+      "unknown": "알 수 없음",
+      "callIncoming": "수신 전화",
+      "callMissed": "부재중 전화",
+      "callCompleted": "통화 ({duration})",
+      "callCompletedUnknown": "통화",
+      "callRejected": "거절된 전화",
+      "callFailed": "통화 실패",
+      "callInProgress": "통화 중"
     },
     "messageThread": {
       "backToConversations": "대화 목록으로 돌아가기",
@@ -197,8 +221,8 @@
     },
     "sessionTimer": {
       "expired": "만료됨",
-      "xhRemaining": "{hours}시간 남음",
-      "xmRemaining": "{minutes}분 남음",
+      "closesAt": "{time}에 창이 닫힙니다",
+      "remainingAria": "{hours}시간 {minutes}분 남음",
       "noCustomerMessages": "고객 메시지 없음"
     },
     "composer": {
@@ -251,7 +275,14 @@
       "downloadFailed": "첨부파일을 다운로드할 수 없습니다",
       "viewImage": "이미지 보기",
       "expandVideo": "동영상 확대",
-      "imageAlt": "공유된 이미지"
+      "imageAlt": "공유된 이미지",
+      "callIncoming": "수신 전화",
+      "callMissed": "부재중 전화",
+      "callCompleted": "통화 ({duration})",
+      "callCompletedUnknown": "통화",
+      "callRejected": "거절된 전화",
+      "callFailed": "통화 실패",
+      "callInProgress": "통화 중"
     },
     "mediaViewer": {
       "counter": "{total}개 중 {index}번째",
@@ -284,6 +315,7 @@
       "voiceMessage": "[음성 메시지]",
       "location": "[위치]",
       "template": "[템플릿]",
+      "call": "[통화]",
       "message": "[메시지]",
       "cancelReply": "답장 취소"
     },
@@ -1827,6 +1859,14 @@
       "step4_3": "위의 <strong class=\"text-foreground\">웹훅 콜백 URL</strong>을 붙여넣기",
       "step4_4": "여기서 설정한 것과 동일한 <strong class=\"text-foreground\">인증 토큰</strong>을 입력",
       "step4_5": "\"messages\" 웹훅 필드를 구독",
+      "step4_6": "\"calls\" 웹훅 필드를 구독 (WhatsApp 통화에 필요)",
+      "callingTitle": "WhatsApp 통화",
+      "callingDesc": "고객이 이 비즈니스 번호로 음성 통화를 걸 수 있습니다. 상담원은 받은편지함에서 WebRTC로 받습니다.",
+      "callingEnable": "수신 통화 사용",
+      "callingEnableDesc": "WhatsApp 프로필에 통화 아이콘을 표시하고 고객 발신 통화를 허용합니다. 앱이 calls 웹훅 필드도 구독해야 합니다.",
+      "callingSaveFailed": "통화 설정을 업데이트할 수 없습니다.",
+      "callingEnabledToast": "수신 통화가 켜졌습니다.",
+      "callingDisabledToast": "수신 통화가 꺼졌습니다.",
       "metaDocs": "Meta WhatsApp API 문서"
     },
     "sections": {

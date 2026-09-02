@@ -24,6 +24,7 @@ import {
   handleTemplateWebhookChange,
   isTemplateWebhookField,
 } from '@/lib/whatsapp/template-webhook'
+import { handleCallsWebhook } from '@/lib/whatsapp/call-webhook'
 
 // The `after()` callback in POST runs within this route's max duration.
 // Inbound processing can fan out to per-media Meta verification calls, so
@@ -100,6 +101,19 @@ interface WhatsAppWebhookEntry {
         status: string
         timestamp: string
         recipient_id: string
+      }>
+      calls?: Array<{
+        id: string
+        to?: string
+        from?: string
+        event?: string
+        timestamp?: string
+        direction?: string
+        status?: string | string[]
+        start_time?: string | number
+        end_time?: string | number
+        duration?: number
+        session?: { sdp_type?: string; sdp?: string }
       }>
     }
     field: string
@@ -262,6 +276,11 @@ async function processWebhook(body: { entry?: WhatsAppWebhookEntry[] }) {
           { field: change.field, value: change.value as unknown },
           supabaseAdmin(),
         )
+        continue
+      }
+
+      if (change.field === 'calls') {
+        await handleCallsWebhook(change.value, supabaseAdmin())
         continue
       }
 
@@ -702,14 +721,14 @@ async function processMessage(
   //   media_url, media_type, template_name, message_id, status,
   //   created_at
 
-  // The messages.content_type CHECK constraint (widened in migration 010
-  // to add 'interactive' for button/list taps) allows:
-  //   text, image, document, audio, video, location, template, interactive
+  // The messages.content_type CHECK constraint (widened in migration 052
+  // to add 'call' for WhatsApp Cloud API call history) allows:
+  //   text, image, document, audio, video, location, template, interactive, call
   // Map incoming WhatsApp types that aren't in that list to the closest
   // allowed value so the INSERT doesn't fail with a constraint error.
   const ALLOWED_CONTENT_TYPES = new Set([
     'text', 'image', 'document', 'audio', 'video',
-    'location', 'template', 'interactive',
+    'location', 'template', 'interactive', 'call',
   ])
   const contentType = ALLOWED_CONTENT_TYPES.has(message.type)
     ? message.type

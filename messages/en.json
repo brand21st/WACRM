@@ -77,6 +77,23 @@
     "previewInteractive": "Reply",
     "previewDefault": "New message"
   },
+  "Calls": {
+    "incomingLabel": "Incoming WhatsApp call",
+    "incomingHint": "Voice call",
+    "answer": "Answer",
+    "decline": "Decline",
+    "connecting": "Connecting…",
+    "mute": "Mute",
+    "unmute": "Unmute",
+    "hangUp": "Hang up",
+    "openChat": "Open chat",
+    "unknownCaller": "Unknown caller",
+    "micDenied": "Microphone access is required to answer the call.",
+    "iceFailed": "Could not connect the call.",
+    "alreadyClaimed": "A teammate already answered this call.",
+    "actionFailed": "Call action failed.",
+    "missingOffer": "Call offer is missing. Ask the customer to call again."
+  },
   "ModeToggle": {
     "switchMode": "Switch to {mode} mode"
   },
@@ -169,7 +186,14 @@
       "clearAll": "Clear all",
       "noConversations": "No conversations found",
       "noMessagesYet": "No messages yet",
-      "unknown": "Unknown"
+      "unknown": "Unknown",
+      "callIncoming": "Incoming call",
+      "callMissed": "Missed call",
+      "callCompleted": "Call ({duration})",
+      "callCompletedUnknown": "Call",
+      "callRejected": "Declined call",
+      "callFailed": "Call failed",
+      "callInProgress": "On a call"
     },
     "messageThread": {
       "backToConversations": "Back to conversations",
@@ -197,8 +221,8 @@
     },
     "sessionTimer": {
       "expired": "Expired",
-      "xhRemaining": "{hours}h remaining",
-      "xmRemaining": "{minutes}m remaining",
+      "closesAt": "Window closes at {time}",
+      "remainingAria": "{hours} hours {minutes} minutes remaining",
       "noCustomerMessages": "No customer messages"
     },
     "composer": {
@@ -251,7 +275,14 @@
       "downloadFailed": "Couldn't download the attachment",
       "viewImage": "View image",
       "expandVideo": "Expand video",
-      "imageAlt": "Shared image"
+      "imageAlt": "Shared image",
+      "callIncoming": "Incoming call",
+      "callMissed": "Missed call",
+      "callCompleted": "Call ({duration})",
+      "callCompletedUnknown": "Call",
+      "callRejected": "Declined call",
+      "callFailed": "Call failed",
+      "callInProgress": "On a call"
     },
     "mediaViewer": {
       "counter": "{index} of {total}",
@@ -284,6 +315,7 @@
       "voiceMessage": "[Voice message]",
       "location": "[Location]",
       "template": "[Template]",
+      "call": "[Call]",
       "message": "[Message]",
       "cancelReply": "Cancel reply"
     },
@@ -1827,6 +1859,14 @@
       "step4_3": "Paste the <strong class=\"text-foreground\">Webhook Callback URL</strong> from above",
       "step4_4": "Enter the same <strong class=\"text-foreground\">Verify Token</strong> you set here",
       "step4_5": "Subscribe to \"messages\" webhook field",
+      "step4_6": "Subscribe to \"calls\" webhook field (required for WhatsApp calling)",
+      "callingTitle": "WhatsApp calling",
+      "callingDesc": "Let customers place a voice call to this business number. Agents answer in the inbox over WebRTC.",
+      "callingEnable": "Enable inbound calling",
+      "callingEnableDesc": "Turns on the call icon on your WhatsApp profile and allows user-initiated calls. The app must also be subscribed to the calls webhook field.",
+      "callingSaveFailed": "Could not update calling settings.",
+      "callingEnabledToast": "Inbound calling enabled.",
+      "callingDisabledToast": "Inbound calling disabled.",
       "metaDocs": "Meta WhatsApp API Documentation"
     },
     "sections": {

@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { getMediaUrl, downloadMedia } from '@/lib/whatsapp/meta-api'
+import { downloadWhatsAppMedia } from '@/lib/whatsapp/meta-api'
 import { decrypt } from '@/lib/whatsapp/encryption'
 
 export async function GET(
@@ -64,19 +64,18 @@ export async function GET(
 
     const accessToken = decrypt(config.access_token)
 
-    // Get the download URL from Meta
-    const mediaInfo = await getMediaUrl({ mediaId, accessToken })
-
-    // Download the binary data
-    const { buffer, contentType } = await downloadMedia({
-      downloadUrl: mediaInfo.url,
+    // Refresh the short-lived lookaside URL on each retry. Resolving
+    // it once then replaying a 500ing CDN link is a dead end (Meta
+    // expires those URLs in ~5 minutes, and lookaside 500s under load).
+    const { buffer, contentType, mimeType } = await downloadWhatsAppMedia({
+      mediaId,
       accessToken,
     })
 
     return new Response(new Uint8Array(buffer), {
       status: 200,
       headers: {
-        'Content-Type': contentType || mediaInfo.mimeType || 'application/octet-stream',
+        'Content-Type': contentType || mimeType || 'application/octet-stream',
         'Cache-Control': 'public, max-age=86400',
       },
     })

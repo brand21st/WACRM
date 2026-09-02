@@ -129,6 +129,7 @@ export function useIncomingMessageAlerts() {
         ),
         documentHidden: document.hidden,
         alreadySeen,
+        contentType: msg.content_type,
       });
       if (!decision.sound && !decision.toast && !decision.desktop) return;
 

@@ -29,15 +29,32 @@ interface MetaErrorResponse {
   error?: { message?: string; code?: number; type?: string }
 }
 
+/** Graph API error with Meta's numeric `error.code` when present. */
+export class MetaApiError extends Error {
+  readonly code?: number
+  readonly httpStatus: number
+  constructor(
+    message: string,
+    opts?: { code?: number; httpStatus?: number },
+  ) {
+    super(message)
+    this.name = 'MetaApiError'
+    this.code = opts?.code
+    this.httpStatus = opts?.httpStatus ?? 0
+  }
+}
+
 async function throwMetaError(response: Response, fallback: string): Promise<never> {
   let message = fallback
+  let code: number | undefined
   try {
     const data = (await response.json()) as MetaErrorResponse
     if (data.error?.message) message = data.error.message
+    if (typeof data.error?.code === 'number') code = data.error.code
   } catch {
     // response body wasn't JSON — keep the fallback
   }
-  throw new Error(message)
+  throw new MetaApiError(message, { code, httpStatus: response.status })
 }
 
 // ============================================================
@@ -1354,4 +1371,90 @@ export async function downloadWhatsAppMedia(
     }
     throw lastError ?? new Error('Media download failed')
   })
+}
+
+// ============================================================
+// Calling API (user-initiated WebRTC)
+// ============================================================
+
+export interface CallSettingsCalling {
+  status?: 'ENABLED' | 'DISABLED'
+  call_icon_visibility?: 'DEFAULT' | 'DISABLE_ALL'
+}
+
+export interface GetCallSettingsArgs {
+  phoneNumberId: string
+  accessToken: string
+}
+
+export async function getCallSettings(
+  args: GetCallSettingsArgs,
+): Promise<{ calling?: CallSettingsCalling }> {
+  const { phoneNumberId, accessToken } = args
+  const url = `${META_API_BASE}/${phoneNumberId}/settings`
+  const response = await fetch(url, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  })
+  if (!response.ok) {
+    await throwMetaError(response, `Meta call settings error: ${response.status}`)
+  }
+  return response.json() as Promise<{ calling?: CallSettingsCalling }>
+}
+
+export interface UpdateCallSettingsArgs {
+  phoneNumberId: string
+  accessToken: string
+  calling: CallSettingsCalling
+}
+
+export async function updateCallSettings(
+  args: UpdateCallSettingsArgs,
+): Promise<void> {
+  const { phoneNumberId, accessToken, calling } = args
+  const url = `${META_API_BASE}/${phoneNumberId}/settings`
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ calling }),
+  })
+  if (!response.ok) {
+    await throwMetaError(response, `Meta call settings error: ${response.status}`)
+  }
+}
+
+export type CallGraphAction = 'pre_accept' | 'accept' | 'reject' | 'terminate'
+
+export interface CallActionArgs {
+  phoneNumberId: string
+  accessToken: string
+  callId: string
+  action: CallGraphAction
+  session?: { sdpType: 'answer' | 'offer'; sdp: string }
+}
+
+export async function callAction(args: CallActionArgs): Promise<void> {
+  const { phoneNumberId, accessToken, callId, action, session } = args
+  const url = `${META_API_BASE}/${phoneNumberId}/calls`
+  const body: Record<string, unknown> = {
+    messaging_product: 'whatsapp',
+    call_id: callId,
+    action,
+  }
+  if (session) {
+    body.session = { sdp_type: session.sdpType, sdp: session.sdp }
+  }
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  })
+  if (!response.ok) {
+    await throwMetaError(response, `Meta calling API error: ${response.status}`)
+  }
 }
