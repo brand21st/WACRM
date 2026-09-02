@@ -9,6 +9,8 @@
  * instead of a runtime rejection from Meta.
  */
 
+import { createSemaphore } from '@/lib/concurrency'
+
 const META_API_VERSION = 'v21.0'
 const META_API_BASE = `https://graph.facebook.com/${META_API_VERSION}`
 
@@ -1179,22 +1181,62 @@ export interface DownloadMediaArgs {
   accessToken: string
 }
 
+const MEDIA_DOWNLOAD_ATTEMPTS = 4
+
+/** Meta's lookaside CDN 500s when many voice notes fetch at once.
+ *  Two in-flight downloads + retries is the throughput/reliability
+ *  trade-off that still lets overlapping customers complete. */
+export const META_MEDIA_DOWNLOAD_CONCURRENCY = 2
+
+function isRetryableMediaStatus(status: number): boolean {
+  return status === 429 || status >= 500
+}
+
+const mediaDownloadGate = createSemaphore(META_MEDIA_DOWNLOAD_CONCURRENCY)
+
+async function downloadMediaOnce(
+  args: DownloadMediaArgs,
+): Promise<{ buffer: Buffer; contentType: string }> {
+  const { downloadUrl, accessToken } = args
+  let lastError: Error | null = null
+  for (let attempt = 1; attempt <= MEDIA_DOWNLOAD_ATTEMPTS; attempt++) {
+    const response = await fetch(downloadUrl, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'User-Agent': 'WhatsApp-Cloud-API-Media/1.0',
+      },
+    })
+    if (response.ok) {
+      const contentType =
+        response.headers.get('content-type') || 'application/octet-stream'
+      const buffer = Buffer.from(await response.arrayBuffer())
+      return { buffer, contentType }
+    }
+    await response.arrayBuffer().catch(() => undefined)
+    lastError = new Error(`Media download failed: ${response.status}`)
+    if (
+      !isRetryableMediaStatus(response.status) ||
+      attempt === MEDIA_DOWNLOAD_ATTEMPTS
+    ) {
+      throw lastError
+    }
+    const backoffMs = 200 * 2 ** (attempt - 1) + Math.floor(Math.random() * 150)
+    await new Promise((resolve) => setTimeout(resolve, backoffMs))
+  }
+  throw lastError ?? new Error('Media download failed')
+}
+
 /**
  * Fetch the binary bytes for a media URL obtained from getMediaUrl.
  * Step two of the media-proxy flow.
+ *
+ * Overlapping voice notes share one WhatsApp token; Meta's CDN returns
+ * 500 if we stampede it. Callers are queued (small concurrency) and
+ * 5xx/429 responses are retried with backoff so every customer still
+ * gets a transcript instead of a dropped note.
  */
 export async function downloadMedia(
   args: DownloadMediaArgs
 ): Promise<{ buffer: Buffer; contentType: string }> {
-  const { downloadUrl, accessToken } = args
-  const response = await fetch(downloadUrl, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  })
-  if (!response.ok) {
-    throw new Error(`Media download failed: ${response.status}`)
-  }
-  const contentType =
-    response.headers.get('content-type') || 'application/octet-stream'
-  const buffer = Buffer.from(await response.arrayBuffer())
-  return { buffer, contentType }
+  return mediaDownloadGate.run(() => downloadMediaOnce(args))
 }

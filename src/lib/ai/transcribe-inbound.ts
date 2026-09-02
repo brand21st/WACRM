@@ -13,6 +13,8 @@ export interface TranscribeInboundVoiceArgs {
   /** Skip STT when this inbound already has text (replay / caption). */
   contentText?: string | null
   contentType: string
+  /** Bytes already fetched for the inbox mirror — skip a second Meta download. */
+  audio?: Buffer | Uint8Array | null
 }
 
 /**
@@ -41,20 +43,26 @@ export async function transcribeInboundVoiceNote(
     )
     if (!limit.success) {
       console.warn(
-        `[ai voice] account ${args.accountId} hit the STT rate limit — keeping the voice note without a transcript.`,
+        `[ai voice] account ${args.accountId} is above the STT budget — still transcribing so overlapping voice notes are not dropped.`,
       )
-      return null
     }
 
-    const info = await getMediaUrl({
-      mediaId: args.mediaId,
-      accessToken: args.accessToken,
-    })
-    const { buffer, contentType } = await downloadMedia({
-      downloadUrl: info.url,
-      accessToken: args.accessToken,
-    })
-    const mime = args.mimeType || info.mimeType || contentType
+    let buffer: Buffer
+    let mime = args.mimeType || ''
+    if (args.audio && args.audio.byteLength > 0) {
+      buffer = Buffer.from(args.audio)
+    } else {
+      const info = await getMediaUrl({
+        mediaId: args.mediaId,
+        accessToken: args.accessToken,
+      })
+      const downloaded = await downloadMedia({
+        downloadUrl: info.url,
+        accessToken: args.accessToken,
+      })
+      buffer = downloaded.buffer
+      mime = mime || info.mimeType || downloaded.contentType
+    }
 
     const text = await transcribeSpeech({
       config,

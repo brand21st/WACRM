@@ -1,8 +1,9 @@
 import { NextResponse, after } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { decrypt, encrypt, isLegacyFormat } from '@/lib/whatsapp/encryption'
-import { getMediaUrl } from '@/lib/whatsapp/meta-api'
+import { getMediaUrl, downloadMedia } from '@/lib/whatsapp/meta-api'
 import { mirrorInboundMedia } from '@/lib/whatsapp/mirror-inbound-media'
+import { MEDIA_MAX_BYTES } from '@/lib/storage/upload-media'
 import { normalizePhone } from '@/lib/whatsapp/phone-utils'
 import { findExistingContact, isUniqueViolation } from '@/lib/contacts/dedupe'
 import { reopenClosedConversation } from '@/lib/conversations/reopen'
@@ -17,6 +18,7 @@ import { engineSendTypingIndicator } from '@/lib/flows/meta-send'
 import { loadShopifyConfig } from '@/lib/shopify/config'
 import { transcribeInboundVoiceNote } from '@/lib/ai/transcribe-inbound'
 import { dispatchWebhookEvent } from '@/lib/webhooks/deliver'
+import { mapPool } from '@/lib/concurrency'
 import {
   handleTemplateWebhookChange,
   isTemplateWebhookField,
@@ -325,27 +327,36 @@ async function processWebhook(body: { entry?: WhatsAppWebhookEntry[] }) {
         continue
       }
 
-      for (let i = 0; i < value.messages.length; i++) {
-        const message = value.messages[i]
-        const contact = value.contacts[i] || value.contacts[0]
-
-        await processMessage(
-          message,
-          contact,
-          // Tenancy — drives every contact / conversation lookup
-          // and the engines' active-row dispatch.
-          config.account_id,
-          // Audit / sender-of-record — used as the user_id on row
-          // inserts that need it for NOT NULL FK compliance. Always
-          // the admin who saved the WhatsApp config.
-          config.user_id,
-          decryptedAccessToken,
-          // Default ON: the column is NOT NULL DEFAULT TRUE, but a row
-          // read before migration 039 lands would have it undefined,
-          // and losing attachments is the failure mode worth avoiding.
-          config.mirror_inbound_media !== false
-        )
-      }
+      const jobs = value.messages.map((message, i) => ({
+        message,
+        contact: value.contacts[i] || value.contacts[0],
+      }))
+      await mapPool(jobs, 8, async ({ message, contact }) => {
+        try {
+          await processMessage(
+            message,
+            contact,
+            // Tenancy — drives every contact / conversation lookup
+            // and the engines' active-row dispatch.
+            config.account_id,
+            // Audit / sender-of-record — used as the user_id on row
+            // inserts that need it for NOT NULL FK compliance. Always
+            // the admin who saved the WhatsApp config.
+            config.user_id,
+            decryptedAccessToken,
+            // Default ON: the column is NOT NULL DEFAULT TRUE, but a row
+            // read before migration 039 lands would have it undefined,
+            // and losing attachments is the failure mode worth avoiding.
+            config.mirror_inbound_media !== false
+          )
+        } catch (err) {
+          console.error(
+            '[webhook] processMessage failed:',
+            message.id,
+            err instanceof Error ? err.message : err,
+          )
+        }
+      })
     }
   }
 }
@@ -663,7 +674,7 @@ async function processMessage(
     mirrorMedia ? { accountId } : null
   )
   let contentText = parsed.contentText
-  const { mediaUrl, mediaType, interactiveReplyId } = parsed
+  const { mediaUrl, mediaType, interactiveReplyId, mediaBuffer } = parsed
 
   // Resolve swipe-reply context if present. A missing parent is fine —
   // we just store NULL and the UI renders the message without a quote.
@@ -809,6 +820,7 @@ async function processMessage(
       mimeType: mediaType,
       contentText,
       contentType,
+      audio: mediaBuffer,
     })
     if (transcript) {
       contentText = transcript
@@ -1081,6 +1093,8 @@ async function parseMessageContent(
    * tap with the right affordance. Null for everything else.
    */
   interactiveReplyId: string | null
+  /** Inbound audio bytes from the mirror download, reused for STT. */
+  mediaBuffer: Buffer | null
 }> {
   // getMediaUrl signature is (mediaId, accessToken) — earlier code had
   // the args swapped, so every verification hit an invalid Meta URL and
@@ -1101,33 +1115,55 @@ async function parseMessageContent(
   // attachment that expires.
   const verifyAndBuildUrl = async (
     mediaId: string,
-    fileName?: string | null
-  ): Promise<string | null> => {
+    fileName?: string | null,
+    opts?: { needBytes?: boolean }
+  ): Promise<{ url: string | null; buffer: Buffer | null }> => {
     try {
       const info = await getMediaUrl({ mediaId, accessToken })
+      const tooBig =
+        typeof info.fileSize === 'number' && info.fileSize > MEDIA_MAX_BYTES
+      const shouldDownload =
+        !tooBig && (Boolean(mirror) || Boolean(opts?.needBytes))
 
-      if (mirror) {
-        const mirrored = await mirrorInboundMedia({
-          storage: supabaseAdmin().storage,
-          accountId: mirror.accountId,
-          mediaId,
-          downloadUrl: info.url,
-          accessToken,
-          mimeType: info.mimeType,
-          fileSize: info.fileSize,
-          fileName,
-          messageTimestamp: message.timestamp,
-        })
-        if (mirrored) return mirrored
+      let buffer: Buffer | null = null
+      if (shouldDownload) {
+        try {
+          const downloaded = await downloadMedia({
+            downloadUrl: info.url,
+            accessToken,
+          })
+          buffer = downloaded.buffer
+          if (mirror && !tooBig) {
+            const mirrored = await mirrorInboundMedia({
+              storage: supabaseAdmin().storage,
+              accountId: mirror.accountId,
+              mediaId,
+              downloadUrl: info.url,
+              accessToken,
+              mimeType: info.mimeType,
+              fileSize: info.fileSize,
+              fileName,
+              messageTimestamp: message.timestamp,
+              buffer: downloaded.buffer,
+              downloadedContentType: downloaded.contentType,
+            })
+            if (mirrored) return { url: mirrored, buffer }
+          }
+        } catch (dlErr) {
+          console.error(
+            `Failed to download media ${mediaId} from Meta:`,
+            dlErr instanceof Error ? dlErr.message : dlErr,
+          )
+        }
       }
 
-      return `/api/whatsapp/media/${mediaId}`
+      return { url: `/api/whatsapp/media/${mediaId}`, buffer }
     } catch (error) {
       console.error(
         `Failed to verify media ${mediaId} with Meta:`,
         error instanceof Error ? error.message : error
       )
-      return null
+      return { url: null, buffer: null }
     }
   }
 
@@ -1138,6 +1174,7 @@ async function parseMessageContent(
     mediaUrl: null,
     mediaType: null,
     interactiveReplyId: null,
+    mediaBuffer: null,
   }
 
   switch (message.type) {
@@ -1149,7 +1186,7 @@ async function parseMessageContent(
         return {
           ...empty,
           contentText: message.image.caption || null,
-          mediaUrl: await verifyAndBuildUrl(message.image.id),
+          mediaUrl: (await verifyAndBuildUrl(message.image.id)).url,
           mediaType: message.image.mime_type,
         }
       }
@@ -1160,7 +1197,7 @@ async function parseMessageContent(
         return {
           ...empty,
           contentText: message.video.caption || null,
-          mediaUrl: await verifyAndBuildUrl(message.video.id),
+          mediaUrl: (await verifyAndBuildUrl(message.video.id)).url,
           mediaType: message.video.mime_type,
         }
       }
@@ -1175,10 +1212,12 @@ async function parseMessageContent(
           // The sender's own filename becomes the mirrored object's
           // name, so saving the attachment yields `invoice.pdf` even
           // when a caption displaced the filename in content_text.
-          mediaUrl: await verifyAndBuildUrl(
-            message.document.id,
-            message.document.filename
-          ),
+          mediaUrl: (
+            await verifyAndBuildUrl(
+              message.document.id,
+              message.document.filename
+            )
+          ).url,
           mediaType: message.document.mime_type,
         }
       }
@@ -1186,10 +1225,14 @@ async function parseMessageContent(
 
     case 'audio':
       if (message.audio?.id) {
+        const audio = await verifyAndBuildUrl(message.audio.id, null, {
+          needBytes: true,
+        })
         return {
           ...empty,
-          mediaUrl: await verifyAndBuildUrl(message.audio.id),
+          mediaUrl: audio.url,
           mediaType: message.audio.mime_type,
+          mediaBuffer: audio.buffer,
         }
       }
       return empty
@@ -1201,7 +1244,7 @@ async function parseMessageContent(
       if (message.sticker?.id) {
         return {
           ...empty,
-          mediaUrl: await verifyAndBuildUrl(message.sticker.id),
+          mediaUrl: (await verifyAndBuildUrl(message.sticker.id)).url,
           mediaType: message.sticker.mime_type,
         }
       }

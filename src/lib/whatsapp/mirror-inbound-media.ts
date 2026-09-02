@@ -64,6 +64,9 @@ export interface MirrorInboundMediaArgs {
   fileName?: string | null;
   /** Meta's message timestamp (epoch SECONDS) — keeps download names distinct. */
   messageTimestamp?: string | number | null;
+  /** Already-downloaded bytes. Skips a second Meta CDN fetch (voice STT). */
+  buffer?: Buffer | Uint8Array | null;
+  downloadedContentType?: string | null;
   /** Injected in tests. */
   download?: typeof downloadMedia;
 }
@@ -159,6 +162,8 @@ export async function mirrorInboundMedia(
     fileSize,
     fileName,
     messageTimestamp,
+    buffer: preloaded,
+    downloadedContentType,
     download = downloadMedia,
   } = args;
 
@@ -176,14 +181,20 @@ export async function mirrorInboundMedia(
   }
 
   try {
-    const { buffer, contentType } = await download({ downloadUrl, accessToken });
+    const downloaded =
+      preloaded && preloaded.byteLength > 0
+        ? {
+            buffer: Buffer.from(preloaded),
+            contentType: downloadedContentType || "",
+          }
+        : await download({ downloadUrl, accessToken });
 
     // Meta's `file_size` is advisory; the transfer is the truth. Check
     // again so an understated size can't push a rejected upload onto
     // the bucket.
-    if (buffer.byteLength > MEDIA_MAX_BYTES) {
+    if (downloaded.buffer.byteLength > MEDIA_MAX_BYTES) {
       console.warn(
-        `[mirror-media] skipping ${mediaId}: downloaded ${buffer.byteLength} bytes, over the ${MEDIA_MAX_BYTES}-byte bucket limit`,
+        `[mirror-media] skipping ${mediaId}: downloaded ${downloaded.buffer.byteLength} bytes, over the ${MEDIA_MAX_BYTES}-byte bucket limit`,
       );
       return null;
     }
@@ -193,7 +204,7 @@ export async function mirrorInboundMedia(
     // the stored object describing the same thing.
     const uploadType =
       normalizedMime ??
-      normalizeMimeType(contentType) ??
+      normalizeMimeType(downloaded.contentType) ??
       "application/octet-stream";
 
     const objectName = mirrorFileName({
@@ -210,7 +221,7 @@ export async function mirrorInboundMedia(
     // `upsert: true` for that same reason: on the rare Meta redelivery
     // the second pass rewrites byte-identical content at the same key
     // instead of erroring or orphaning a duplicate.
-    const { error } = await storage.from(MIRROR_BUCKET).upload(path, buffer, {
+    const { error } = await storage.from(MIRROR_BUCKET).upload(path, downloaded.buffer, {
       contentType: uploadType,
       cacheControl: "3600",
       upsert: true,

@@ -55,11 +55,15 @@ beforeEach(() => {
 })
 
 describe('transcribeInboundVoiceNote', () => {
-  it('returns the transcript on the happy path', async () => {
-    const text = await transcribeInboundVoiceNote(BASE)
+  it('uses a preloaded buffer and does not refetch from Meta', async () => {
+    const text = await transcribeInboundVoiceNote({
+      ...BASE,
+      audio: Buffer.from('ogg'),
+    })
     expect(text).toBe('hello from a voice note')
+    expect(h.getMediaUrl).not.toHaveBeenCalled()
+    expect(h.downloadMedia).not.toHaveBeenCalled()
     expect(h.elevenLabsStt).toHaveBeenCalled()
-    expect(h.sarvamStt).not.toHaveBeenCalled()
   })
 
   it('skips when the row already has a transcript (webhook replay)', async () => {
@@ -94,7 +98,14 @@ describe('transcribeInboundVoiceNote', () => {
     expect(h.elevenLabsStt).not.toHaveBeenCalled()
   })
 
-  it('never throws when STT fails', async () => {
+  it('still transcribes when the STT rate budget is exhausted', async () => {
+    h.checkRateLimit.mockReturnValue({ success: false })
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const text = await transcribeInboundVoiceNote(BASE)
+    expect(text).toBe('hello from a voice note')
+    expect(h.elevenLabsStt).toHaveBeenCalled()
+    warn.mockRestore()
+  })
     h.elevenLabsStt.mockRejectedValue(new Error('down'))
     await expect(transcribeInboundVoiceNote(BASE)).resolves.toBeNull()
   })

@@ -138,6 +138,27 @@ describe("mirrorInboundMedia", () => {
     vi.restoreAllMocks();
   });
 
+  it("skips Meta download when bytes are already in hand", async () => {
+    const { storage, uploads } = fakeStorage();
+    const download = fakeDownload(512);
+    const preloaded = Buffer.from("ogg-bytes");
+
+    const url = await mirrorInboundMedia({
+      ...BASE,
+      storage,
+      mimeType: "audio/ogg; codecs=opus",
+      buffer: preloaded,
+      downloadedContentType: "audio/ogg",
+      download,
+    });
+
+    expect(download).not.toHaveBeenCalled();
+    expect(uploads[0].body).toBeInstanceOf(Buffer);
+    expect(Buffer.from(uploads[0].body).toString()).toBe("ogg-bytes");
+    expect(uploads[0].options.contentType).toBe("audio/ogg");
+    expect(url).toContain("/inbound/");
+  });
+
   it("uploads to chat-media and returns the durable public URL", async () => {
     const { storage, uploads } = fakeStorage();
     const download = fakeDownload(1024);
