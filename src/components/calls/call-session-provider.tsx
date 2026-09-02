@@ -30,7 +30,7 @@ import {
   waitForIceConnected,
 } from '@/lib/calls/webrtc'
 import { createAiOutbound, primeAiAudio, type AiOutbound } from '@/lib/calls/ai-media'
-import { LiveAiLoop, loadCachedGreeting, prefetchLiveAiTurnRoute, type CachedGreeting } from '@/lib/calls/live-ai-loop'
+import { LiveAiRealtimeSession } from '@/lib/calls/live-ai-realtime'
 import { liveAiTimeoutMs } from '@/lib/calling/settings'
 import {
   CallSessionContext,
@@ -69,11 +69,10 @@ export function CallSessionProvider({ children }: { children: ReactNode }) {
   const liveAiStationRef = useRef(false)
   const liveAiAnswerRef = useRef<LiveAiAnswer>('off')
   const ringTimeoutRef = useRef(45)
-  const liveAiLoopRef = useRef<LiveAiLoop | null>(null)
+  const liveAiRealtimeRef = useRef<LiveAiRealtimeSession | null>(null)
   const aiOutboundRef = useRef<AiOutbound | null>(null)
   const remoteStreamRef = useRef<MediaStream | null>(null)
   const stationArmGenRef = useRef(0)
-  const greetingCacheRef = useRef<CachedGreeting | null>(null)
 
   const [liveAiStation, setLiveAiStation] = useState(false)
   const [aiOnCall, setAiOnCall] = useState(false)
@@ -175,8 +174,9 @@ export function CallSessionProvider({ children }: { children: ReactNode }) {
 
   const teardownMedia = useCallback(() => {
     silencePlayback()
-    void liveAiLoopRef.current?.stop()
-    liveAiLoopRef.current = null
+    liveAiRealtimeRef.current?.stop()
+    liveAiRealtimeRef.current = null
+    aiOutboundRef.current?.stop()
     aiOutboundRef.current = null
     remoteStreamRef.current = null
     closePeer(pcRef.current, localStreamRef.current)
@@ -397,7 +397,7 @@ export function CallSessionProvider({ children }: { children: ReactNode }) {
             el.srcObject instanceof MediaStream ? el.srcObject : null
           if (!remote) return
           remoteStreamRef.current = remote
-          liveAiLoopRef.current?.setRemote(remote)
+          liveAiRealtimeRef.current?.setRemote(remote)
           player.attach(remote, speakerOnRef.current, el)
           wave.attachRemote(remote)
           publishWaves()
@@ -463,7 +463,7 @@ export function CallSessionProvider({ children }: { children: ReactNode }) {
       })
       setAiOnCall(ai)
       if (ai && outbound) {
-        const loop = new LiveAiLoop(
+        const session = new LiveAiRealtimeSession(
           call.id,
           outbound,
           remoteStreamRef.current ?? remote,
@@ -472,15 +472,13 @@ export function CallSessionProvider({ children }: { children: ReactNode }) {
               setLiveTranscript((prev) => [...prev, { role, text }])
             },
             onHandoff: () => {
-              setAiOnCall(true)
               toast.message(t('aiHandoff'))
             },
             onError: (message) => toast.error(message),
           },
-          greetingCacheRef.current,
         )
-        liveAiLoopRef.current = loop
-        loop.start()
+        liveAiRealtimeRef.current = session
+        session.start()
       }
     } catch (err) {
       teardownMedia()
@@ -586,18 +584,14 @@ export function CallSessionProvider({ children }: { children: ReactNode }) {
       await primeAiAudio()
       await refreshCallingSettings()
       if (stationArmGenRef.current !== gen) return
-      void prefetchLiveAiTurnRoute()
-      const cached = await loadCachedGreeting().catch(() => null)
-      if (stationArmGenRef.current !== gen) return
-      if (cached) greetingCacheRef.current = cached
     })()
   }, [refreshCallingSettings])
 
   const takeOver = useCallback(async () => {
     const pc = pcRef.current
     if (!pc || !aiOnCall) return
-    liveAiLoopRef.current?.halt()
-    liveAiLoopRef.current = null
+    liveAiRealtimeRef.current?.stop()
+    liveAiRealtimeRef.current = null
     try {
       const mic = await navigator.mediaDevices.getUserMedia({
         audio: true,
