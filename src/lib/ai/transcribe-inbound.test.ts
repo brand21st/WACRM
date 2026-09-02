@@ -7,6 +7,7 @@ const h = vi.hoisted(() => ({
   sarvamStt: vi.fn(),
   getMediaUrl: vi.fn(),
   downloadMedia: vi.fn(),
+  downloadWhatsAppMedia: vi.fn(),
   checkRateLimit: vi.fn(),
 }))
 
@@ -17,6 +18,7 @@ vi.mock('@/lib/sarvam/stt', () => ({ speechToText: h.sarvamStt }))
 vi.mock('@/lib/whatsapp/meta-api', () => ({
   getMediaUrl: h.getMediaUrl,
   downloadMedia: h.downloadMedia,
+  downloadWhatsAppMedia: h.downloadWhatsAppMedia,
 }))
 vi.mock('@/lib/rate-limit', () => ({
   checkRateLimit: h.checkRateLimit,
@@ -46,9 +48,11 @@ beforeEach(() => {
     mimeType: 'audio/ogg',
     fileSize: 12,
   })
-  h.downloadMedia.mockResolvedValue({
+  h.downloadWhatsAppMedia.mockResolvedValue({
     buffer: Buffer.from('ogg'),
     contentType: 'audio/ogg',
+    mimeType: 'audio/ogg',
+    fileSize: 12,
   })
   h.elevenLabsStt.mockResolvedValue('hello from a voice note')
   h.sarvamStt.mockResolvedValue('namaste from sarvam')
@@ -63,6 +67,7 @@ describe('transcribeInboundVoiceNote', () => {
     expect(text).toBe('hello from a voice note')
     expect(h.getMediaUrl).not.toHaveBeenCalled()
     expect(h.downloadMedia).not.toHaveBeenCalled()
+    expect(h.downloadWhatsAppMedia).not.toHaveBeenCalled()
     expect(h.elevenLabsStt).toHaveBeenCalled()
   })
 
@@ -105,6 +110,24 @@ describe('transcribeInboundVoiceNote', () => {
     expect(text).toBe('hello from a voice note')
     expect(h.elevenLabsStt).toHaveBeenCalled()
     warn.mockRestore()
+  })
+
+  it('fetches audio from Meta via media id when no buffer is preloaded', async () => {
+    const text = await transcribeInboundVoiceNote(BASE)
+    expect(text).toBe('hello from a voice note')
+    expect(h.downloadWhatsAppMedia).toHaveBeenCalledWith({
+      mediaId: 'media-1',
+      accessToken: 'tok',
+    })
+  })
+
+  it('rethrows Meta CDN failures when throwOnMediaError is set', async () => {
+    h.downloadWhatsAppMedia.mockRejectedValueOnce(
+      new Error('Media download failed: 500'),
+    )
+    await expect(
+      transcribeInboundVoiceNote({ ...BASE, throwOnMediaError: true }),
+    ).rejects.toThrow('Media download failed: 500')
   })
 
   it('never throws when STT fails', async () => {

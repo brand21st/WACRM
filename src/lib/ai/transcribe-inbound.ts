@@ -1,7 +1,7 @@
 import { supabaseAdmin } from './admin-client'
 import { loadAiConfig } from './config'
 import { needsTranscription } from './voice'
-import { getMediaUrl, downloadMedia } from '@/lib/whatsapp/meta-api'
+import { downloadWhatsAppMedia } from '@/lib/whatsapp/meta-api'
 import { checkRateLimit, RATE_LIMITS } from '@/lib/rate-limit'
 import { canTranscribe, transcribeSpeech } from './speech'
 
@@ -15,6 +15,11 @@ export interface TranscribeInboundVoiceArgs {
   contentType: string
   /** Bytes already fetched for the inbox mirror — skip a second Meta download. */
   audio?: Buffer | Uint8Array | null
+  /**
+   * When true, Meta CDN failures propagate so the voice job can retry
+   * with backoff. Webhook fallback keeps the default (never throw).
+   */
+  throwOnMediaError?: boolean
 }
 
 /**
@@ -52,16 +57,12 @@ export async function transcribeInboundVoiceNote(
     if (args.audio && args.audio.byteLength > 0) {
       buffer = Buffer.from(args.audio)
     } else {
-      const info = await getMediaUrl({
+      const downloaded = await downloadWhatsAppMedia({
         mediaId: args.mediaId,
         accessToken: args.accessToken,
       })
-      const downloaded = await downloadMedia({
-        downloadUrl: info.url,
-        accessToken: args.accessToken,
-      })
       buffer = downloaded.buffer
-      mime = mime || info.mimeType || downloaded.contentType
+      mime = mime || downloaded.mimeType || downloaded.contentType
     }
 
     const text = await transcribeSpeech({
@@ -72,6 +73,7 @@ export async function transcribeInboundVoiceNote(
     return text || null
   } catch (err) {
     console.error('[ai voice] inbound STT failed:', err)
+    if (args.throwOnMediaError) throw err
     return null
   }
 }

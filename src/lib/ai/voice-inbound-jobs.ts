@@ -164,6 +164,7 @@ async function runVoiceInboundJob(
         mimeType: row.mime_type,
         contentText: null,
         contentType: 'audio',
+        throwOnMediaError: true,
       })
       transcript = text?.trim() || ''
       if (transcript) {

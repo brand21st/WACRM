@@ -1191,18 +1191,88 @@ export interface DownloadMediaArgs {
   accessToken: string
 }
 
-const MEDIA_DOWNLOAD_ATTEMPTS = 4
+export interface DownloadWhatsAppMediaArgs {
+  mediaId: string
+  accessToken: string
+}
+
+const MEDIA_DOWNLOAD_ATTEMPTS = 5
+const MEDIA_REDIRECT_LIMIT = 5
 
 /** Meta's lookaside CDN 500s when many voice notes fetch at once.
  *  Two in-flight downloads + retries is the throughput/reliability
  *  trade-off that still lets overlapping customers complete. */
 export const META_MEDIA_DOWNLOAD_CONCURRENCY = 2
 
+/**
+ * lookaside.fbsbx.com 500s (or 302s to /unsupportedbrowser) unless the
+ * client looks like curl. A custom product UA is treated as an
+ * unsupported browser.
+ */
+export const META_MEDIA_DOWNLOAD_USER_AGENT = 'curl/7.64.1'
+
 function isRetryableMediaStatus(status: number): boolean {
   return status === 429 || status >= 500
 }
 
+function isHtmlContentType(contentType: string | null): boolean {
+  return (contentType || '').toLowerCase().includes('text/html')
+}
+
 const mediaDownloadGate = createSemaphore(META_MEDIA_DOWNLOAD_CONCURRENCY)
+
+function mediaHeaders(accessToken: string): Record<string, string> {
+  return {
+    Authorization: `Bearer ${accessToken}`,
+    'User-Agent': META_MEDIA_DOWNLOAD_USER_AGENT,
+  }
+}
+
+/**
+ * Follow lookaside redirects ourselves so the Bearer token is not
+ * stripped on a cross-origin 302 (fetch's default).
+ */
+async function fetchLookaside(
+  downloadUrl: string,
+  accessToken: string,
+): Promise<Response> {
+  let url = downloadUrl
+  for (let hop = 0; hop <= MEDIA_REDIRECT_LIMIT; hop++) {
+    const response = await fetch(url, {
+      headers: mediaHeaders(accessToken),
+      redirect: 'manual',
+    })
+    const status = response.status
+    if (status >= 300 && status < 400) {
+      const location = response.headers.get('location')
+      await response.arrayBuffer().catch(() => undefined)
+      if (!location) {
+        throw new Error(`Media download failed: ${status}`)
+      }
+      url = new URL(location, url).toString()
+      continue
+    }
+    return response
+  }
+  throw new Error('Media download failed: too many redirects')
+}
+
+async function readLookasideBody(
+  response: Response,
+): Promise<{ buffer: Buffer; contentType: string }> {
+  const contentType =
+    response.headers.get('content-type') || 'application/octet-stream'
+  if (!response.ok) {
+    await response.arrayBuffer().catch(() => undefined)
+    throw new Error(`Media download failed: ${response.status}`)
+  }
+  if (isHtmlContentType(contentType)) {
+    await response.arrayBuffer().catch(() => undefined)
+    throw new Error('Media download failed: HTML response')
+  }
+  const buffer = Buffer.from(await response.arrayBuffer())
+  return { buffer, contentType }
+}
 
 async function downloadMediaOnce(
   args: DownloadMediaArgs,
@@ -1210,28 +1280,23 @@ async function downloadMediaOnce(
   const { downloadUrl, accessToken } = args
   let lastError: Error | null = null
   for (let attempt = 1; attempt <= MEDIA_DOWNLOAD_ATTEMPTS; attempt++) {
-    const response = await fetch(downloadUrl, {
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        'User-Agent': 'WhatsApp-Cloud-API-Media/1.0',
-      },
-    })
-    if (response.ok) {
-      const contentType =
-        response.headers.get('content-type') || 'application/octet-stream'
-      const buffer = Buffer.from(await response.arrayBuffer())
-      return { buffer, contentType }
+    try {
+      const response = await fetchLookaside(downloadUrl, accessToken)
+      return await readLookasideBody(response)
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err))
+      const statusMatch = lastError.message.match(/Media download failed: (\d+)/)
+      const status = statusMatch ? Number(statusMatch[1]) : 0
+      const retryable =
+        lastError.message.includes('HTML response') ||
+        isRetryableMediaStatus(status) ||
+        status === 0
+      if (!retryable || attempt === MEDIA_DOWNLOAD_ATTEMPTS) {
+        throw lastError
+      }
+      const backoffMs = 400 * 2 ** (attempt - 1) + Math.floor(Math.random() * 200)
+      await new Promise((resolve) => setTimeout(resolve, backoffMs))
     }
-    await response.arrayBuffer().catch(() => undefined)
-    lastError = new Error(`Media download failed: ${response.status}`)
-    if (
-      !isRetryableMediaStatus(response.status) ||
-      attempt === MEDIA_DOWNLOAD_ATTEMPTS
-    ) {
-      throw lastError
-    }
-    const backoffMs = 200 * 2 ** (attempt - 1) + Math.floor(Math.random() * 150)
-    await new Promise((resolve) => setTimeout(resolve, backoffMs))
   }
   throw lastError ?? new Error('Media download failed')
 }
@@ -1249,4 +1314,44 @@ export async function downloadMedia(
   args: DownloadMediaArgs
 ): Promise<{ buffer: Buffer; contentType: string }> {
   return mediaDownloadGate.run(() => downloadMediaOnce(args))
+}
+
+/**
+ * Resolve a WhatsApp media id to bytes. Refreshes the short-lived
+ * lookaside URL on every retry — Meta expires those URLs in ~5 minutes,
+ * so reusing one 500ing link is a dead end.
+ */
+export async function downloadWhatsAppMedia(
+  args: DownloadWhatsAppMediaArgs,
+): Promise<{
+  buffer: Buffer
+  contentType: string
+  mimeType: string
+  fileSize: number | null
+}> {
+  return mediaDownloadGate.run(async () => {
+    let lastError: Error | null = null
+    for (let attempt = 1; attempt <= MEDIA_DOWNLOAD_ATTEMPTS; attempt++) {
+      try {
+        const info = await getMediaUrl({
+          mediaId: args.mediaId,
+          accessToken: args.accessToken,
+        })
+        const response = await fetchLookaside(info.url, args.accessToken)
+        const downloaded = await readLookasideBody(response)
+        return {
+          ...downloaded,
+          mimeType: info.mimeType,
+          fileSize: info.fileSize,
+        }
+      } catch (err) {
+        lastError = err instanceof Error ? err : new Error(String(err))
+        if (attempt === MEDIA_DOWNLOAD_ATTEMPTS) throw lastError
+        const backoffMs =
+          400 * 2 ** (attempt - 1) + Math.floor(Math.random() * 200)
+        await new Promise((resolve) => setTimeout(resolve, backoffMs))
+      }
+    }
+    throw lastError ?? new Error('Media download failed')
+  })
 }
