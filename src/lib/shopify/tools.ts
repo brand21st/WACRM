@@ -261,10 +261,34 @@ function optionValue(
   return value && !PLACEHOLDER_VARIANT.test(value) ? value : ''
 }
 
-function variantDisplayLabel(v: ShopifyProductHit['variants'][number]): string {
-  const size = optionValue(v, /^size$/i)
-  if (size) return size
+function uniqueOptionValues(
+  variants: ShopifyProductHit['variants'],
+  pick: (v: ShopifyProductHit['variants'][number]) => string,
+): string[] {
+  const seen = new Set<string>()
+  const labels: string[] = []
+  for (const v of variants) {
+    const label = pick(v)
+    if (!label) continue
+    const key = label.toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    labels.push(label)
+  }
+  return labels
+}
+
+function optionLine(prefix: string, values: string[]): string[] {
+  if (values.length === 0) return []
+  const shown = values.slice(0, MAX_VARIANT_LABELS)
+  const extra = values.length - shown.length
+  const list = shown.join(', ') + (extra > 0 ? `, +${extra} more` : '')
+  return [`${prefix}: ${list}`]
+}
+
+function otherVariantLabel(v: ShopifyProductHit['variants'][number]): string {
   const fromOptions = v.options
+    .filter((o) => !/^size$/i.test(o.name) && !/^colou?r$/i.test(o.name))
     .map((o) => o.value.trim())
     .filter((value) => value && !PLACEHOLDER_VARIANT.test(value))
   if (fromOptions.length > 0) return fromOptions.join(' / ')
@@ -276,22 +300,18 @@ function variantDisplayLabel(v: ShopifyProductHit['variants'][number]): string {
 function variantCaptionLines(
   variants: ShopifyProductHit['variants'],
 ): string[] {
-  const seen = new Set<string>()
-  const labels: string[] = []
-  for (const v of variants) {
-    const label = variantDisplayLabel(v)
-    if (!label) continue
-    const key = label.toLowerCase()
-    if (seen.has(key)) continue
-    seen.add(key)
-    labels.push(label)
-  }
-  if (labels.length === 0) return []
-  const shown = labels.slice(0, MAX_VARIANT_LABELS)
-  const extra = labels.length - shown.length
-  const list =
-    shown.join(', ') + (extra > 0 ? `, +${extra} more` : '')
-  return [`Variants: ${list}`]
+  const sizes = uniqueOptionValues(variants, (v) => optionValue(v, /^size$/i))
+  const colors = uniqueOptionValues(variants, (v) =>
+    optionValue(v, /^colou?r$/i),
+  )
+  const other =
+    sizes.length === 0 && colors.length === 0
+      ? uniqueOptionValues(variants, otherVariantLabel)
+      : []
+  return [
+    ...optionLine('Variants', sizes.length > 0 ? sizes : other),
+    ...optionLine('Color', colors),
+  ]
 }
 
 export function toCard(p: ShopifyProductHit): ShopifyProductCard {

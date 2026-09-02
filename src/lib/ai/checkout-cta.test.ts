@@ -62,8 +62,9 @@ describe('stripCheckoutUrlsFromReply', () => {
 })
 
 describe('CHECKOUT_BUTTON_LABEL', () => {
-  it('is Checkout', () => {
-    expect(CHECKOUT_BUTTON_LABEL).toBe('Checkout')
+  it('is Checkout NOW', () => {
+    expect(CHECKOUT_BUTTON_LABEL).toBe('Checkout NOW')
+    expect(CHECKOUT_BUTTON_LABEL.length).toBeLessThanOrEqual(20)
   })
 })
 
@@ -88,10 +89,10 @@ describe('ctaBodyFromCard', () => {
       ctaBodyFromCard({
         title: 'Red Leather Tote',
         caption:
-          'Red Leather Tote\n49.00–69.00 USD\nStock in\nVariants: M, XL, XXL\nView: https://shop.example/products/red-leather-tote',
+          'Red Leather Tote\n49.00–69.00 USD\nStock in\nVariants: M, XL, XXL\nColor: Red, Blue\nView: https://shop.example/products/red-leather-tote',
       }),
     ).toBe(
-      'Red Leather Tote\n49.00–69.00 USD\nStock in\nVariants: M, XL, XXL\nView: https://shop.example/products/red-leather-tote',
+      'Red Leather Tote\n49.00–69.00 USD\nStock in\nVariants: M, XL, XXL\nColor: Red, Blue\nView: https://shop.example/products/red-leather-tote',
     )
   })
 

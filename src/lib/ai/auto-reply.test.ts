@@ -192,23 +192,29 @@ beforeEach(() => {
       p.priceMin && p.priceMax && p.priceMin !== p.priceMax
         ? `${p.priceMin}–${p.priceMax}${p.currency ? ` ${p.currency}` : ''}`
         : `${p.priceMin ?? ''}${p.currency ? ` ${p.currency}` : ''}`.trim()
-    const seen = new Set<string>()
-    const variantLabels: string[] = []
+    const sizes: string[] = []
+    const colors: string[] = []
+    const seenSize = new Set<string>()
+    const seenColor = new Set<string>()
     for (const v of p.variants ?? []) {
       const size = (v.options ?? []).find((o) => /^size$/i.test(o.name))
         ?.value.trim()
-      const fromOptions = (v.options ?? [])
-        .map((o) => o.value.trim())
-        .filter((value) => value && !/^(default(?: title)?)$/i.test(value))
-      const label =
-        (size && !/^(default(?: title)?)$/i.test(size) ? size : '') ||
-        fromOptions.join(' / ') ||
-        (v.title && !/^(default(?: title)?)$/i.test(v.title) ? v.title : '')
-      if (!label) continue
-      const key = label.toLowerCase()
-      if (seen.has(key)) continue
-      seen.add(key)
-      variantLabels.push(label)
+      const color = (v.options ?? []).find((o) => /^colou?r$/i.test(o.name))
+        ?.value.trim()
+      if (size && !/^(default(?: title)?)$/i.test(size)) {
+        const key = size.toLowerCase()
+        if (!seenSize.has(key)) {
+          seenSize.add(key)
+          sizes.push(size)
+        }
+      }
+      if (color && !/^(default(?: title)?)$/i.test(color)) {
+        const key = color.toLowerCase()
+        if (!seenColor.has(key)) {
+          seenColor.add(key)
+          colors.push(color)
+        }
+      }
     }
     return {
       title: p.title,
@@ -221,7 +227,8 @@ beforeEach(() => {
         p.title,
         price,
         inStock ? 'Stock in' : 'Stock out',
-        variantLabels.length > 0 ? `Variants: ${variantLabels.join(', ')}` : '',
+        sizes.length > 0 ? `Variants: ${sizes.join(', ')}` : '',
+        colors.length > 0 ? `Color: ${colors.join(', ')}` : '',
         p.productUrl ? `View: ${p.productUrl}` : '',
       ]
         .filter(Boolean)
@@ -889,7 +896,7 @@ describe('dispatchInboundToAiReply — OpenAI Realtime voice', () => {
     )
     expect(h.engineSendCtaUrl).toHaveBeenCalledWith(
       expect.objectContaining({
-        displayText: 'Checkout',
+        displayText: 'Checkout NOW',
         url: 'https://shop.example/cart/99:1?checkout',
         headerImageUrl: 'https://cdn.example/bag.jpg',
         bodyText:
@@ -1171,11 +1178,11 @@ describe('dispatchInboundToAiReply — vision photo match', () => {
     )
     expect(h.engineSendCtaUrl).toHaveBeenCalledWith(
       expect.objectContaining({
-        displayText: 'Checkout',
+        displayText: 'Checkout NOW',
         url: 'https://shop.example/cart/99:1?checkout',
         headerImageUrl: 'https://cdn.example/bag.jpg',
         bodyText: expect.stringMatching(
-          /Red Bag[\s\S]*Stock in[\s\S]*Variants: S, L[\s\S]*View:/,
+          /Red Bag[\s\S]*Stock in[\s\S]*Variants: S, L[\s\S]*Color: Red, Blue[\s\S]*View:/,
         ),
       }),
     )
@@ -1290,7 +1297,7 @@ describe('dispatchInboundToAiReply — vision photo match', () => {
     expect(h.engineSendCtaUrl).toHaveBeenCalledWith(
       expect.objectContaining({
         headerImageUrl: 'https://cdn.example/live-bag.jpg',
-        displayText: 'Checkout',
+        displayText: 'Checkout NOW',
       }),
     )
   })

@@ -1,4 +1,4 @@
-export const CHECKOUT_BUTTON_LABEL = 'Checkout'
+export const CHECKOUT_BUTTON_LABEL = 'Checkout NOW'
 
 const CTA_BODY_MAX = 1024
 

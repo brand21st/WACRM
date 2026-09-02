@@ -75,7 +75,7 @@ export function InteractivePreview({
           className="flex w-full items-center justify-center gap-1.5 border-t border-border py-2 text-sm font-medium text-primary"
         >
           <ExternalLink className="h-3.5 w-3.5" />
-          <span className="truncate">{payload.display_text || "Checkout"}</span>
+          <span className="truncate">{payload.display_text || "Checkout NOW"}</span>
         </button>
       ) : (
         <button

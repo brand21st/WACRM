@@ -95,7 +95,7 @@ describe('buildSystemPrompt', () => {
     expect(prompt).toMatch(/delivery time/i)
     expect(prompt).toMatch(/customer-facing answer must still be in the customer/i)
     expect(prompt).toMatch(/Shopify is connected/)
-    expect(prompt).toMatch(/Checkout button is sent separately/)
+    expect(prompt).toMatch(/Checkout NOW button is sent separately/)
     expect(prompt).toMatch(/Do not paste checkout or Buy now URLs/)
     expect(prompt).toMatch(/Product cards sent in chat already list variants/)
     expect(prompt).toMatch(/matching variants from tool results/)

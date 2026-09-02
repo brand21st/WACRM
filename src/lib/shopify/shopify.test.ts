@@ -99,7 +99,8 @@ describe('toCard', () => {
     const card = toCard(fixtureProduct())
     expect(card.inStock).toBe(true)
     expect(card.caption).toContain('Stock in')
-    expect(card.caption).toContain('Variants: Red')
+    expect(card.caption).toContain('Color: Red')
+    expect(card.caption).not.toContain('Variants:')
     expect(card.caption).toContain(
       'View: https://shop.example/products/red-leather-tote',
     )
@@ -127,7 +128,7 @@ describe('toCard', () => {
     )
     expect(card.inStock).toBe(false)
     expect(card.caption).toContain('Stock out')
-    expect(card.caption).toContain('Variants: Red')
+    expect(card.caption).toContain('Color: Red')
     expect(card.caption).toContain(
       'View: https://shop.example/products/red-leather-tote',
     )
@@ -186,6 +187,7 @@ describe('toCard', () => {
       '49.00–69.00 USD',
       'Stock in',
       'Variants: S, L',
+      'Color: Red, Blue',
       'View: https://shop.example/products/red-leather-tote',
     ])
   })
