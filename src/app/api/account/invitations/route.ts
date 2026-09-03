@@ -214,6 +214,9 @@ export async function POST(request: Request) {
       label = trimmed === "" ? null : trimmed;
     }
 
+    const { assertSeatAvailable } = await import("@/lib/billing/entitlements");
+    await assertSeatAvailable(ctx.accountId);
+
     const { token, hash } = generateInviteToken();
 
     const { data, error } = await ctx.supabase

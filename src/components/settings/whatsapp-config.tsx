@@ -53,7 +53,6 @@ export function WhatsAppConfig() {
     profileLoading,
     canEditSettings,
   } = useAuth();
-
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);

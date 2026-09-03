@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { requireRole, toErrorResponse } from '@/lib/auth/account'
 import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rate-limit'
-import { decrypt } from '@/lib/whatsapp/encryption'
+import { requirePlatformElevenLabsKey } from '@/lib/ai/platform-settings'
 import { addVoice, CLONE_MAX_FILES, CLONE_MAX_BYTES } from '@/lib/elevenlabs/voices'
 import {
   isAllowedSttMime,
@@ -19,7 +19,7 @@ import { AiError } from '@/lib/ai/types'
  */
 export async function POST(request: Request) {
   try {
-    const { supabase, accountId, userId } = await requireRole('admin')
+    const { accountId, userId } = await requireRole('admin')
 
     const userLimit = checkRateLimit(`ai-voice-clone:${userId}`, RATE_LIMITS.adminAction)
     if (!userLimit.success) return rateLimitResponse(userLimit)
@@ -29,32 +29,11 @@ export async function POST(request: Request) {
     )
     if (!acctLimit.success) return rateLimitResponse(acctLimit)
 
-    const { data: existing } = await supabase
-      .from('ai_configs')
-      .select('elevenlabs_api_key')
-      .eq('account_id', accountId)
-      .maybeSingle()
-    if (!existing?.elevenlabs_api_key) {
-      return NextResponse.json(
-        {
-          error: 'Add an ElevenLabs key on Voice Agent → Build first.',
-          code: 'voice_not_configured',
-        },
-        { status: 400 },
-      )
+    const key = await requirePlatformElevenLabsKey()
+    if (!key.ok) {
+      return NextResponse.json({ error: key.error, code: key.code }, { status: 400 })
     }
-    let apiKey: string
-    try {
-      apiKey = decrypt(existing.elevenlabs_api_key)
-    } catch {
-      return NextResponse.json(
-        {
-          error:
-            'Stored ElevenLabs key could not be decrypted — re-enter your key.',
-        },
-        { status: 400 },
-      )
-    }
+    const apiKey = key.apiKey
 
     const form = await request.formData().catch(() => null)
     if (!form) {

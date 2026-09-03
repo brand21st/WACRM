@@ -73,6 +73,8 @@ export async function POST(request: Request) {
     // Nothing about that is recoverable after the fact, so the check has
     // to happen here.
     const { supabase, accountId, userId } = await requireRole('agent')
+    const { assertWhatsAppSend } = await import('@/lib/billing/entitlements')
+    await assertWhatsAppSend(accountId)
 
     // Per-user broadcast budget. Note: this limits how often a user
     // can *start* a campaign, not how many messages go out inside

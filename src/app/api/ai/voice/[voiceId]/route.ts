@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { requireRole, toErrorResponse } from '@/lib/auth/account'
 import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rate-limit'
-import { decrypt } from '@/lib/whatsapp/encryption'
+import { requirePlatformElevenLabsKey } from '@/lib/ai/platform-settings'
 import {
   deleteVoice,
   editVoice,
@@ -16,41 +16,17 @@ import {
 } from '@/lib/elevenlabs/limits'
 import { AiError } from '@/lib/ai/types'
 
-async function elevenLabsKey(
-  supabase: Awaited<ReturnType<typeof requireRole>>['supabase'],
-  accountId: string,
-): Promise<{ ok: true; apiKey: string } | { ok: false; response: NextResponse }> {
-  const { data } = await supabase
-    .from('ai_configs')
-    .select('elevenlabs_api_key')
-    .eq('account_id', accountId)
-    .maybeSingle()
-  if (!data?.elevenlabs_api_key) {
+async function elevenLabsKey(): Promise<
+  { ok: true; apiKey: string } | { ok: false; response: NextResponse }
+> {
+  const key = await requirePlatformElevenLabsKey()
+  if (!key.ok) {
     return {
       ok: false,
-      response: NextResponse.json(
-        {
-          error: 'Add an ElevenLabs key on Voice Agent → Build first.',
-          code: 'voice_not_configured',
-        },
-        { status: 400 },
-      ),
+      response: NextResponse.json({ error: key.error, code: key.code }, { status: 400 }),
     }
   }
-  try {
-    return { ok: true, apiKey: decrypt(data.elevenlabs_api_key) }
-  } catch {
-    return {
-      ok: false,
-      response: NextResponse.json(
-        {
-          error:
-            'Stored ElevenLabs key could not be decrypted — re-enter your key.',
-        },
-        { status: 400 },
-      ),
-    }
-  }
+  return { ok: true, apiKey: key.apiKey }
 }
 
 /**
@@ -61,9 +37,9 @@ export async function GET(
   context: { params: Promise<{ voiceId: string }> },
 ) {
   try {
-    const { supabase, accountId } = await requireRole('admin')
+    await requireRole('admin')
     const { voiceId } = await context.params
-    const key = await elevenLabsKey(supabase, accountId)
+    const key = await elevenLabsKey()
     if (!key.ok) return key.response
     const settings = await getVoiceSettings(key.apiKey, voiceId)
     return NextResponse.json({ settings })
@@ -88,12 +64,12 @@ export async function PATCH(
   context: { params: Promise<{ voiceId: string }> },
 ) {
   try {
-    const { supabase, accountId, userId } = await requireRole('admin')
+    const { userId } = await requireRole('admin')
     const limit = checkRateLimit(`ai-voice-edit:${userId}`, RATE_LIMITS.adminAction)
     if (!limit.success) return rateLimitResponse(limit)
 
     const { voiceId } = await context.params
-    const key = await elevenLabsKey(supabase, accountId)
+    const key = await elevenLabsKey()
     if (!key.ok) return key.response
 
     const contentType = request.headers.get('content-type') ?? ''
@@ -172,11 +148,11 @@ export async function DELETE(
   context: { params: Promise<{ voiceId: string }> },
 ) {
   try {
-    const { supabase, accountId, userId } = await requireRole('admin')
+    const { userId } = await requireRole('admin')
     const limit = checkRateLimit(`ai-voice-delete:${userId}`, RATE_LIMITS.adminAction)
     if (!limit.success) return rateLimitResponse(limit)
     const { voiceId } = await context.params
-    const key = await elevenLabsKey(supabase, accountId)
+    const key = await elevenLabsKey()
     if (!key.ok) return key.response
     await deleteVoice(key.apiKey, voiceId)
     return NextResponse.json({ ok: true })

@@ -81,6 +81,17 @@ export async function PATCH(request: Request) {
     const { supabase, accountId } = voiceOnly
       ? await requireRole('agent')
       : await requireRole('admin')
+    const enablingLiveAi =
+      (typeof body.live_ai_answer === 'string' && body.live_ai_answer !== 'off') ||
+      body.ai_enabled === true
+    if (enablingLiveAi) {
+      const { assertCalling } = await import('@/lib/billing/entitlements')
+      await assertCalling(accountId)
+    }
+    if (body.recording_enabled === true) {
+      const { assertCallRecording } = await import('@/lib/billing/entitlements')
+      await assertCallRecording(accountId)
+    }
     const current = await ensureCallingSettings(supabase, accountId)
 
     const patch: Partial<CallingSettings> = {}

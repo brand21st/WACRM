@@ -209,6 +209,15 @@ export function SettingsOverview({
         </>
       ),
     },
+    ...(canManageMembers
+      ? [
+          {
+            section: 'billing' as const,
+            loading: false,
+            subtitle: t('billingHint'),
+          },
+        ]
+      : []),
     {
       section: 'members',
       loading: countsLoading,

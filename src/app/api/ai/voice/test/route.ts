@@ -1,7 +1,10 @@
 import { NextResponse } from 'next/server'
 import { requireRole, toErrorResponse } from '@/lib/auth/account'
 import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rate-limit'
-import { decrypt } from '@/lib/whatsapp/encryption'
+import {
+  requirePlatformElevenLabsKey,
+  requirePlatformSarvamKey,
+} from '@/lib/ai/platform-settings'
 import { validateElevenLabsKey } from '@/lib/elevenlabs'
 import { textToSpeech as elevenLabsTts, ELEVENLABS_TTS_MIME } from '@/lib/elevenlabs/tts'
 import { validateSarvamKey, textToSpeech as sarvamTts } from '@/lib/sarvam'
@@ -19,13 +22,12 @@ const PREVIEW_TEXT = 'Hello, this is a voice preview from your assistant.'
 /**
  * POST /api/ai/voice/test  (admin+)
  *
- * Validate a speech-provider key (and optionally synthesise a short
- * preview) WITHOUT saving. Keys never leave the server — the preview
- * is returned as base64 audio.
+ * Validate the hosted speech key (and optionally synthesise a short
+ * preview). Merchants cannot supply a key.
  */
 export async function POST(request: Request) {
   try {
-    const { supabase, accountId, userId } = await requireRole('admin')
+    const { accountId, userId } = await requireRole('admin')
 
     const userLimit = checkRateLimit(`ai-voice-test:${userId}`, RATE_LIMITS.adminAction)
     if (!userLimit.success) return rateLimitResponse(userLimit)
@@ -40,38 +42,25 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Invalid request body' }, { status: 400 })
     }
 
+    const pasted =
+      (typeof body.sarvam_api_key === 'string' && body.sarvam_api_key.trim()) ||
+      (typeof body.elevenlabs_api_key === 'string' && body.elevenlabs_api_key.trim())
+    if (pasted) {
+      return NextResponse.json(
+        { error: 'API keys are managed by the platform administrator' },
+        { status: 400 },
+      )
+    }
+
     const provider = parseVoiceProvider(body.voice_provider)
     const preview = body.preview === true
 
     if (provider === 'sarvam') {
-      const rawKey =
-        typeof body.sarvam_api_key === 'string' ? body.sarvam_api_key.trim() : ''
-      let apiKey = rawKey
-      if (!apiKey) {
-        const { data: existing } = await supabase
-          .from('ai_configs')
-          .select('sarvam_api_key')
-          .eq('account_id', accountId)
-          .maybeSingle()
-        if (!existing?.sarvam_api_key) {
-          return NextResponse.json(
-            { error: 'Enter a Sarvam API key to test.' },
-            { status: 400 },
-          )
-        }
-        try {
-          apiKey = decrypt(existing.sarvam_api_key)
-        } catch {
-          return NextResponse.json(
-            {
-              error:
-                'Stored Sarvam key could not be decrypted — re-enter your key.',
-            },
-            { status: 400 },
-          )
-        }
+      const key = await requirePlatformSarvamKey()
+      if (!key.ok) {
+        return NextResponse.json({ error: key.error, code: key.code }, { status: 400 })
       }
-
+      const apiKey = key.apiKey
       const speaker = parseSarvamSpeaker(body.sarvam_speaker)
       const languageCode = parseSarvamLanguage(body.sarvam_language_code)
 
@@ -107,36 +96,11 @@ export async function POST(request: Request) {
       }
     }
 
-    const rawKey =
-      typeof body.elevenlabs_api_key === 'string'
-        ? body.elevenlabs_api_key.trim()
-        : ''
-    let apiKey = rawKey
-    if (!apiKey) {
-      const { data: existing } = await supabase
-        .from('ai_configs')
-        .select('elevenlabs_api_key')
-        .eq('account_id', accountId)
-        .maybeSingle()
-      if (!existing?.elevenlabs_api_key) {
-        return NextResponse.json(
-          { error: 'Enter an ElevenLabs API key to test.' },
-          { status: 400 },
-        )
-      }
-      try {
-        apiKey = decrypt(existing.elevenlabs_api_key)
-      } catch {
-        return NextResponse.json(
-          {
-            error:
-              'Stored ElevenLabs key could not be decrypted — re-enter your key.',
-          },
-          { status: 400 },
-        )
-      }
+    const key = await requirePlatformElevenLabsKey()
+    if (!key.ok) {
+      return NextResponse.json({ error: key.error, code: key.code }, { status: 400 })
     }
-
+    const apiKey = key.apiKey
     const voiceId = effectiveVoiceId(
       typeof body.elevenlabs_voice_id === 'string'
         ? body.elevenlabs_voice_id

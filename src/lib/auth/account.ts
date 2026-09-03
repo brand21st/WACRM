@@ -28,6 +28,8 @@
 import { NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { EntitlementError, QuotaError } from "@/lib/billing/entitlements";
+import { RazorpayConfigError } from "@/lib/billing/razorpay";
 import { createClient } from "@/lib/supabase/server";
 import { hasMinRole, isAccountRole, type AccountRole } from "./roles";
 
@@ -54,6 +56,14 @@ export class ForbiddenError extends Error {
   }
 }
 
+export class AccountSuspendedError extends ForbiddenError {
+  readonly code = "account_suspended" as const;
+  constructor(message = "This account has been suspended") {
+    super(message);
+    this.name = "AccountSuspendedError";
+  }
+}
+
 /**
  * Convert one of the typed errors above (or anything else) into a
  * `NextResponse`. Routes can do:
@@ -67,8 +77,26 @@ export class ForbiddenError extends Error {
  * server internals out of the wire.
  */
 export function toErrorResponse(err: unknown): NextResponse {
+  if (err instanceof AccountSuspendedError) {
+    return NextResponse.json(
+      { error: err.message, code: err.code },
+      { status: err.status },
+    );
+  }
   if (err instanceof UnauthorizedError || err instanceof ForbiddenError) {
     return NextResponse.json({ error: err.message }, { status: err.status });
+  }
+  if (err instanceof EntitlementError || err instanceof QuotaError) {
+    return NextResponse.json(
+      { error: err.message, code: err.code },
+      { status: err.status },
+    );
+  }
+  if (err instanceof RazorpayConfigError) {
+    return NextResponse.json(
+      { error: err.message, code: "razorpay_not_configured" },
+      { status: 503 },
+    );
   }
   console.error("[toErrorResponse] uncategorized error:", err);
   return NextResponse.json({ error: "Internal server error" }, { status: 500 });
@@ -149,7 +177,7 @@ export async function getCurrentAccount(): Promise<AccountContext> {
   // RLS, so it stays robust against cache staleness and older schemas.
   const { data: account, error: accountErr } = await supabase
     .from("accounts")
-    .select("id, name")
+    .select("id, name, status")
     .eq("id", data.account_id)
     .maybeSingle();
 
@@ -161,6 +189,14 @@ export async function getCurrentAccount(): Promise<AccountContext> {
     // account_id points at no readable account row — orphaned profile
     // or an RLS gap. Same "can't scope this user" outcome as above.
     throw new ForbiddenError("Profile is not linked to an account");
+  }
+
+  const accountRow = account as { id: string; name: string; status?: string };
+  if (
+    accountRow.status === "suspended" &&
+    user.app_metadata?.is_platform_admin !== true
+  ) {
+    throw new AccountSuspendedError();
   }
 
   return {

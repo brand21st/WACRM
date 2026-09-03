@@ -4,7 +4,9 @@ import { useCallback, useEffect, useState } from 'react'
 import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
 import { useAuth } from '@/hooks/use-auth'
+import { useEntitlements } from '@/hooks/use-entitlements'
 import { canEditSettings } from '@/lib/auth/roles'
+import { UpgradePlanBanner } from '@/components/settings/upgrade-plan-banner'
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
@@ -57,6 +59,8 @@ export function CallingRecordingPage() {
   const t = useTranslations('Calling')
   const { accountRole } = useAuth()
   const canEdit = accountRole ? canEditSettings(accountRole) : false
+  const { entitlements } = useEntitlements()
+  const planAllowsRecording = entitlements?.callRecordingEnabled !== false
   const [enabled, setEnabled] = useState(false)
   const [purpose, setPurpose] = useState(DEFAULT_RECORDING_PURPOSE)
   const [language, setLanguage] = useState('en_US')
@@ -153,6 +157,8 @@ export function CallingRecordingPage() {
         <p className="mt-1 text-sm text-muted-foreground">{t('recordingDesc')}</p>
       </div>
 
+      <UpgradePlanBanner allowed={entitlements?.callRecordingEnabled} />
+
       <Card>
         <CardHeader>
           <CardTitle>{t('recordingEnable')}</CardTitle>
@@ -161,7 +167,11 @@ export function CallingRecordingPage() {
         <CardContent className="space-y-4">
           <div className="flex items-center justify-between gap-3">
             <span className="text-sm">{t('recordingEnable')}</span>
-            <Switch checked={enabled} onCheckedChange={setEnabled} disabled={!canEdit} />
+            <Switch
+              checked={enabled}
+              onCheckedChange={setEnabled}
+              disabled={!canEdit || !planAllowsRecording}
+            />
           </div>
           <label className="block space-y-1 text-sm">
             <span>{t('purposeLabel')}</span>

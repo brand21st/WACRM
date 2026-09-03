@@ -11,7 +11,9 @@ import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { useCallSession } from '@/components/calls/call-session-context'
+import { UpgradePlanBanner } from '@/components/settings/upgrade-plan-banner'
 import { useAuth } from '@/hooks/use-auth'
+import { useEntitlements } from '@/hooks/use-entitlements'
 import { formatCallDuration } from '@/lib/calls/preview'
 import { prefetchLiveAiRealtimeRoute } from '@/lib/calls/live-ai-realtime'
 import type { LiveAiVoice } from '@/types'
@@ -44,6 +46,8 @@ export function LiveAiStation() {
   const t = useTranslations('Calling')
   const session = useCallSession()
   const { canEditSettings } = useAuth()
+  const { entitlements } = useEntitlements()
+  const planAllowsLiveAi = entitlements?.callingEnabled !== false
   const [payload, setPayload] = useState<Payload | null>(null)
   const [savingVoice, setSavingVoice] = useState(false)
   const [savingPrompt, setSavingPrompt] = useState(false)
@@ -176,6 +180,8 @@ export function LiveAiStation() {
         <p className="mt-1 text-sm text-muted-foreground">{t('liveAiDesc')}</p>
       </div>
 
+      <UpgradePlanBanner allowed={entitlements?.callingEnabled} />
+
       <Card>
         <CardHeader>
           <CardTitle>{status}</CardTitle>
@@ -248,7 +254,11 @@ export function LiveAiStation() {
                 {t('stationStop')}
               </Button>
             ) : (
-              <Button type="button" onClick={() => void arm()} disabled={payload == null || !canArm}>
+              <Button
+                type="button"
+                onClick={() => void arm()}
+                disabled={payload == null || !canArm || !planAllowsLiveAi}
+              >
                 {t('stationStart')}
               </Button>
             )}

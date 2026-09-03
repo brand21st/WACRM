@@ -11,6 +11,8 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { SettingsPanelHead } from './settings-panel-head';
+import { UpgradePlanBanner } from './upgrade-plan-banner';
+import { useEntitlements } from '@/hooks/use-entitlements';
 import { ShopifyNotificationsCard } from './shopify-notifications';
 import { SHOPIFY_PARTNER_SCOPES } from '@/lib/shopify/scopes';
 import { SHOPIFY_WEBHOOK_TOPICS } from '@/lib/shopify/webhook-topics';
@@ -81,6 +83,7 @@ interface ShopifyConfigResponse {
 export function ShopifyConfigPanel() {
   const t = useTranslations('Settings.shopify');
   const { canEditSettings, accountId, loading: authLoading } = useAuth();
+  const { entitlements } = useEntitlements();
   const loadedAccountIdRef = useRef<string | null>(null);
 
   const [loading, setLoading] = useState(true);
@@ -269,7 +272,8 @@ export function ShopifyConfigPanel() {
     }
   };
 
-  const disabled = !canEditSettings || loading;
+  const disabled =
+    !canEditSettings || loading || entitlements?.shopifyEnabled === false;
 
   const installOnStore = async () => {
     if (!shopDomain.trim() || !clientId.trim()) {
@@ -302,6 +306,7 @@ export function ShopifyConfigPanel() {
   return (
     <div>
       <SettingsPanelHead title={t('title')} description={t('description')} />
+      <UpgradePlanBanner allowed={entitlements?.shopifyEnabled} />
 
       {loading ? (
         <div className="flex items-center gap-2 text-sm text-muted-foreground">

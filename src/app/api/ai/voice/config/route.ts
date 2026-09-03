@@ -1,10 +1,6 @@
 import { NextResponse } from 'next/server'
 import { requireRole, toErrorResponse } from '@/lib/auth/account'
 import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rate-limit'
-import { encrypt } from '@/lib/whatsapp/encryption'
-import { validateElevenLabsKey } from '@/lib/elevenlabs'
-import { validateSarvamKey } from '@/lib/sarvam'
-import { AiError } from '@/lib/ai/types'
 import {
   parseSarvamLanguage,
   parseSarvamPace,
@@ -14,6 +10,7 @@ import {
   parseVoiceReplyMode,
 } from '@/lib/ai/voice'
 import { parseRealtimeVoice } from '@/lib/ai/realtime/voices'
+import { loadPlatformAiSettings } from '@/lib/ai/platform-settings'
 
 function bad(message: string) {
   return NextResponse.json({ error: message }, { status: 400 })
@@ -52,32 +49,19 @@ export async function POST(request: Request) {
       )
     }
 
-    const voiceProvider = parseVoiceProvider(body.voice_provider)
+    const platform = await loadPlatformAiSettings()
+    const voiceProvider = platform?.voiceProvider ?? parseVoiceProvider(body.voice_provider)
     const patch: Record<string, unknown> = {
       voice_provider: voiceProvider,
     }
 
-    const rawElevenlabsKey =
-      typeof body.elevenlabs_api_key === 'string'
-        ? body.elevenlabs_api_key.trim()
-        : ''
-    const clearElevenlabsKey = body.elevenlabs_api_key === null
-    if (rawElevenlabsKey) {
-      try {
-        await validateElevenLabsKey(rawElevenlabsKey)
-      } catch (err) {
-        if (err instanceof AiError) {
-          return NextResponse.json(
-            { error: `ElevenLabs key: ${err.message}`, code: err.code },
-            { status: 400 },
-          )
-        }
-        return bad('Could not validate the ElevenLabs key.')
-      }
-      patch.elevenlabs_api_key = encrypt(rawElevenlabsKey)
-    } else if (clearElevenlabsKey) {
-      patch.elevenlabs_api_key = null
+    const rejectedKey =
+      (typeof body.elevenlabs_api_key === 'string' && body.elevenlabs_api_key.trim()) ||
+      (typeof body.sarvam_api_key === 'string' && body.sarvam_api_key.trim())
+    if (rejectedKey) {
+      return bad('API keys are managed by the platform administrator')
     }
+
     if ('elevenlabs_voice_id' in body) {
       patch.elevenlabs_voice_id =
         typeof body.elevenlabs_voice_id === 'string'
@@ -85,25 +69,6 @@ export async function POST(request: Request) {
           : null
     }
 
-    const rawSarvamKey =
-      typeof body.sarvam_api_key === 'string' ? body.sarvam_api_key.trim() : ''
-    const clearSarvamKey = body.sarvam_api_key === null
-    if (rawSarvamKey) {
-      try {
-        await validateSarvamKey(rawSarvamKey)
-      } catch (err) {
-        if (err instanceof AiError) {
-          return NextResponse.json(
-            { error: `Sarvam key: ${err.message}`, code: err.code },
-            { status: 400 },
-          )
-        }
-        return bad('Could not validate the Sarvam key.')
-      }
-      patch.sarvam_api_key = encrypt(rawSarvamKey)
-    } else if (clearSarvamKey) {
-      patch.sarvam_api_key = null
-    }
     if ('sarvam_speaker' in body) {
       patch.sarvam_speaker = parseSarvamSpeaker(body.sarvam_speaker)
     }

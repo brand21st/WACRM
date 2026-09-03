@@ -202,6 +202,9 @@ export async function POST(request: Request) {
     const limit = checkRateLimit(`shopify-config:${userId}`, RATE_LIMITS.adminAction)
     if (!limit.success) return rateLimitResponse(limit)
 
+    const { assertShopifyConnect } = await import('@/lib/billing/entitlements')
+    await assertShopifyConnect(accountId)
+
     const body = await request.json().catch(() => null)
     if (!body || typeof body !== 'object') return bad('Invalid request body')
 

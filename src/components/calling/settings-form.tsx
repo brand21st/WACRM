@@ -16,6 +16,8 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { WEEKDAYS, defaultWeeklyHours, hhmmToInput, inputToHhmm } from '@/lib/calling/hours'
+import { UpgradePlanBanner } from '@/components/settings/upgrade-plan-banner'
+import { useEntitlements } from '@/hooks/use-entitlements'
 import type { CallHours, CallHoursDay, CallingSettings } from '@/types'
 
 type Payload = {
@@ -32,6 +34,9 @@ export function CallingSettingsForm() {
   const t = useTranslations('Calling')
   const { accountRole } = useAuth()
   const canEdit = accountRole ? canEditSettings(accountRole) : false
+  const { entitlements } = useEntitlements()
+  const planAllowsLiveAi = entitlements?.callingEnabled !== false
+  const planAllowsRecording = entitlements?.callRecordingEnabled !== false
   const [payload, setPayload] = useState<Payload | null>(null)
   const [saving, setSaving] = useState(false)
   const [enabled, setEnabled] = useState(false)
@@ -132,7 +137,11 @@ export function CallingSettingsForm() {
         <CardContent className="space-y-4">
           <div className="flex items-center justify-between gap-3">
             <span className="text-sm">{t('enable')}</span>
-            <Switch checked={enabled} onCheckedChange={setEnabled} disabled={!canEdit} />
+            <Switch
+              checked={enabled}
+              onCheckedChange={setEnabled}
+              disabled={!canEdit}
+            />
           </div>
           <div className="space-y-1">
             <p className="text-sm">{t('iconVisibility')}</p>
@@ -244,9 +253,20 @@ export function CallingSettingsForm() {
 
       <Card>
         <CardContent className="space-y-4 pt-6">
-          <ToggleRow label={t('recordingMaster')} checked={recording} onChange={setRecording} disabled={!canEdit} />
+          <UpgradePlanBanner allowed={entitlements?.callRecordingEnabled} />
+          <ToggleRow
+            label={t('recordingMaster')}
+            checked={recording}
+            onChange={setRecording}
+            disabled={!canEdit || !planAllowsRecording}
+          />
           <ToggleRow label={t('transcribeMaster')} checked={transcribe} onChange={setTranscribe} disabled={!canEdit} />
-          <ToggleRow label={t('aiMaster')} checked={ai} onChange={setAi} disabled={!canEdit} />
+          <ToggleRow
+            label={t('aiMaster')}
+            checked={ai}
+            onChange={setAi}
+            disabled={!canEdit || !planAllowsLiveAi}
+          />
         </CardContent>
       </Card>
 
@@ -256,13 +276,14 @@ export function CallingSettingsForm() {
           <CardDescription>{t('liveAiSettingsDesc')}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
+          <UpgradePlanBanner allowed={entitlements?.callingEnabled} />
           <Select
             value={liveAi}
             onValueChange={(v) => {
               if (v === 'off' || v === 'ai_first' || v === 'after_timeout') setLiveAi(v)
             }}
           >
-            <SelectTrigger className="w-full max-w-md" disabled={!canEdit}>
+            <SelectTrigger className="w-full max-w-md" disabled={!canEdit || !planAllowsLiveAi}>
               <SelectValue>
                 {liveAi === 'ai_first'
                   ? t('liveAiFirst')

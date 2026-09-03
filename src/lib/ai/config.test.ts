@@ -7,7 +7,34 @@ vi.mock('@/lib/whatsapp/encryption', () => ({
   decrypt: (v: string) => `plain:${v}`,
 }))
 
+vi.mock('./platform-settings', () => ({
+  loadPlatformAiSettings: vi.fn(async () => ({
+    globalAiEnabled: true,
+    chatProvider: 'openai',
+    chatModel: 'gpt-x',
+    voiceProvider: 'elevenlabs',
+    openaiApiKey: 'plain:enc-key',
+    anthropicApiKey: null,
+    embeddingsApiKey: null,
+    elevenlabsApiKey: null,
+    sarvamApiKey: null,
+  })),
+  loadAccountPlatformFlags: vi.fn(async () => ({
+    status: 'active',
+    aiEnabled: true,
+  })),
+  chatKeyForProvider: (
+    settings: { openaiApiKey: string | null; anthropicApiKey: string | null },
+    provider: string,
+  ) => (provider === 'anthropic' ? settings.anthropicApiKey : settings.openaiApiKey),
+}))
+
+vi.mock('@/lib/billing/entitlements', () => ({
+  accountMayUseAi: vi.fn(async () => true),
+}))
+
 import { loadAiConfig } from './config'
+import { loadPlatformAiSettings } from './platform-settings'
 
 function dbReturning(row: Record<string, unknown> | null): SupabaseClient {
   const chain = {
@@ -59,16 +86,17 @@ describe('loadAiConfig requireActive', () => {
     expect(config!.typingIndicatorEnabled).toBe(true)
   })
 
-  it('decrypts the Sarvam key when present', async () => {
+  it('uses platform keys instead of the account row', async () => {
     const config = await loadAiConfig(
       dbReturning({ ...ROW, is_active: true, sarvam_api_key: 'enc-sv' }),
       'acct',
     )
-    expect(config!.sarvamApiKey).toBe('plain:enc-sv')
+    expect(config!.apiKey).toBe('plain:enc-key')
+    expect(config!.sarvamApiKey).toBeNull()
     expect(config!.voiceProvider).toBe('elevenlabs')
   })
 
-  it('maps voice_provider sarvam', async () => {
+  it('still maps account voice speaker settings', async () => {
     const config = await loadAiConfig(
       dbReturning({
         ...ROW,
@@ -79,7 +107,6 @@ describe('loadAiConfig requireActive', () => {
       }),
       'acct',
     )
-    expect(config!.voiceProvider).toBe('sarvam')
     expect(config!.sarvamSpeaker).toBe('priya')
     expect(config!.sarvamLanguageCode).toBe('hi-IN')
   })
@@ -155,6 +182,13 @@ describe('loadAiConfig requireActive', () => {
   it('returns null when there is no row', async () => {
     expect(
       await loadAiConfig(dbReturning(null), 'acct', { requireActive: false }),
+    ).toBeNull()
+  })
+
+  it('returns null when platform AI is off', async () => {
+    vi.mocked(loadPlatformAiSettings).mockResolvedValueOnce(null)
+    expect(
+      await loadAiConfig(dbReturning({ ...ROW, is_active: true }), 'acct'),
     ).toBeNull()
   })
 })

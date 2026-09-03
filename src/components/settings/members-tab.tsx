@@ -133,6 +133,7 @@ export function MembersTab() {
   const [members, setMembers] = useState<Member[]>([]);
   const [invitations, setInvitations] = useState<Invitation[]>([]);
   const [loading, setLoading] = useState(true);
+  const [seats, setSeats] = useState<number | null>(null);
 
   const [inviteOpen, setInviteOpen] = useState(false);
   const [removingMember, setRemovingMember] = useState<Member | null>(null);
@@ -142,11 +143,12 @@ export function MembersTab() {
 
   const loadEverything = useCallback(async () => {
     try {
-      const [mres, ires] = await Promise.all([
+      const [mres, ires, bres] = await Promise.all([
         fetch('/api/account/members', { cache: 'no-store' }),
         canManageMembers
           ? fetch('/api/account/invitations', { cache: 'no-store' })
           : Promise.resolve(null),
+        fetch('/api/billing/packages', { cache: 'no-store' }),
       ]);
 
       if (!mres.ok) {
@@ -156,6 +158,14 @@ export function MembersTab() {
       }
       const mdata = (await mres.json()) as { members: Member[] };
       setMembers(mdata.members);
+      if (bres.ok) {
+        const billing = (await bres.json()) as {
+          subscription?: { maxSeats?: number };
+        };
+        if (billing.subscription?.maxSeats) {
+          setSeats(billing.subscription.maxSeats);
+        }
+      }
 
       if (ires) {
         if (!ires.ok) {
@@ -284,7 +294,11 @@ export function MembersTab() {
     <section className="animate-in fade-in-50 space-y-6 duration-200">
       <SettingsPanelHead
         title={t('title')}
-        description={t('description')}
+        description={
+          seats
+            ? `${t('description')} (${members.length} / ${seats} seats)`
+            : t('description')
+        }
         action={
           <RequireRole min="admin">
             <Button onClick={() => setInviteOpen(true)}>

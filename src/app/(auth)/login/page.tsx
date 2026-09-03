@@ -61,6 +61,29 @@ function LoginPageInner() {
       return;
     }
 
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (user?.app_metadata?.is_platform_admin === true) {
+      window.location.href = "/super-admin";
+      return;
+    }
+
+    const accountRes = await fetch("/api/account");
+    if (accountRes.status === 403) {
+      const payload = (await accountRes.json().catch(() => null)) as {
+        code?: string;
+        error?: string;
+      } | null;
+      if (payload?.code === "account_suspended") {
+        await supabase.auth.signOut();
+        setError(payload.error || "This account has been suspended");
+        setLoading(false);
+        return;
+      }
+    }
+
     // Full-page navigation (not router.push) so the browser issues a
     // fresh top-level request that carries the just-written Supabase
     // auth cookies to the middleware gating /dashboard. A soft

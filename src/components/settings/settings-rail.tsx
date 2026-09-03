@@ -26,10 +26,12 @@ export function SettingsRail({
   active,
   onSelect,
   hints,
+  canManageWorkspace = true,
 }: {
   active: SettingsSection;
   onSelect: (section: SettingsSection) => void;
   hints?: Partial<Record<SettingsSection, ReactNode>>;
+  canManageWorkspace?: boolean;
 }) {
   const t = useTranslations('Settings');
   const activeRef = useRef<HTMLButtonElement>(null);
@@ -56,9 +58,12 @@ export function SettingsRail({
       )}
     >
       {RAIL_GROUPS.map(({ label, group }) => {
-        const items = SETTINGS_SECTIONS.filter(
-          (s) => SECTION_META[s].group === group,
-        );
+        const items = SETTINGS_SECTIONS.filter((s) => {
+          const meta = SECTION_META[s];
+          if (meta.group !== group) return false;
+          if (meta.adminOnly && !canManageWorkspace) return false;
+          return true;
+        });
         return (
           <div
             key={group}

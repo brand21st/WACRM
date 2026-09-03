@@ -24,6 +24,8 @@ function appOrigin(request: Request): string {
 export async function POST(request: Request) {
   try {
     const { accountId } = await requireRole('admin')
+    const { assertShopifyConnect } = await import('@/lib/billing/entitlements')
+    await assertShopifyConnect(accountId)
     const body = await request.json().catch(() => null)
     if (!body || typeof body !== 'object') return bad('Invalid request body')
 

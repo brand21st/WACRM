@@ -5,8 +5,6 @@ import Link from 'next/link';
 import { toast } from 'sonner';
 import {
   CheckCircle2,
-  Eye,
-  EyeOff,
   Loader2,
   Volume2,
 } from 'lucide-react';
@@ -45,8 +43,6 @@ import {
 import { playBase64Audio } from './play-preview';
 import { useTranslations } from 'next-intl';
 
-const MASKED_KEY = '••••••••••••••••';
-
 const VOICE_REPLY_MODES: {
   value: VoiceReplyMode;
   labelKey: 'replyModeSame' | 'replyModeText' | 'replyModeAudio' | 'replyModeBoth';
@@ -69,15 +65,9 @@ export function VoiceBuildPanel() {
   const [chatProvider, setChatProvider] = useState<'openai' | 'anthropic'>('openai');
 
   const [voiceProvider, setVoiceProvider] = useState<VoiceProvider>('elevenlabs');
-  const [elevenlabsKey, setElevenlabsKey] = useState('');
-  const [elevenlabsKeyEdited, setElevenlabsKeyEdited] = useState(false);
-  const [hasStoredElevenlabsKey, setHasStoredElevenlabsKey] = useState(false);
-  const [showElevenlabsKey, setShowElevenlabsKey] = useState(false);
+  const [hasPlatformElevenlabsKey, setHasPlatformElevenlabsKey] = useState(false);
+  const [hasPlatformSarvamKey, setHasPlatformSarvamKey] = useState(false);
   const [elevenlabsVoiceId, setElevenlabsVoiceId] = useState('');
-  const [sarvamKey, setSarvamKey] = useState('');
-  const [sarvamKeyEdited, setSarvamKeyEdited] = useState(false);
-  const [hasStoredSarvamKey, setHasStoredSarvamKey] = useState(false);
-  const [showSarvamKey, setShowSarvamKey] = useState(false);
   const [sarvamSpeaker, setSarvamSpeaker] = useState('shubh');
   const [sarvamLanguage, setSarvamLanguage] = useState('en-IN');
   const [sttEnabled, setSttEnabled] = useState(true);
@@ -107,14 +97,14 @@ export function VoiceBuildPanel() {
       }
       setConfigured(true);
       setChatProvider(data.provider === 'anthropic' ? 'anthropic' : 'openai');
-      setVoiceProvider(data.voice_provider === 'sarvam' ? 'sarvam' : 'elevenlabs');
-      setHasStoredElevenlabsKey(Boolean(data.has_elevenlabs_key));
-      setElevenlabsKey(data.has_elevenlabs_key ? MASKED_KEY : '');
-      setElevenlabsKeyEdited(false);
+      const lockedVoice =
+        data.platform_voice_provider === 'sarvam' || data.voice_provider === 'sarvam'
+          ? 'sarvam'
+          : 'elevenlabs';
+      setVoiceProvider(lockedVoice);
+      setHasPlatformElevenlabsKey(Boolean(data.has_elevenlabs_key));
       setElevenlabsVoiceId(data.elevenlabs_voice_id ?? '');
-      setHasStoredSarvamKey(Boolean(data.has_sarvam_key));
-      setSarvamKey(data.has_sarvam_key ? MASKED_KEY : '');
-      setSarvamKeyEdited(false);
+      setHasPlatformSarvamKey(Boolean(data.has_sarvam_key));
       setSarvamSpeaker(data.sarvam_speaker || 'shubh');
       setSarvamLanguage(data.sarvam_language_code || 'en-IN');
       setSttEnabled(data.stt_enabled !== false);
@@ -143,11 +133,6 @@ export function VoiceBuildPanel() {
     void fetchConfig();
   }, [accountId, fetchConfig]);
 
-  const elevenlabsKeyPayload = () =>
-    elevenlabsKeyEdited ? elevenlabsKey.trim() || null : undefined;
-  const sarvamKeyPayload = () =>
-    sarvamKeyEdited ? sarvamKey.trim() || null : undefined;
-
   const runVoiceTest = async (preview: boolean) => {
     if (preview) setPreviewingVoice(true);
     else setTestingVoice(true);
@@ -159,14 +144,12 @@ export function VoiceBuildPanel() {
           voiceProvider === 'sarvam'
             ? {
                 voice_provider: 'sarvam',
-                sarvam_api_key: sarvamKeyPayload(),
                 sarvam_speaker: sarvamSpeaker,
                 sarvam_language_code: sarvamLanguage,
                 preview,
               }
             : {
                 voice_provider: 'elevenlabs',
-                elevenlabs_api_key: elevenlabsKeyPayload(),
                 elevenlabs_voice_id: elevenlabsVoiceId.trim() || null,
                 preview,
               },
@@ -216,9 +199,7 @@ export function VoiceBuildPanel() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           voice_provider: voiceProvider,
-          elevenlabs_api_key: elevenlabsKeyPayload(),
           elevenlabs_voice_id: elevenlabsVoiceId.trim() || null,
-          sarvam_api_key: sarvamKeyPayload(),
           sarvam_speaker: sarvamSpeaker,
           sarvam_language_code: sarvamLanguage,
           stt_enabled: sttEnabled,
@@ -283,13 +264,10 @@ export function VoiceBuildPanel() {
       <Card>
         <CardHeader>
           <CardTitle className="text-base">{t('provider')}</CardTitle>
+          <CardDescription>{tc('platformKeysHint')}</CardDescription>
         </CardHeader>
         <CardContent>
-          <Select
-            value={voiceProvider}
-            onValueChange={(v) => v && setVoiceProvider(v as VoiceProvider)}
-            disabled={disabled}
-          >
+          <Select value={voiceProvider} disabled>
             <SelectTrigger>
               <SelectValue />
             </SelectTrigger>
@@ -310,55 +288,29 @@ export function VoiceBuildPanel() {
             <CardDescription>{tc('voiceDesc')}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="ai-elevenlabs-key">{tc('elevenlabsKey')}</Label>
-              <div className="flex gap-2">
-                <div className="relative flex-1">
-                  <Input
-                    id="ai-elevenlabs-key"
-                    type={showElevenlabsKey ? 'text' : 'password'}
-                    value={elevenlabsKey}
-                    onChange={(e) => {
-                      setElevenlabsKey(e.target.value);
-                      setElevenlabsKeyEdited(true);
-                    }}
-                    onFocus={() => {
-                      if (!elevenlabsKeyEdited && hasStoredElevenlabsKey) {
-                        setElevenlabsKey('');
-                        setElevenlabsKeyEdited(true);
-                      }
-                    }}
-                    placeholder="xi-..."
-                    disabled={disabled}
-                    autoComplete="off"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowElevenlabsKey((s) => !s)}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                    tabIndex={-1}
-                  >
-                    {showElevenlabsKey ? (
-                      <EyeOff className="h-4 w-4" />
-                    ) : (
-                      <Eye className="h-4 w-4" />
-                    )}
-                  </button>
-                </div>
-                <Button
-                  variant="outline"
-                  onClick={() => void runVoiceTest(false)}
-                  disabled={disabled || testingVoice || previewingVoice}
-                >
-                  {testingVoice ? (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  ) : (
-                    <CheckCircle2 className="mr-2 h-4 w-4" />
-                  )}
-                  {tc('testVoice')}
-                </Button>
-              </div>
-              <p className="text-xs text-muted-foreground">{tc('elevenlabsKeyHint')}</p>
+            <p className="text-sm text-muted-foreground">
+              {hasPlatformElevenlabsKey
+                ? tc('platformKeysHint')
+                : 'ElevenLabs is not configured by the platform administrator.'}
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                variant="outline"
+                onClick={() => void runVoiceTest(false)}
+                disabled={
+                  disabled ||
+                  !hasPlatformElevenlabsKey ||
+                  testingVoice ||
+                  previewingVoice
+                }
+              >
+                {testingVoice ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <CheckCircle2 className="mr-2 h-4 w-4" />
+                )}
+                {tc('testVoice')}
+              </Button>
             </div>
 
             <div className="space-y-2">
@@ -375,7 +327,12 @@ export function VoiceBuildPanel() {
                 <Button
                   variant="outline"
                   onClick={() => void runVoiceTest(true)}
-                  disabled={disabled || testingVoice || previewingVoice}
+                  disabled={
+                    disabled ||
+                    !hasPlatformElevenlabsKey ||
+                    testingVoice ||
+                    previewingVoice
+                  }
                 >
                   {previewingVoice ? (
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -398,56 +355,25 @@ export function VoiceBuildPanel() {
             <CardDescription>{t('sarvamHint')}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="ai-sarvam-key">{t('sarvamKey')}</Label>
-              <div className="flex gap-2">
-                <div className="relative flex-1">
-                  <Input
-                    id="ai-sarvam-key"
-                    type={showSarvamKey ? 'text' : 'password'}
-                    value={sarvamKey}
-                    onChange={(e) => {
-                      setSarvamKey(e.target.value);
-                      setSarvamKeyEdited(true);
-                    }}
-                    onFocus={() => {
-                      if (!sarvamKeyEdited && hasStoredSarvamKey) {
-                        setSarvamKey('');
-                        setSarvamKeyEdited(true);
-                      }
-                    }}
-                    placeholder="sk_..."
-                    disabled={disabled}
-                    autoComplete="off"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowSarvamKey((s) => !s)}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                    tabIndex={-1}
-                  >
-                    {showSarvamKey ? (
-                      <EyeOff className="h-4 w-4" />
-                    ) : (
-                      <Eye className="h-4 w-4" />
-                    )}
-                  </button>
-                </div>
-                <Button
-                  variant="outline"
-                  onClick={() => void runVoiceTest(false)}
-                  disabled={disabled || testingVoice || previewingVoice}
-                >
-                  {testingVoice ? (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  ) : (
-                    <CheckCircle2 className="mr-2 h-4 w-4" />
-                  )}
-                  {tc('testVoice')}
-                </Button>
-              </div>
-              <p className="text-xs text-muted-foreground">{t('sarvamKeyHint')}</p>
-            </div>
+            <p className="text-sm text-muted-foreground">
+              {hasPlatformSarvamKey
+                ? tc('platformKeysHint')
+                : 'Sarvam is not configured by the platform administrator.'}
+            </p>
+            <Button
+              variant="outline"
+              onClick={() => void runVoiceTest(false)}
+              disabled={
+                disabled || !hasPlatformSarvamKey || testingVoice || previewingVoice
+              }
+            >
+              {testingVoice ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <CheckCircle2 className="mr-2 h-4 w-4" />
+              )}
+              {tc('testVoice')}
+            </Button>
 
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
@@ -492,7 +418,9 @@ export function VoiceBuildPanel() {
             <Button
               variant="outline"
               onClick={() => void runVoiceTest(true)}
-              disabled={disabled || testingVoice || previewingVoice}
+              disabled={
+                disabled || !hasPlatformSarvamKey || testingVoice || previewingVoice
+              }
             >
               {previewingVoice ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />

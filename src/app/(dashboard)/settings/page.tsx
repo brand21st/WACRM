@@ -19,6 +19,7 @@ import { FieldsAndTagsPanel } from '@/components/settings/fields-and-tags-panel'
 import { DealsSettings } from '@/components/settings/deals-settings';
 import { MembersTab } from '@/components/settings/members-tab';
 import { ApiKeysSettings } from '@/components/settings/api-keys-settings';
+import { BillingPanel } from '@/components/settings/billing-panel';
 import {
   resolveSection,
   type SettingsSection,
@@ -43,7 +44,9 @@ export default function SettingsPage() {
 function SettingsPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { defaultCurrency } = useAuth();
+  const { defaultCurrency, canManageMembers, loading: authLoading, profileLoading } =
+    useAuth();
+  const authReady = !authLoading && !profileLoading;
   const { mode } = useTheme();
   const t = useTranslations('Settings');
 
@@ -51,7 +54,11 @@ function SettingsPageInner() {
   // section — deep-linkable, and it keeps the existing links in the
   // app sidebar/header working. Legacy tab values (tags, custom-fields)
   // resolve onto their new home; unknown/empty → the Overview landing.
-  const section = resolveSection(searchParams.get('tab'));
+  const requested = resolveSection(searchParams.get('tab'));
+  const section =
+    requested === 'billing' && authReady && !canManageMembers
+      ? 'overview'
+      : requested;
 
   const go = (next: SettingsSection) => {
     const params = new URLSearchParams(searchParams.toString());
@@ -82,6 +89,7 @@ function SettingsPageInner() {
     fields: <FieldsAndTagsPanel />,
     deals: <DealsSettings />,
     members: <MembersTab />,
+    billing: <BillingPanel />,
     api: <ApiKeysSettings />,
   };
 
@@ -97,7 +105,12 @@ function SettingsPageInner() {
       </div>
 
       <div className="mt-6 grid gap-6 lg:grid-cols-[236px_minmax(0,1fr)] lg:items-start">
-        <SettingsRail active={section} onSelect={go} hints={hints} />
+        <SettingsRail
+          active={section}
+          onSelect={go}
+          hints={hints}
+          canManageWorkspace={!authReady || canManageMembers}
+        />
         <div className="min-w-0">{panel[section]}</div>
       </div>
     </div>

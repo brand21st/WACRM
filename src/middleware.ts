@@ -11,6 +11,9 @@ const PUBLIC_API_PREFIXES = [
   '/api/flows/cron',
   '/api/shopify/notifications/cron',
   '/api/voice/cron',
+  '/api/ai/memory/cron',
+  '/api/billing/cron',
+  '/api/billing/razorpay/webhook',
 ]
 
 // Public legal pages Meta's go-live crawler fetches (no session).
@@ -87,6 +90,9 @@ export async function middleware(request: NextRequest) {
     ) {
       url.pathname = `/join/${encodeURIComponent(inviteToken)}`
       url.search = ''
+    } else if (user.app_metadata?.is_platform_admin === true) {
+      url.pathname = '/super-admin'
+      url.search = ''
     } else {
       url.pathname = '/dashboard'
       url.search = ''
@@ -94,8 +100,35 @@ export async function middleware(request: NextRequest) {
     return withRefreshedCookies(NextResponse.redirect(url))
   }
 
+  const isPlatformAdmin = user?.app_metadata?.is_platform_admin === true
+  const merchantPaths = [
+    '/dashboard',
+    '/inbox',
+    '/contacts',
+    '/pipelines',
+    '/broadcasts',
+    '/automations',
+    '/settings',
+    '/calling',
+    '/flows',
+    '/agents',
+    '/notifications',
+  ]
+  if (isPlatformAdmin && merchantPaths.some((path) => pathname === path || pathname.startsWith(`${path}/`))) {
+    const url = request.nextUrl.clone()
+    url.pathname = '/super-admin'
+    url.search = ''
+    return withRefreshedCookies(NextResponse.redirect(url))
+  }
+  if (user && !isPlatformAdmin && pathname.startsWith('/super-admin')) {
+    const url = request.nextUrl.clone()
+    url.pathname = '/dashboard'
+    url.search = ''
+    return withRefreshedCookies(NextResponse.redirect(url))
+  }
+
   // Protected pages - redirect to login if not authenticated
-  const protectedPaths = ['/dashboard', '/inbox', '/contacts', '/pipelines', '/broadcasts', '/automations', '/settings']
+  const protectedPaths = [...merchantPaths, '/super-admin']
   if (!user && protectedPaths.some(path => request.nextUrl.pathname.startsWith(path))) {
     const url = request.nextUrl.clone()
     url.pathname = '/login'

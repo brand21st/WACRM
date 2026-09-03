@@ -185,6 +185,9 @@ export async function POST(request: Request) {
       )
     }
 
+    const { assertWhatsAppConnect } = await import('@/lib/billing/entitlements')
+    await assertWhatsAppConnect(accountId)
+
     const body = await request.json()
     const { phone_number_id, waba_id, access_token, verify_token, pin } = body
 

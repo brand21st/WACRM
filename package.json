@@ -37,7 +37,8 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "seed:super-admin": "npx --yes tsx scripts/seed-super-admin.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.6.0",
