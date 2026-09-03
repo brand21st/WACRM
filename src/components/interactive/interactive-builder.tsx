@@ -52,9 +52,20 @@ export function blankListPayload(): InteractiveListPayload {
   };
 }
 
+export type ComposerInteractivePayload =
+  | InteractiveButtonsPayload
+  | InteractiveListPayload;
+
+export function toComposerInteractivePayload(
+  seed?: InteractiveMessagePayload | null,
+): ComposerInteractivePayload {
+  if (seed?.kind === "buttons" || seed?.kind === "list") return seed;
+  return blankButtonsPayload();
+}
+
 interface InteractiveBuilderProps {
-  value: InteractiveMessagePayload;
-  onChange: (payload: InteractiveMessagePayload) => void;
+  value: ComposerInteractivePayload;
+  onChange: (payload: ComposerInteractivePayload) => void;
   /** Show the live WhatsApp-style preview beside the form. Default true. */
   showPreview?: boolean;
 }
@@ -74,8 +85,8 @@ export function InteractiveBuilder({
   const [advanced, setAdvanced] = useState(false);
   const validation = validateInteractivePayload(value);
 
-  const setField = (patch: Partial<InteractiveMessagePayload>) =>
-    onChange({ ...value, ...patch } as InteractiveMessagePayload);
+  const setField = (patch: Partial<ComposerInteractivePayload>) =>
+    onChange({ ...value, ...patch } as ComposerInteractivePayload);
 
   const switchKind = (kind: "buttons" | "list") => {
     if (kind === value.kind) return;
@@ -193,7 +204,7 @@ function ButtonsEditor({
   advanced,
 }: {
   value: InteractiveButtonsPayload;
-  onChange: (p: InteractiveMessagePayload) => void;
+  onChange: (p: InteractiveButtonsPayload) => void;
   advanced: boolean;
 }) {
   const buttons = value.buttons;
@@ -275,7 +286,7 @@ function ListEditor({
   advanced,
 }: {
   value: InteractiveListPayload;
-  onChange: (p: InteractiveMessagePayload) => void;
+  onChange: (p: InteractiveListPayload) => void;
   advanced: boolean;
 }) {
   const sections = value.sections;

@@ -59,6 +59,8 @@ import {
   InteractiveBuilder,
   blankButtonsPayload,
   blankListPayload,
+  toComposerInteractivePayload,
+  type ComposerInteractivePayload,
 } from "@/components/interactive/interactive-builder"
 import { interactivePayloadPreviewText } from "@/lib/whatsapp/interactive"
 import { createClient } from "@/lib/supabase/client"
@@ -163,11 +165,11 @@ function cid(): string {
 // helpers hold the single unavoidable structural cast in one place so a
 // payload-shape change has one seam to update instead of four scattered
 // `as unknown as` sites.
-function toStepConfig(p: InteractiveMessagePayload): Record<string, unknown> {
+function toStepConfig(p: ComposerInteractivePayload): Record<string, unknown> {
   return p as unknown as Record<string, unknown>
 }
-function asInteractive(cfg: Record<string, unknown>): InteractiveMessagePayload {
-  return cfg as unknown as InteractiveMessagePayload
+function asComposerInteractive(cfg: Record<string, unknown>): ComposerInteractivePayload {
+  return toComposerInteractivePayload(cfg as unknown as InteractiveMessagePayload)
 }
 
 function blankConfig(type: AutomationStepType): Record<string, unknown> {
@@ -1320,7 +1322,7 @@ function StepEditor({
       // builder edits it in place (and enforces Meta's limits + preview).
       return (
         <InteractiveBuilder
-          value={asInteractive(cfg)}
+          value={asComposerInteractive(cfg)}
           onChange={(payload) =>
             onChange({ ...step, step_config: toStepConfig(payload) })
           }
@@ -1534,7 +1536,7 @@ function previewFor(step: BuilderStep): string {
       return (step.step_config.text as string) || "no text yet"
     case "send_buttons":
     case "send_list":
-      return interactivePayloadPreviewText(asInteractive(step.step_config)) || "no body yet"
+      return interactivePayloadPreviewText(asComposerInteractive(step.step_config)) || "no body yet"
     case "send_template":
       return (step.step_config.template_name as string) || "pick a template"
     case "wait":

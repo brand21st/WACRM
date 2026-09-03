@@ -17,6 +17,7 @@ import type {
   Profile,
   InteractiveMessagePayload,
 } from "@/types";
+import { interactivePayloadBody } from "@/lib/whatsapp/interactive";
 import {
   MessageSquare,
   ChevronDown,
@@ -614,7 +615,7 @@ export function MessageThread({
         conversation_id: conversation.id,
         sender_type: "agent",
         content_type: "interactive",
-        content_text: payload.body,
+        content_text: interactivePayloadBody(payload),
         interactive_payload: payload,
         status: "sending",
         created_at: new Date().toISOString(),

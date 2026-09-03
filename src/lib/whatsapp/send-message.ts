@@ -35,6 +35,7 @@ import {
 } from '@/lib/whatsapp/meta-api';
 import {
   validateInteractivePayload,
+  interactivePayloadBody,
   interactivePayloadPreviewText,
   type InteractiveMessagePayload,
 } from '@/lib/whatsapp/interactive';
@@ -519,7 +520,7 @@ export async function sendMessageToConversation(
   // Inbox rendering an empty bubble — issue #483.
   const persistedText =
     messageType === 'interactive'
-      ? interactivePayload!.body
+      ? interactivePayloadBody(interactivePayload!)
       : messageType === 'template'
         ? templateContentText(
             templateRow,

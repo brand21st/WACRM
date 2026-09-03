@@ -51,6 +51,8 @@ import { useTranslations } from "next-intl";
 import {
   InteractiveBuilder,
   blankButtonsPayload,
+  toComposerInteractivePayload,
+  type ComposerInteractivePayload,
 } from "@/components/interactive/interactive-builder";
 import { validateInteractivePayload } from "@/lib/whatsapp/interactive";
 import type { InteractiveMessagePayload, QuickReply } from "@/types";
@@ -154,7 +156,7 @@ export function MessageComposer({
   // Interactive-message builder dialog + quick-reply picker.
   const [interactiveOpen, setInteractiveOpen] = useState(false);
   const [interactivePayload, setInteractivePayload] =
-    useState<InteractiveMessagePayload>(blankButtonsPayload);
+    useState<ComposerInteractivePayload>(blankButtonsPayload);
   const [savingQuickReply, setSavingQuickReply] = useState(false);
   const [quickReplyOpen, setQuickReplyOpen] = useState(false);
 
@@ -320,7 +322,7 @@ export function MessageComposer({
 
   const openInteractiveBuilder = useCallback(
     (seed?: InteractiveMessagePayload) => {
-      setInteractivePayload(seed ?? blankButtonsPayload());
+      setInteractivePayload(toComposerInteractivePayload(seed));
       setInteractiveOpen(true);
     },
     [],

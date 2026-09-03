@@ -132,6 +132,7 @@ export interface InteractiveInboundOrderPayload {
   }>
 }
 
+
 export type InteractiveMessagePayload =
   | InteractiveButtonsPayload
   | InteractiveListPayload
@@ -142,6 +143,22 @@ export type InteractiveMessagePayload =
   | InteractiveOrderDetailsPayload
   | InteractiveOrderStatusPayload
   | InteractiveInboundOrderPayload
+
+/** Payloads the composer / send APIs may emit (excludes inbound-only shapes). */
+export type OutboundInteractiveMessagePayload = Exclude<
+  InteractiveMessagePayload,
+  InteractiveInboundOrderPayload
+>
+
+/** Body text for persistence / previews; inbound carts have no body field. */
+export function interactivePayloadBody(
+  payload: InteractiveMessagePayload,
+): string {
+  if (payload.kind === 'inbound_order') {
+    return interactivePayloadPreviewText(payload)
+  }
+  return payload.body
+}
 
 export type InteractiveValidation =
   | { ok: true }
@@ -186,20 +203,30 @@ export function validateInteractivePayload(
   if (!payload || typeof payload !== 'object') {
     return fail('Interactive message payload is required.')
   }
-  const p = payload as Partial<InteractiveMessagePayload>
+  const raw = payload as Record<string, unknown>
+  const kind = raw.kind
 
-  if (typeof p.body !== 'string' || p.body.trim() === '') {
+  if (kind === 'inbound_order') {
+    return fail('Inbound cart messages cannot be sent from the composer.')
+  }
+
+  const body = raw.body
+  if (typeof body !== 'string' || body.trim() === '') {
     return fail('Interactive message body text is required.')
   }
-  if (p.body.length > INTERACTIVE_LIMITS.bodyMaxLength) {
+  if (body.length > INTERACTIVE_LIMITS.bodyMaxLength) {
     return fail(
       `Body text exceeds the ${INTERACTIVE_LIMITS.bodyMaxLength}-character limit.`,
     )
   }
-  const hf = validateHeaderFooter(p.header, p.footer)
+  const hf = validateHeaderFooter(
+    typeof raw.header === 'string' ? raw.header : undefined,
+    typeof raw.footer === 'string' ? raw.footer : undefined,
+  )
   if (!hf.ok) return hf
 
-  if (p.kind === 'buttons') {
+  if (kind === 'buttons') {
+    const p = payload as InteractiveButtonsPayload
     const buttons = (p as InteractiveButtonsPayload).buttons
     if (!Array.isArray(buttons) || buttons.length < 1) {
       return fail('Add at least one reply button.')
@@ -230,8 +257,8 @@ export function validateInteractivePayload(
     return ok()
   }
 
-  if (p.kind === 'list') {
-    const list = p as InteractiveListPayload
+  if (kind === 'list') {
+    const list = payload as InteractiveListPayload
     if (
       typeof list.button_label !== 'string' ||
       list.button_label.trim() === ''
@@ -294,8 +321,8 @@ export function validateInteractivePayload(
     return ok()
   }
 
-  if (p.kind === 'cta_url') {
-    const cta = p as InteractiveCtaUrlPayload
+  if (kind === 'cta_url') {
+    const cta = payload as InteractiveCtaUrlPayload
     if (typeof cta.display_text !== 'string' || cta.display_text.trim() === '') {
       return fail('The checkout button needs a label.')
     }
@@ -310,16 +337,16 @@ export function validateInteractivePayload(
     return ok()
   }
 
-  if (p.kind === 'product') {
-    const product = p as InteractiveProductPayload
+  if (kind === 'product') {
+    const product = payload as InteractiveProductPayload
     if (!product.catalog_id?.trim() || !product.product_retailer_id?.trim()) {
       return fail('Product messages need a catalog id and retailer id.')
     }
     return ok()
   }
 
-  if (p.kind === 'product_list') {
-    const list = p as InteractiveProductListPayload
+  if (kind === 'product_list') {
+    const list = payload as InteractiveProductListPayload
     if (!list.header?.trim()) return fail('A product list needs a header.')
     if (!list.catalog_id?.trim()) return fail('A product list needs a catalog id.')
     if (!Array.isArray(list.product_retailer_ids) || list.product_retailer_ids.length < 1) {
@@ -328,22 +355,18 @@ export function validateInteractivePayload(
     return ok()
   }
 
-  if (p.kind === 'catalog_message') return ok()
+  if (kind === 'catalog_message') return ok()
 
-  if (p.kind === 'order_details') {
-    const order = p as InteractiveOrderDetailsPayload
+  if (kind === 'order_details') {
+    const order = payload as InteractiveOrderDetailsPayload
     if (!order.reference_id?.trim()) return fail('order_details needs a reference_id.')
     return ok()
   }
 
-  if (p.kind === 'order_status') {
-    const status = p as InteractiveOrderStatusPayload
+  if (kind === 'order_status') {
+    const status = payload as InteractiveOrderStatusPayload
     if (!status.reference_id?.trim()) return fail('order_status needs a reference_id.')
     return ok()
-  }
-
-  if (p.kind === 'inbound_order') {
-    return fail('Inbound cart messages cannot be sent from the composer.')
   }
 
   return fail('Interactive message must be reply buttons, a list, or a checkout link.')

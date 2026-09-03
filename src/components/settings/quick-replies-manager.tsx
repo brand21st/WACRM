@@ -18,6 +18,8 @@ import { SettingsPanelHead } from "./settings-panel-head";
 import {
   InteractiveBuilder,
   blankButtonsPayload,
+  toComposerInteractivePayload,
+  type ComposerInteractivePayload,
 } from "@/components/interactive/interactive-builder";
 import {
   interactivePayloadPreviewText,
@@ -30,7 +32,7 @@ interface DraftState {
   title: string;
   kind: QuickReplyKind;
   content_text: string;
-  interactive_payload: InteractiveMessagePayload;
+  interactive_payload: ComposerInteractivePayload;
 }
 
 function emptyDraft(): DraftState {
@@ -70,8 +72,9 @@ export function QuickRepliesManager() {
       title: qr.title,
       kind: qr.kind,
       content_text: qr.content_text ?? "",
-      interactive_payload:
-        qr.interactive_payload ?? blankButtonsPayload(),
+      interactive_payload: toComposerInteractivePayload(
+        qr.interactive_payload,
+      ),
     });
 
   const save = useCallback(async () => {
