@@ -2,6 +2,7 @@ import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 import {
   APP_HOST,
+  isAppHost,
   isCrmPath,
   isLandingHost,
   isWwwAppHost,
@@ -56,7 +57,7 @@ export async function middleware(request: NextRequest) {
     return redirectToAppHost(request)
   }
   if (
-    isLandingHost(hostname) &&
+    (!isAppHost(hostname) || isLandingHost(hostname)) &&
     (pathname === '/' ||
       PUBLIC_PAGE_PREFIXES.some(
         (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
@@ -72,11 +73,19 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next({ request })
   }
 
+  // If Supabase credentials are not configured, allow public requests to proceed
+  if (
+    !process.env.NEXT_PUBLIC_SUPABASE_URL ||
+    !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  ) {
+    return NextResponse.next({ request })
+  }
+
   let supabaseResponse = NextResponse.next({ request })
 
   const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    process.env.NEXT_PUBLIC_SUPABASE_URL,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
     {
       cookies: {
         getAll() {

@@ -8,7 +8,7 @@ function lanDevOrigins(): string[] {
   for (const addrs of Object.values(os.networkInterfaces())) {
     for (const addr of addrs ?? []) {
       if (addr.internal) continue;
-      if (addr.family === "IPv4" || addr.family === 4) {
+      if (addr.family === "IPv4" || String(addr.family) === "4") {
         hosts.add(addr.address);
       }
     }
@@ -74,6 +74,7 @@ const SECURITY_HEADERS = [
       // Supabase REST + realtime (WSS). All Meta API calls happen
       // server-side, so graph.facebook.com does not belong here.
       "connect-src 'self' https://*.supabase.co wss://*.supabase.co",
+      "frame-src 'self' https://www.youtube.com https://calendly.com",
       "frame-ancestors 'none'",
       "base-uri 'self'",
       "form-action 'self'",
@@ -86,6 +87,26 @@ const nextConfig: NextConfig = {
   // Docker image can run without node_modules or the Next CLI.
   // Harmless outside Docker: `next start` keeps working as before.
   output: "standalone",
+
+  images: {
+    remotePatterns: [
+      {
+        protocol: "https",
+        hostname: "umsousercontent.com",
+        pathname: "/**",
+      },
+      {
+        protocol: "https",
+        hostname: "d3jt6ku4g6z5l8.cloudfront.net",
+        pathname: "/**",
+      },
+      {
+        protocol: "https",
+        hostname: "img.youtube.com",
+        pathname: "/**",
+      },
+    ],
+  },
 
   // ffmpeg-static ships a platform binary; ws talks to OpenAI Realtime.
   // Keep both outside the bundler so spawn/require resolve at runtime.
