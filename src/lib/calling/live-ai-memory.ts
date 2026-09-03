@@ -1,6 +1,18 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { buildConversationContext } from '@/lib/ai/context'
+import {
+  emptyContactMemory,
+  formatCustomerMemoryBlock,
+  loadContactMemory,
+  persistLanguageLock,
+  type ContactMemory,
+} from '@/lib/ai/chat-memory'
 import { detectSpokenIndicTarget, INDIC_LANGUAGE_NAMES } from '@/lib/ai/indic-language'
+import {
+  formatReplyLanguageInstruction,
+  resolveLanguageLock,
+  type ChatLanguageLock,
+} from '@/lib/ai/language-lock'
 import type { ChatMessage } from '@/lib/ai/types'
 
 export const LIVE_AI_MEMORY_THREAD = 16
@@ -19,6 +31,9 @@ export type LiveAiCustomerMemory = {
   /** Full loaded thread for mid-call search. */
   recall: LiveAiMemoryLine[]
   languageHint: string | null
+  replyLanguage?: ChatLanguageLock | null
+  /** Durable chat-session profile from contact_ai_memory. */
+  stored?: ContactMemory
 }
 
 export function isLiveAiNoiseTranscript(text: string): boolean {
@@ -53,6 +68,10 @@ export function detectLiveAiLanguageHint(thread: LiveAiMemoryLine[]): string | n
 
 export function formatLiveAiMemoryBlock(memory: LiveAiCustomerMemory): string {
   const parts: string[] = []
+  const stored = memory.stored
+    ? formatCustomerMemoryBlock({ ...memory.stored, notes: [] })
+    : ''
+  if (stored) parts.push(stored)
   if (memory.notes.length > 0) {
     parts.push(
       `Staff notes about this customer:\n${memory.notes.map((n) => `- ${n}`).join('\n')}`,
@@ -65,10 +84,8 @@ export function formatLiveAiMemoryBlock(memory: LiveAiCustomerMemory): string {
         .join('\n')}`,
     )
   }
-  if (memory.languageHint) {
-    parts.push(
-      `The customer has been speaking ${memory.languageHint}. Stay in that language unless they switch.`,
-    )
+  if (memory.replyLanguage?.locked) {
+    parts.push(formatReplyLanguageInstruction(memory.replyLanguage))
   }
   if (parts.length === 0) return ''
   return (
@@ -107,7 +124,7 @@ export async function loadLiveAiCustomerMemory(args: {
   contactId: string
   conversationId: string
 }): Promise<LiveAiCustomerMemory> {
-  const [notesRes, messages] = await Promise.all([
+  const [notesRes, messages, stored] = await Promise.all([
     args.db
       .from('contact_notes')
       .select('note_text')
@@ -116,6 +133,10 @@ export async function loadLiveAiCustomerMemory(args: {
       .order('created_at', { ascending: false })
       .limit(LIVE_AI_MEMORY_NOTES),
     buildConversationContext(args.db, args.conversationId, LIVE_AI_MEMORY_SEARCH_LIMIT),
+    loadContactMemory(args.db, args.accountId, args.contactId).catch((err) => {
+      console.warn('[live-ai memory] loadContactMemory failed:', err)
+      return emptyContactMemory()
+    }),
   ])
 
   const notes = ((notesRes.data ?? []) as { note_text?: string | null }[])
@@ -123,10 +144,34 @@ export async function loadLiveAiCustomerMemory(args: {
     .filter(Boolean)
   const recall = memoryLinesFromThread(messages)
   const thread = recall.slice(-LIVE_AI_MEMORY_THREAD)
+  const lastCustomer = [...recall].reverse().find((line) => line.role === 'customer')?.text ?? null
+  const resolved = resolveLanguageLock({
+    customerText: lastCustomer,
+    stored: stored.facts,
+  })
+  let nextStored = stored
+  if (resolved.lock && resolved.changed) {
+    try {
+      nextStored = await persistLanguageLock({
+        db: args.db,
+        accountId: args.accountId,
+        contactId: args.contactId,
+        conversationId: args.conversationId,
+        lock: resolved.lock,
+        existing: stored,
+      })
+    } catch (err) {
+      console.warn('[live-ai memory] persistLanguageLock failed:', err)
+    }
+  }
   return {
     notes,
     thread,
     recall,
-    languageHint: detectLiveAiLanguageHint(recall),
+    languageHint: resolved.lock?.locked
+      ? resolved.lock.name
+      : detectLiveAiLanguageHint(recall),
+    replyLanguage: resolved.lock?.locked ? resolved.lock : null,
+    stored: nextStored,
   }
 }

@@ -1,6 +1,10 @@
 import { HANDOFF_SENTINEL } from '@/lib/ai/defaults'
 import { TRANSFER_TO_HUMAN_TOOL } from '@/lib/calling/live-ai-constants'
 import {
+  languageLockSessionEventsFromPersist,
+  type LiveAiLanguagePersistPayload,
+} from '@/lib/calling/live-ai-language-session'
+import {
   createCallerAudioBridge,
   type AiOutbound,
   type CallerAudioBridge,
@@ -276,6 +280,14 @@ export class LiveAiRealtimeSession {
     this.dc.send(JSON.stringify(event))
   }
 
+  private async persistCustomerTranscript(text: string, itemId?: string) {
+    const result = await persistTranscript(this.callId, 'customer', text, itemId)
+    if (this.stopped) return
+    for (const event of languageLockSessionEventsFromPersist(result)) {
+      this.send(event)
+    }
+  }
+
   private requestGreeting() {
     if (!this.greetWhenReady || this.greeted || this.stopped) return
     if (this.dc?.readyState !== 'open') return
@@ -317,7 +329,7 @@ export class LiveAiRealtimeSession {
     }
     if (action.type === 'customer_transcript') {
       this.handlers.onTranscript('customer', action.text)
-      void persistTranscript(this.callId, 'customer', action.text, action.itemId)
+      void this.persistCustomerTranscript(action.text, action.itemId)
       return
     }
     if (action.type === 'bot_transcript') {
@@ -457,12 +469,18 @@ async function persistTranscript(
   role: 'customer' | 'bot',
   text: string,
   itemId?: string,
-): Promise<void> {
-  await fetch('/api/calling/live-ai/tool', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ type: 'transcript', callId, role, text, itemId }),
-  }).catch(() => {})
+): Promise<LiveAiLanguagePersistPayload | null> {
+  try {
+    const res = await fetch('/api/calling/live-ai/tool', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'transcript', callId, role, text, itemId }),
+    })
+    if (!res.ok) return null
+    return (await res.json().catch(() => null)) as LiveAiLanguagePersistPayload | null
+  } catch {
+    return null
+  }
 }
 
 /** Compile Realtime + tool routes before an inbound call (dev cold compile is 50s+). */

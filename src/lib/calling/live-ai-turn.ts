@@ -10,6 +10,18 @@ import { canSpeak, canTranscribe, transcribeSpeech, synthesizeSpeech } from '@/l
 import { prepareIndicSpeechText, stripUrlsForSpeech } from '@/lib/ai/speech-text'
 import { detectSpokenIndicTarget } from '@/lib/ai/indic-language'
 import {
+  emptyContactMemory,
+  formatCustomerMemoryBlock,
+  loadContactMemory,
+  persistLanguageLock,
+} from '@/lib/ai/chat-memory'
+import {
+  applyLanguageLockToFacts,
+  resolveLanguageLock,
+  storedLanguageLock,
+  sttHintFromHardLock,
+} from '@/lib/ai/language-lock'
+import {
   bindShopifyTools,
   generateCustomerFacingReply,
   sendProductCards,
@@ -18,8 +30,11 @@ import {
   loadShopifyConfig,
   retrieveShopifyStoreContent,
 } from '@/lib/shopify'
+import { loadCommerceSettings } from '@/lib/shopify/commerce-config'
+import { nativeCommerceEnabled } from '@/lib/commerce/types'
 import type { ShopifyProductCard } from '@/lib/shopify'
 import { persistCallTurnMessage } from '@/lib/calling/persist-call-turn'
+import { LIVE_AI_HANDOFF_SPOKEN } from '@/lib/calling/live-ai-constants'
 import { loadCallingSettings } from '@/lib/calling/settings'
 import { liveAiCallUserPrompt } from '@/lib/calling/live-ai-prompt'
 import type { Call } from '@/types'
@@ -28,8 +43,10 @@ import type { ChatMessage } from '@/lib/ai/types'
 export const LIVE_AI_GREETING_USER =
   '[The customer just connected on a WhatsApp voice call. Greet them in one short spoken sentence and offer to help.]'
 
-export const LIVE_AI_HANDOFF_SPOKEN =
-  "I'm connecting you with a teammate now. Please stay on the line."
+export const LIVE_AI_GREETING_NEUTRAL =
+  '[The customer just connected on a WhatsApp voice call. Greet them in one short spoken sentence without assuming English. Detect their language from the first words they say and stay there unless they ask to change.]'
+
+export { LIVE_AI_HANDOFF_SPOKEN }
 
 export type LiveAiTurnKind = 'greeting' | 'utterance'
 
@@ -44,6 +61,7 @@ export interface LiveAiTurnResult {
 }
 
 export const GREETING_FALLBACK = 'Hi, how can I help you?'
+export const GREETING_FALLBACK_NEUTRAL = 'ഹലോ / Hello'
 
 export async function runLiveAiTurn(args: {
   accountId: string
@@ -114,13 +132,23 @@ export async function runLiveAiTurn(args: {
     }
   }
 
-  const config = await loadAiConfig(db, args.accountId)
+  const [config, loadedMemory] = await Promise.all([
+    loadAiConfig(db, args.accountId),
+    loadContactMemory(db, args.accountId, call.contact_id).catch((err) => {
+      console.warn('[live-ai] loadContactMemory failed:', err)
+      return emptyContactMemory()
+    }),
+  ])
   if (!config || !canTranscribe(config) || !canSpeak(config)) {
     throw Object.assign(new Error('Live AI is not configured'), {
       status: 400,
       code: 'live_ai_not_ready',
     })
   }
+
+  let contactMemory = loadedMemory
+  const storedLock = storedLanguageLock(contactMemory.facts)
+  const sttHint = sttHintFromHardLock(storedLock)
 
   let transcript = ''
   if (args.kind === 'utterance') {
@@ -131,6 +159,7 @@ export async function runLiveAiTurn(args: {
         audio: args.audio.bytes,
         mimeType: args.audio.mimeType,
         fileName: args.audio.fileName,
+        languageHint: sttHint?.iso,
       })
     ).trim()
     if (!transcript) return empty
@@ -146,10 +175,19 @@ export async function runLiveAiTurn(args: {
     console.error('[live-ai] loadShopifyConfig failed:', err)
     return null
   })
+  const commerce = await loadCommerceSettings(db, args.accountId).catch(() => null)
+  const nativeCommerce = nativeCommerceEnabled({
+    metaCatalogId: commerce?.metaCatalogId ?? shopify?.metaCatalogId,
+    waPaymentConfigurationName: commerce?.waPaymentConfigurationName,
+  })
 
   const contextMessages = await buildConversationContext(db, call.conversation_id)
   const queryText =
-    args.kind === 'greeting' ? LIVE_AI_GREETING_USER : latestUserMessage(contextMessages)
+    args.kind === 'greeting'
+      ? storedLock?.locked
+        ? LIVE_AI_GREETING_USER
+        : LIVE_AI_GREETING_NEUTRAL
+      : latestUserMessage(contextMessages)
   const [manualKnowledge, storeContent] = await Promise.all([
     retrieveKnowledge(db, args.accountId, config, queryText),
     shopify
@@ -171,13 +209,44 @@ export async function runLiveAiTurn(args: {
     shopify,
     contactRow?.phone ?? null,
     productCards,
-    { imageTurn: false },
+    { imageTurn: false, nativeCommerce, retailerIdSource: commerce?.retailerIdSource },
   )
 
   const customerName = speakableFirstName(contactRow?.name)
   const firstInbound =
     args.kind === 'greeting' || !contextMessages.some((m) => m.role === 'user')
   const settings = await loadCallingSettings(db, args.accountId)
+  const resolvedLanguage = resolveLanguageLock({
+    customerText: args.kind === 'greeting' ? '' : transcript || latestUserMessage(contextMessages),
+    stored: contactMemory.facts,
+  })
+  if (resolvedLanguage.lock && resolvedLanguage.changed) {
+    try {
+      contactMemory = await persistLanguageLock({
+        db,
+        accountId: args.accountId,
+        contactId: call.contact_id,
+        conversationId: call.conversation_id,
+        lock: resolvedLanguage.lock,
+        existing: contactMemory,
+      })
+    } catch (err) {
+      console.warn('[live-ai] persistLanguageLock failed:', err)
+      contactMemory = {
+        ...contactMemory,
+        facts: applyLanguageLockToFacts(contactMemory.facts, resolvedLanguage.lock),
+      }
+    }
+  }
+  const replyLanguage =
+    args.kind === 'greeting'
+      ? storedLock?.locked
+        ? storedLock
+        : null
+      : resolvedLanguage.lock
+  const greetingUser = replyLanguage
+    ? LIVE_AI_GREETING_USER
+    : LIVE_AI_GREETING_NEUTRAL
   const systemPrompt = buildSystemPrompt({
     userPrompt: liveAiCallUserPrompt({
       behaviour: settings.live_ai_behaviour,
@@ -188,14 +257,17 @@ export async function runLiveAiTurn(args: {
     mode: 'auto_reply',
     knowledge,
     shopify: Boolean(shopify),
+    nativeCommerce,
     customerName,
     firstInbound,
     shopName: shopify?.shopName,
+    customerMemory: formatCustomerMemoryBlock(contactMemory) || null,
+    replyLanguage,
   })
 
   const modelMessages: ChatMessage[] =
     args.kind === 'greeting'
-      ? [...contextMessages, { role: 'user', content: LIVE_AI_GREETING_USER }]
+      ? [...contextMessages, { role: 'user', content: greetingUser }]
       : contextMessages
 
   const generated = await generateCustomerFacingReply({
@@ -207,9 +279,11 @@ export async function runLiveAiTurn(args: {
     messages: modelMessages,
     knowledge,
     shopify: Boolean(shopify),
+    nativeCommerce,
     customerName,
     firstInbound,
     shopName: shopify?.shopName,
+    replyLanguage,
     tools: shopifyTools.tools,
     executeTool: shopifyTools.executeTool,
   })
@@ -219,7 +293,12 @@ export async function runLiveAiTurn(args: {
   if (handoff) {
     reply = LIVE_AI_HANDOFF_SPOKEN
   } else if (!reply) {
-    reply = args.kind === 'greeting' ? GREETING_FALLBACK : FULL_AGENT_FALLBACK_REPLY
+    reply =
+      args.kind === 'greeting'
+        ? replyLanguage
+          ? GREETING_FALLBACK
+          : GREETING_FALLBACK_NEUTRAL
+        : FULL_AGENT_FALLBACK_REPLY
   }
 
   await persistCallTurnMessage(db, {
@@ -242,9 +321,11 @@ export async function runLiveAiTurn(args: {
     )
   }
 
-  const languageHint = detectSpokenIndicTarget(
-    args.kind === 'greeting' ? reply : transcript || latestUserMessage(modelMessages),
-  )?.elevenlabs
+  const languageHint =
+    replyLanguage?.code ??
+    detectSpokenIndicTarget(
+      args.kind === 'greeting' ? reply : transcript || latestUserMessage(modelMessages),
+    )?.elevenlabs
   const spokenText = prepareIndicSpeechText(stripUrlsForSpeech(reply), languageHint)
 
   let audioBase64: string | null = null

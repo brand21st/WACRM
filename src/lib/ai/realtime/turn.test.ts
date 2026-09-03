@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest'
-import { realtimeTurn, REALTIME_PCM_SAMPLE_RATE, DEFAULT_REALTIME_MODEL } from './turn'
+import {
+  realtimeTurn,
+  REALTIME_PCM_SAMPLE_RATE,
+  DEFAULT_REALTIME_MODEL,
+  DEFAULT_LIVE_CALL_REALTIME_MODEL,
+  liveCallRealtimeModelId,
+} from './turn'
 import type { RealtimeSocket } from './turn'
 import { HANDOFF_SENTINEL } from '@/lib/ai/defaults'
 import { AiError } from '@/lib/ai/types'
@@ -65,6 +71,8 @@ const HAPPY_EVENTS: Record<string, unknown>[] = [
 describe('realtimeTurn', () => {
   it('defaults to a current Realtime model id', () => {
     expect(DEFAULT_REALTIME_MODEL).toBe('gpt-realtime-2.1-mini')
+    expect(DEFAULT_LIVE_CALL_REALTIME_MODEL).toBe('gpt-realtime-2.1')
+    expect(liveCallRealtimeModelId()).toBe('gpt-realtime-2.1')
   })
 
   it('replays context, collects PCM + transcript, and closes', async () => {

@@ -1,9 +1,15 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { shopifyGraphql } from './client'
 import { loadShopifyConfig } from './config'
-import { PRODUCTS_SEARCH_QUERY, PRODUCTS_SYNC_QUERY, PRODUCT_BY_ID_QUERY } from './queries'
+import {
+  PRODUCTS_SEARCH_QUERY,
+  PRODUCTS_SYNC_QUERY,
+  PRODUCT_BY_ID_QUERY,
+  PRODUCT_IMAGES_BY_IDS_QUERY,
+} from './queries'
 import {
   excerpt,
+  listingImageUrls,
   mapGqlProduct,
   numericIdFromGid,
   toProductGid,
@@ -142,6 +148,47 @@ export async function searchProductsLive(
   return (data.products?.nodes ?? [])
     .map((n) => mapGqlProduct(n, config.primaryDomain, config.currency))
     .filter((p): p is ShopifyProductHit => Boolean(p))
+}
+
+/** Live-fetch extra listing photos for vision confirm. Snapshot hits only have featured `imageUrl`. */
+export async function hydrateListingImages(
+  config: ShopifyStoreConfig,
+  hits: ShopifyProductHit[],
+): Promise<ShopifyProductHit[]> {
+  const need = hits.filter((h) => !h.imageUrls?.length)
+  if (need.length === 0) return hits
+  const ids = [...new Set(need.map((h) => h.id).filter(Boolean))]
+  if (ids.length === 0) return hits
+
+  try {
+    const data = await shopifyGraphql<{
+      nodes?: (ShopifyGqlProduct | null)[]
+    }>({
+      shopDomain: config.shopDomain,
+      accessToken: config.accessToken,
+      query: PRODUCT_IMAGES_BY_IDS_QUERY,
+      variables: { ids },
+    })
+    const byId = new Map<string, string[]>()
+    for (const node of data.nodes ?? []) {
+      if (!node?.id) continue
+      const urls = listingImageUrls(node)
+      if (urls.length > 0) byId.set(node.id, urls)
+    }
+    if (byId.size === 0) return hits
+    return hits.map((hit) => {
+      const urls = byId.get(hit.id)
+      if (!urls?.length) return hit
+      return {
+        ...hit,
+        imageUrl: hit.imageUrl || urls[0] || null,
+        imageUrls: urls,
+      }
+    })
+  } catch (err) {
+    console.warn('[shopify catalog] listing image hydrate failed:', err)
+    return hits
+  }
 }
 
 export async function getProductLive(
@@ -363,6 +410,12 @@ export async function upsertCatalogProduct(
   if (error) throw error
 
   await refreshCatalogSyncMetadata(db, config.accountId)
+  try {
+    const { pushProductToMetaCatalog } = await import('./meta-catalog-sync')
+    await pushProductToMetaCatalog(db, config, hit)
+  } catch (err) {
+    console.warn('[shopify meta-catalog] upsert hook failed:', err)
+  }
   return true
 }
 
@@ -384,6 +437,7 @@ export async function handleShopifyProductWebhook(
 
   if (topic === 'products/delete') {
     if (productId) {
+      await deleteMetaItemsForProduct(db, accountId, productId)
       const removed = await removeCatalogProduct(db, accountId, productId)
       if (removed) await refreshCatalogSyncMetadata(db, accountId)
     }
@@ -395,6 +449,7 @@ export async function handleShopifyProductWebhook(
       typeof body.status === 'string' ? body.status.trim().toLowerCase() : 'active'
     if (status !== 'active') {
       if (productId) {
+        await deleteMetaItemsForProduct(db, accountId, productId)
         const removed = await removeCatalogProduct(db, accountId, productId)
         if (removed) await refreshCatalogSyncMetadata(db, accountId)
       }
@@ -403,6 +458,47 @@ export async function handleShopifyProductWebhook(
     if (productId) {
       await upsertCatalogProduct(db, config, productId)
     }
+  }
+}
+
+async function deleteMetaItemsForProduct(
+  db: SupabaseClient,
+  accountId: string,
+  productId: string,
+): Promise<void> {
+  try {
+    const raw = productId.trim()
+    const ids = new Set<string>([raw])
+    if (/^\d+$/.test(raw)) ids.add(toProductGid(raw))
+    else if (raw.startsWith('gid://')) ids.add(numericIdFromGid(raw))
+
+    const { data } = await db
+      .from('shopify_catalog_products')
+      .select('shopify_product_id, variant_summary')
+      .eq('account_id', accountId)
+      .in('shopify_product_id', [...ids])
+      .maybeSingle()
+    const variants = Array.isArray(data?.variant_summary)
+      ? (data.variant_summary as ShopifyCatalogVariant[])
+      : []
+    const { loadCommerceSettings } = await import('./commerce-config')
+    const { retailerIdForVariant } = await import('./retailer-id')
+    const { deleteProductFromMetaCatalog } = await import('./meta-catalog-sync')
+    const settings = await loadCommerceSettings(db, accountId)
+    const retailerIds = variants
+      .map((v) =>
+        retailerIdForVariant(
+          v,
+          settings.retailerIdSource,
+          String(data?.shopify_product_id ?? ''),
+        ),
+      )
+      .filter(Boolean)
+    if (retailerIds.length > 0) {
+      await deleteProductFromMetaCatalog(db, accountId, retailerIds)
+    }
+  } catch (err) {
+    console.warn('[shopify meta-catalog] delete lookup failed:', err)
   }
 }
 

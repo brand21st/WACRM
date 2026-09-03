@@ -1,10 +1,18 @@
 import { afterEach, describe, it, expect, vi } from 'vitest'
 import { normalizeShopDomain } from './domain'
-import { productPageUrl, cartPermalink, checkoutPermalink, storePageUrl } from './permalinks'
+import {
+  productPageUrl,
+  cartPermalink,
+  checkoutPermalink,
+  cartPermalinkMulti,
+  checkoutPermalinkMulti,
+  parseCartPermalink,
+  storePageUrl,
+} from './permalinks'
 import { shopifyPhoneMatchesContact, customerSearchQueries } from './phone'
 import { shoppingOrSupportPrompt } from '@/lib/ai/describe-inbound-image'
 import { mapGqlProduct } from './map-product'
-import { rankProductsByDescription } from './rank'
+import { rankProductsByDescription, tokensFromDescription } from './rank'
 import { shopifyGraphql } from './client'
 import { executeShopifyTool, toCard } from './tools'
 import * as matchPhoto from './match-photo'
@@ -45,6 +53,42 @@ describe('permalinks', () => {
     expect(checkoutPermalink('https://shop.example', '12345')).toBe(
       'https://shop.example/cart/12345:1?checkout',
     )
+  })
+
+  it('builds and parses multi-item cart permalinks', () => {
+    expect(
+      cartPermalinkMulti('https://shop.example', [
+        { variantId: '111', quantity: 1 },
+        { variantId: '222', quantity: 2 },
+      ]),
+    ).toBe('https://shop.example/cart/111:1,222:2')
+    expect(
+      checkoutPermalinkMulti('https://shop.example', [
+        { variantId: '111' },
+        { variantId: '222', quantity: 2 },
+      ]),
+    ).toBe('https://shop.example/cart/111:1,222:2?checkout')
+    expect(cartPermalinkMulti('https://shop.example', [])).toBe('')
+    expect(cartPermalinkMulti('', [{ variantId: '111' }])).toBe('')
+    expect(cartPermalinkMulti('https://shop.example', [{ variantId: '' }])).toBe(
+      '',
+    )
+    expect(
+      parseCartPermalink('https://shop.example/cart/111:1,222:2?checkout'),
+    ).toEqual([
+      { variantId: '111', quantity: 1 },
+      { variantId: '222', quantity: 2 },
+    ])
+    expect(parseCartPermalink('https://shop.example/cart/99:1')).toEqual([
+      { variantId: '99', quantity: 1 },
+    ])
+    expect(parseCartPermalink('https://shop.example/products/red-bag')).toEqual(
+      [],
+    )
+    expect(parseCartPermalink('')).toEqual([])
+    expect(parseCartPermalink('/cart/55:3')).toEqual([
+      { variantId: '55', quantity: 3 },
+    ])
   })
 })
 
@@ -107,6 +151,7 @@ describe('toCard', () => {
     expect(card.caption).not.toMatch(/Buy now/)
     expect(card.caption).not.toContain(card.checkoutUrl)
     expect(card.checkoutUrl).toBe('https://shop.example/cart/11:1?checkout')
+    expect(card.retailerId).toBeTruthy()
   })
 
   it('includes Stock out and no Buy now URL when every variant is unavailable', () => {
@@ -128,7 +173,8 @@ describe('toCard', () => {
     )
     expect(card.inStock).toBe(false)
     expect(card.caption).toContain('Stock out')
-    expect(card.caption).toContain('Color: Red')
+    expect(card.caption).not.toContain('Color:')
+    expect(card.caption).not.toContain('Variants:')
     expect(card.caption).toContain(
       'View: https://shop.example/products/red-leather-tote',
     )
@@ -186,8 +232,8 @@ describe('toCard', () => {
       'Red Leather Tote',
       '49.00–69.00 USD',
       'Stock in',
-      'Variants: S, L',
-      'Color: Red, Blue',
+      'Variants: S',
+      'Color: Red',
       'View: https://shop.example/products/red-leather-tote',
     ])
   })
@@ -216,6 +262,69 @@ describe('toCard', () => {
         'View: https://shop.example/products/red-leather-tote',
       ].join('\n'),
     )
+  })
+
+  it('crosses out compare-at and shows the sale price', () => {
+    const card = toCard(
+      fixtureProduct({
+        variants: [
+          {
+            id: 'gid://shopify/ProductVariant/11',
+            variantId: '11',
+            title: 'Default',
+            sku: 'TOTE-RED',
+            price: '49.00',
+            compareAtPrice: '69.00',
+            available: true,
+            options: [{ name: 'Color', value: 'Red' }],
+          },
+        ],
+      }),
+    )
+    expect(card.caption).toContain('~69.00~ 49.00 USD')
+    expect(card.caption).not.toContain('69.00–49.00')
+    expect(card.caption).not.toMatch(/^69\.00 /m)
+  })
+
+  it('omits compare-at when it is missing or not higher than the sale price', () => {
+    expect(toCard(fixtureProduct()).caption).toContain('49.00 USD')
+    expect(toCard(fixtureProduct()).caption).not.toContain('~')
+    const equal = toCard(
+      fixtureProduct({
+        variants: [
+          {
+            id: 'gid://shopify/ProductVariant/11',
+            variantId: '11',
+            title: 'Default',
+            sku: 'TOTE-RED',
+            price: '49.00',
+            compareAtPrice: '49.00',
+            available: true,
+            options: [{ name: 'Color', value: 'Red' }],
+          },
+        ],
+      }),
+    )
+    expect(equal.caption).toContain('49.00 USD')
+    expect(equal.caption).not.toContain('~')
+    const lower = toCard(
+      fixtureProduct({
+        variants: [
+          {
+            id: 'gid://shopify/ProductVariant/11',
+            variantId: '11',
+            title: 'Default',
+            sku: 'TOTE-RED',
+            price: '49.00',
+            compareAtPrice: '39.00',
+            available: true,
+            options: [{ name: 'Color', value: 'Red' }],
+          },
+        ],
+      }),
+    )
+    expect(lower.caption).toContain('49.00 USD')
+    expect(lower.caption).not.toContain('~39.00~')
   })
 })
 
@@ -271,6 +380,17 @@ const STORE: ShopifyStoreConfig = {
   lastCatalogSyncAt: null,
   catalogProductCount: 0,
 }
+
+describe('tokensFromDescription', () => {
+  it('keeps Indic script tokens', () => {
+    const tokens = tokensFromDescription('ചുവപ്പ് സാരി Pournami लाल साड़ी')
+    expect(tokens).toContain('pournami')
+    expect(tokens.some((t) => /[\u0D00-\u0D7F]/.test(t))).toBe(true)
+    expect(tokens.some((t) => /[\u0900-\u097F]/.test(t))).toBe(true)
+    expect(tokens.join(' ')).toMatch(/സാരി/)
+    expect(tokens.join(' ')).toMatch(/साड़ी/)
+  })
+})
 
 describe('rankProductsByDescription', () => {
   it('ranks a fixture product from a vision description', () => {
@@ -547,10 +667,35 @@ describe('executeShopifyTool', () => {
       expect.anything(),
       STORE,
       'red leather tote',
+      undefined,
     )
     const body = JSON.parse(result.json)
     expect(body.products[0].title).toBe('Red Leather Tote')
     expect(result.cards[0].imageUrl).toBe('https://cdn.example/tote.jpg')
+
+    spy.mockClear()
+    await executeShopifyTool(
+      {
+        db: {} as SupabaseClient,
+        config: STORE,
+        contactPhone: null,
+        photoMatch: {
+          customerImageUrl: 'https://cdn.example/customer.jpg',
+          apiKey: 'sk-test',
+        },
+      },
+      'match_product_from_photo',
+      { description: 'red leather tote' },
+    )
+    expect(spy).toHaveBeenCalledWith(
+      expect.anything(),
+      STORE,
+      'red leather tote',
+      expect.objectContaining({
+        customerImageUrl: 'https://cdn.example/customer.jpg',
+        apiKey: 'sk-test',
+      }),
+    )
   })
 
   it('searches synced store pages and policies', async () => {
@@ -571,6 +716,47 @@ describe('executeShopifyTool', () => {
     const body = JSON.parse(result.json)
     expect(body.pages[0].title).toBe('Refund Policy')
     expect(body.pages[0].body).toMatch(/30 days/)
+  })
+
+  it('builds a cart offer from product cards already shown this turn', async () => {
+    const result = await executeShopifyTool(
+      {
+        db: {} as SupabaseClient,
+        config: STORE,
+        contactPhone: null,
+        productCards: [
+          {
+            title: 'Red Bag',
+            imageUrl: null,
+            productUrl: 'https://shop.example/products/red-bag',
+            cartUrl: 'https://shop.example/cart/99:1',
+            checkoutUrl: 'https://shop.example/cart/99:1?checkout',
+            inStock: true,
+            caption: 'Red Bag\n49 USD\nStock in',
+          },
+        ],
+      },
+      'offer_cart',
+      {},
+    )
+    const body = JSON.parse(result.json)
+    expect(body.cart_url).toBe('https://shop.example/cart/99:1')
+    expect(body.checkout_url).toBe('https://shop.example/cart/99:1?checkout')
+    expect(body.items[0].title).toBe('Red Bag')
+    expect(result.cartOffer?.cartUrl).toBe('https://shop.example/cart/99:1')
+    expect(result.cards).toEqual([])
+  })
+
+  it('returns a note when offer_cart has no shown products', async () => {
+    const result = await executeShopifyTool(
+      { db: {} as SupabaseClient, config: STORE, contactPhone: null },
+      'offer_cart',
+      {},
+    )
+    const body = JSON.parse(result.json)
+    expect(body.items).toEqual([])
+    expect(body.note).toMatch(/No products have been shown/)
+    expect(result.cartOffer).toBeNull()
   })
 })
 

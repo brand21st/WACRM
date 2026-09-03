@@ -9,6 +9,7 @@ import { latestUserMessage } from '@/lib/ai/query'
 import { AiError, type ChatMessage } from '@/lib/ai/types'
 import { loadShopifyConfig } from '@/lib/shopify/config'
 import { SHOPIFY_LLM_TOOLS, executeShopifyTool } from '@/lib/shopify/tools'
+import type { ShopifyProductCard } from '@/lib/shopify'
 
 // Keep the tested transcript bounded, mirroring the live context window.
 const MAX_TURNS = 20
@@ -88,6 +89,7 @@ export async function POST(request: Request) {
       shopify: Boolean(shopify),
     })
 
+    const productCards: ShopifyProductCard[] = []
     const { text, handoff } = await generateReply({
       config,
       systemPrompt,
@@ -97,10 +99,16 @@ export async function POST(request: Request) {
             tools: SHOPIFY_LLM_TOOLS,
             executeTool: async (name, args) => {
               const result = await executeShopifyTool(
-                { db: supabase, config: shopify, contactPhone: null },
+                {
+                  db: supabase,
+                  config: shopify,
+                  contactPhone: null,
+                  productCards,
+                },
                 name,
                 args,
               )
+              productCards.push(...result.cards)
               return result.json
             },
           }

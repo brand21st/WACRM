@@ -6,6 +6,16 @@ import { buildConversationContext } from '@/lib/ai/context'
 import { retrieveKnowledge } from '@/lib/ai/knowledge'
 import { generateReply } from '@/lib/ai/generate'
 import { buildSystemPrompt } from '@/lib/ai/defaults'
+import {
+  emptyContactMemory,
+  formatCustomerMemoryBlock,
+  loadContactMemory,
+  persistLanguageLock,
+} from '@/lib/ai/chat-memory'
+import {
+  applyLanguageLockToFacts,
+  resolveLanguageLock,
+} from '@/lib/ai/language-lock'
 import { speakableFirstName } from '@/lib/ai/customer-name'
 import { latestUserMessage } from '@/lib/ai/query'
 import { logAiUsage } from '@/lib/ai/usage'
@@ -13,6 +23,7 @@ import { supabaseAdmin } from '@/lib/ai/admin-client'
 import { AiError } from '@/lib/ai/types'
 import { loadShopifyConfig } from '@/lib/shopify/config'
 import { SHOPIFY_LLM_TOOLS, executeShopifyTool } from '@/lib/shopify/tools'
+import type { ShopifyProductCard } from '@/lib/shopify'
 
 /**
  * POST /api/ai/draft  (agent+)
@@ -113,6 +124,33 @@ export async function POST(request: Request) {
       customerName = speakableFirstName(contact?.name)
     }
     const shopify = await loadShopifyConfig(supabase, accountId).catch(() => null)
+    let contactMemory = conversation.contact_id
+      ? await loadContactMemory(supabase, accountId, conversation.contact_id).catch(
+          () => emptyContactMemory(),
+        )
+      : emptyContactMemory()
+    const resolvedLanguage = resolveLanguageLock({
+      customerText: latestUserMessage(messages),
+      stored: contactMemory.facts,
+    })
+    if (conversation.contact_id && resolvedLanguage.lock && resolvedLanguage.changed) {
+      try {
+        contactMemory = await persistLanguageLock({
+          db: supabaseAdmin(),
+          accountId,
+          contactId: conversation.contact_id,
+          conversationId,
+          lock: resolvedLanguage.lock,
+          existing: contactMemory,
+        })
+      } catch (err) {
+        console.warn('[ai/draft] persistLanguageLock failed:', err)
+        contactMemory = {
+          ...contactMemory,
+          facts: applyLanguageLockToFacts(contactMemory.facts, resolvedLanguage.lock),
+        }
+      }
+    }
 
     const systemPrompt = buildSystemPrompt({
       userPrompt: config.systemPrompt,
@@ -120,22 +158,33 @@ export async function POST(request: Request) {
       knowledge,
       shopify: Boolean(shopify),
       customerName,
+      customerMemory: formatCustomerMemoryBlock(contactMemory) || null,
+      replyLanguage: resolvedLanguage.lock,
     })
 
+    const productCards: ShopifyProductCard[] = []
     const { text, usage } = await generateReply({
       config,
       systemPrompt,
       messages,
       customerName,
+      replyLanguage: resolvedLanguage.lock,
       ...(shopify
         ? {
             tools: SHOPIFY_LLM_TOOLS,
             executeTool: async (name, args) => {
               const result = await executeShopifyTool(
-                { db: supabase, config: shopify, contactPhone },
+                {
+                  db: supabase,
+                  config: shopify,
+                  contactPhone,
+                  productCards,
+                  conversationId,
+                },
                 name,
                 args,
               )
+              productCards.push(...result.cards)
               return result.json
             },
           }

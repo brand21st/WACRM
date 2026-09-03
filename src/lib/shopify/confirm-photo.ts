@@ -2,7 +2,7 @@ import { aiRequestTimeoutMs } from '@/lib/ai/defaults'
 import type { ShopifyProductHit } from './types'
 
 const VISION_MODEL = 'gpt-4o-mini'
-const MAX_CONFIRM_CANDIDATES = 8
+const MAX_LISTING_IMAGES = 8
 
 export interface ConfirmCatalogMatchesArgs {
   apiKey: string
@@ -10,6 +10,34 @@ export interface ConfirmCatalogMatchesArgs {
   candidates: ShopifyProductHit[]
   timeoutMs?: number
   fetchImpl?: typeof fetch
+}
+
+export type LabeledListingImage = {
+  product: ShopifyProductHit
+  url: string
+}
+
+/**
+ * Featured image first, then extra angles, labeled by product.
+ * Caps total listing images sent to vision.
+ */
+export function listingImagesForConfirm(
+  candidates: ShopifyProductHit[],
+  max = MAX_LISTING_IMAGES,
+): LabeledListingImage[] {
+  const out: LabeledListingImage[] = []
+  const seen = new Set<string>()
+  const push = (product: ShopifyProductHit, raw?: string | null) => {
+    const url = raw?.trim()
+    if (!url || seen.has(url) || out.length >= max) return
+    seen.add(url)
+    out.push({ product, url })
+  }
+  for (const product of candidates) push(product, product.imageUrl)
+  for (const product of candidates) {
+    for (const url of product.imageUrls ?? []) push(product, url)
+  }
+  return out
 }
 
 /**
@@ -21,13 +49,11 @@ export interface ConfirmCatalogMatchesArgs {
 export async function confirmCatalogMatchesFromPhoto(
   args: ConfirmCatalogMatchesArgs,
 ): Promise<ShopifyProductHit[] | null> {
-  const candidates = args.candidates
-    .filter((p) => p.imageUrl)
-    .slice(0, MAX_CONFIRM_CANDIDATES)
-  if (candidates.length === 0) return null
+  const listings = listingImagesForConfirm(args.candidates)
+  if (listings.length === 0) return null
 
   const fetchImpl = args.fetchImpl ?? fetch
-  const labeled = candidates
+  const labeled = [...new Map(listings.map((row) => [row.product.id, row.product])).values()]
     .map((p, i) => `${i + 1}. id=${p.id} handle=${p.handle} title=${p.title}`)
     .join('\n')
 
@@ -36,7 +62,7 @@ export async function confirmCatalogMatchesFromPhoto(
       type: 'text',
       text:
         'Image 1 is a product photo a customer sent on WhatsApp. ' +
-        'The following images are Shopify catalog listings. ' +
+        'The following images are Shopify catalog listings (some products have extra angles). ' +
         'Pick the listing(s) that show the SAME product as image 1. ' +
         'Reply with JSON only: {"ids":["<product id>"]}. ' +
         'Use only ids from this list. Pick 1 if clearly the same item, 2 if two are equally likely, or {"ids":[]} if none match.\n' +
@@ -44,8 +70,12 @@ export async function confirmCatalogMatchesFromPhoto(
     },
     { type: 'image_url', image_url: { url: args.customerImageUrl } },
   ]
-  for (const p of candidates) {
-    content.push({ type: 'image_url', image_url: { url: p.imageUrl } })
+  for (const row of listings) {
+    content.push({
+      type: 'text',
+      text: `Next image is a catalog listing for id=${row.product.id} handle=${row.product.handle} title=${row.product.title}.`,
+    })
+    content.push({ type: 'image_url', image_url: { url: row.url } })
   }
 
   let res: Response
@@ -87,7 +117,7 @@ export async function confirmCatalogMatchesFromPhoto(
   if (!text) return null
 
   try {
-    return pickConfirmedHits(text, candidates)
+    return pickConfirmedHits(text, args.candidates)
   } catch (err) {
     console.warn('[shopify confirm-photo] parse failed:', err)
     return null

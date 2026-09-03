@@ -21,6 +21,7 @@ query ProductsSearch($first: Int!, $query: String, $sortKey: ProductSortKeys, $r
       createdAt
       description
       featuredImage { url }
+      images(first: 6) { nodes { url } }
       variants(first: 20) {
         nodes {
           id
@@ -50,6 +51,7 @@ query ProductById($id: ID!) {
     publishedAt
     description
     featuredImage { url }
+    images(first: 6) { nodes { url } }
     variants(first: 20) {
       nodes {
         id
@@ -97,6 +99,18 @@ query ProductsSync($first: Int!, $after: String) {
 }
 `
 
+export const PRODUCT_IMAGES_BY_IDS_QUERY = `
+query ProductImagesByIds($ids: [ID!]!) {
+  nodes(ids: $ids) {
+    ... on Product {
+      id
+      featuredImage { url }
+      images(first: 6) { nodes { url } }
+    }
+  }
+}
+`
+
 export const CUSTOMERS_BY_QUERY = `
 query CustomersByQuery($query: String!) {
   customers(first: 5, query: $query) {
@@ -122,6 +136,30 @@ query CustomersByQuery($query: String!) {
             trackingInfo { number url company }
           }
         }
+      }
+    }
+  }
+}
+`
+
+export const CUSTOMER_ADDRESS_BY_QUERY = `
+query CustomerAddressByQuery($query: String!) {
+  customers(first: 5, query: $query) {
+    nodes {
+      id
+      displayName
+      phone
+      defaultAddress {
+        name
+        firstName
+        lastName
+        phone
+        address1
+        address2
+        city
+        province
+        zip
+        country
       }
     }
   }

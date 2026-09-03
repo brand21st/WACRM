@@ -155,6 +155,44 @@ export interface ContactNote {
   created_at: string;
 }
 
+/** Rolling AI profile for one contact (migration 058). */
+export interface ContactAiMemory {
+  id: string;
+  account_id: string;
+  contact_id: string;
+  conversation_id?: string | null;
+  profile_summary: string;
+  last_session_summary: string;
+  facts: ContactAiMemoryFacts;
+  summarized_through_at?: string | null;
+  message_count_at_summary: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ContactAiMemoryFacts {
+  intent?: string | null;
+  products?: string[];
+  preferences?: string[];
+  language?: string | null;
+  language_code?: string | null;
+  language_script?: "native" | "romanized" | "latin" | null;
+  language_locked?: boolean;
+  open_questions?: string[];
+}
+
+export interface ConversationSessionSummary {
+  id: string;
+  account_id: string;
+  contact_id: string;
+  conversation_id?: string | null;
+  started_at: string;
+  ended_at: string;
+  summary: string;
+  facts: ContactAiMemoryFacts;
+  created_at: string;
+}
+
 export type ConversationStatus = 'open' | 'pending' | 'closed';
 
 export interface Conversation {
@@ -217,7 +255,9 @@ export type ContentType =
   /** Customer tapped a reply button or list row on a message we sent. */
   | 'interactive'
   /** WhatsApp Cloud API voice call (inbound history bubble). Migration 052. */
-  | 'call';
+  | 'call'
+  /** Customer sent a WhatsApp catalog cart (type=order). Migration 064. */
+  | 'order';
 export type MessageStatus = 'sending' | 'sent' | 'delivered' | 'read' | 'failed';
 
 export interface Message {

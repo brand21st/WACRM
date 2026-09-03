@@ -1,6 +1,17 @@
 import { supabaseAdmin } from './admin-client'
 import { loadAiConfig } from './config'
 import { buildConversationContext } from './context'
+import {
+  emptyContactMemory,
+  formatCustomerMemoryBlock,
+  loadContactMemory,
+  persistLanguageLock,
+} from './chat-memory'
+import {
+  applyLanguageLockToFacts,
+  resolveLanguageLock,
+  type ChatLanguageLock,
+} from './language-lock'
 import { retrieveKnowledge } from './knowledge'
 import { generateReply } from './generate'
 import { buildSystemPrompt, FULL_AGENT_FALLBACK_REPLY } from './defaults'
@@ -8,13 +19,14 @@ import { speakableFirstName } from './customer-name'
 import { buildHandoffSummary } from './handoff'
 import { logAiUsage } from './usage'
 import { latestUserMessage } from './query'
-import { engineSendText, engineSendMedia, engineSendTypingIndicator, engineSendInteractiveButtons, engineSendCtaUrl } from '@/lib/flows/meta-send'
+import { engineSendText, engineSendMedia, engineSendTypingIndicator, engineSendInteractiveButtons, engineSendCtaUrl, engineSendProduct, engineSendProductList } from '@/lib/flows/meta-send'
 import { checkRateLimit, RATE_LIMITS } from '@/lib/rate-limit'
 import { resolveReplyChannels, type InboundModality } from './voice'
 import { canSpeak as ttsReady, synthesizeSpeech } from './speech'
 import { prepareIndicSpeechText, stripUrlsForSpeech } from './speech-text'
 import {
   CHECKOUT_BUTTON_LABEL,
+  VIEW_CART_BUTTON_LABEL,
   cardHasCheckout,
   ctaBodyFromCard,
   stripCheckoutUrlsFromReply,
@@ -31,14 +43,25 @@ import {
   matchProductsFromPhoto,
   toCard,
   getProductLive,
+  buildCartOffer,
+  resolveCartOfferItems,
+  cartOfferFallbackText,
 } from '@/lib/shopify'
-import type { ShopifyProductCard, ShopifyStoreConfig } from '@/lib/shopify'
+import { loadCommerceSettings } from '@/lib/shopify/commerce-config'
+import { nativeCommerceEnabled } from '@/lib/commerce/types'
+import { tryCompleteCommerceAddress } from '@/lib/commerce/checkout'
+import type { CartOffer, ShopifyProductCard, ShopifyStoreConfig } from '@/lib/shopify'
 import { rehostPublicImage } from '@/lib/storage/generated-media'
 import type { ExecuteLlmTool, LlmToolDef } from './providers/shared'
 import type { AiConfig, ChatMessage } from './types'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { INTERACTIVE_LIMITS } from '@/lib/whatsapp/meta-api'
-import { buildAiChatButtons, WACRM_CHAT_BUTTON_IDS } from './chat-buttons'
+import {
+  buildAiChatButtons,
+  buildCartOfferButtons,
+  lastMessageHasAction,
+  WACRM_CHAT_BUTTON_IDS,
+} from './chat-buttons'
 
 interface DispatchArgs {
   /** Tenancy key — drives config, contact, and whatsapp_config lookups. */
@@ -174,15 +197,52 @@ export async function dispatchInboundToAiReply(
       console.error('[ai auto-reply] loadShopifyConfig failed:', err)
       return null
     })
+    const commerce = await loadCommerceSettings(db, accountId).catch((err) => {
+      console.warn('[ai auto-reply] loadCommerceSettings failed:', err)
+      return null
+    })
+    const nativeCommerce = nativeCommerceEnabled({
+      metaCatalogId: commerce?.metaCatalogId ?? shopify?.metaCatalogId,
+      waPaymentConfigurationName: commerce?.waPaymentConfigurationName,
+    })
 
     const queryText = latestUserMessage(messages)
-    const [manualKnowledge, storeContent] = await Promise.all([
+    const [manualKnowledge, storeContent, contactMemory] = await Promise.all([
       retrieveKnowledge(db, accountId, config, queryText),
       shopify
         ? retrieveShopifyStoreContent(db, accountId, queryText, 5)
         : Promise.resolve([] as string[]),
+      loadContactMemory(db, accountId, contactId).catch((err) => {
+        console.warn('[ai auto-reply] loadContactMemory failed:', err)
+        return emptyContactMemory()
+      }),
     ])
     const knowledge = [...storeContent, ...manualKnowledge].slice(0, 8)
+    const resolvedLanguage = resolveLanguageLock({
+      customerText: queryText,
+      stored: contactMemory.facts,
+    })
+    let memoryForPrompt = contactMemory
+    if (resolvedLanguage.lock && resolvedLanguage.changed) {
+      try {
+        memoryForPrompt = await persistLanguageLock({
+          db,
+          accountId,
+          contactId,
+          conversationId,
+          lock: resolvedLanguage.lock,
+          existing: contactMemory,
+        })
+      } catch (err) {
+        console.warn('[ai auto-reply] persistLanguageLock failed:', err)
+        memoryForPrompt = {
+          ...contactMemory,
+          facts: applyLanguageLockToFacts(contactMemory.facts, resolvedLanguage.lock),
+        }
+      }
+    }
+    const replyLanguage = resolvedLanguage.lock
+    const customerMemory = formatCustomerMemoryBlock(memoryForPrompt) || null
 
     const { data: contactRow } = await db
       .from('contacts')
@@ -191,14 +251,38 @@ export async function dispatchInboundToAiReply(
       .eq('account_id', accountId)
       .maybeSingle()
 
+    if (nativeCommerce && queryText.trim()) {
+      const handledAddress = await tryCompleteCommerceAddress({
+        db,
+        accountId,
+        userId: configOwnerUserId,
+        conversationId,
+        contactId,
+        contactName: contactRow?.name ?? null,
+        text: queryText,
+      })
+      if (handledAddress) return
+    }
+
     const productCards: ShopifyProductCard[] = []
+    const cartOfferHolder: { value: CartOffer | null } = { value: null }
     const imageTurn = inboundContentType === 'image'
     const shopifyTools = bindShopifyTools(
       db,
       shopify,
       contactRow?.phone ?? null,
       productCards,
-      { imageTurn },
+      {
+        imageTurn,
+        customerImageUrl: inboundMediaUrl,
+        customerMediaId: inboundMediaId,
+        accessToken: inboundAccessToken,
+        apiKey: config.provider === 'openai' ? config.apiKey : null,
+        conversationId,
+        cartOffer: cartOfferHolder,
+        nativeCommerce,
+        retailerIdSource: commerce?.retailerIdSource,
+      },
     )
 
     let photoMatches: Awaited<ReturnType<typeof matchProductsFromPhoto>> | undefined
@@ -230,10 +314,13 @@ export async function dispatchInboundToAiReply(
       mode: 'auto_reply',
       knowledge,
       shopify: Boolean(shopify),
+      nativeCommerce,
       photoMatches,
       customerName,
       firstInbound: isFirstInbound,
       shopName: shopify?.shopName,
+      customerMemory,
+      replyLanguage,
     })
 
     const sendArgs = {
@@ -339,24 +426,60 @@ export async function dispatchInboundToAiReply(
       messages,
       knowledge,
       shopify: Boolean(shopify),
+      nativeCommerce,
       photoMatches,
       customerName,
       firstInbound: isFirstInbound,
       shopName: shopify?.shopName,
+      customerMemory,
+      replyLanguage,
       tools: shopifyTools.tools,
       executeTool: shopifyTools.executeTool,
     })
 
-    if (handoff || !text) {
+    const confirmTap = lastMessageHasAction(
+      messages,
+      WACRM_CHAT_BUTTON_IDS.confirmOrder,
+    )
+    const moreOptionsTap = lastMessageHasAction(
+      messages,
+      WACRM_CHAT_BUTTON_IDS.moreOptions,
+    )
+
+    let cartOffer = nativeCommerce
+      ? null
+      : moreOptionsTap
+        ? null
+        : cartOfferHolder.value
+    if (!cartOffer && !moreOptionsTap && shopify && confirmTap && !nativeCommerce) {
+      const items = await resolveCartOfferItems({
+        db,
+        conversationId,
+        cards: productCards,
+      })
+      cartOffer = buildCartOffer(shopify.primaryDomain, items)
+    }
+
+    if (nativeCommerce && confirmTap && !text?.trim()) {
+      await engineSendText({
+        ...sendArgs,
+        text: 'Add the items to your WhatsApp cart, then tap Send order. I’ll send a Review and Pay bill in this chat.',
+        aiGenerated: true,
+      })
+      await sendProductCards(sendArgs, productCards, shopify)
+      return
+    }
+
+    if ((handoff || !text) && !(confirmTap && cartOffer)) {
       await maybeHandoff(db, config, conv, conversationId, messages)
       return
     }
 
     if (!(await claimReplySlot(db, conversationId, config))) return
 
-    const languageHint = detectSpokenIndicTarget(
-      latestUserMessage(messages),
-    )?.elevenlabs
+    const languageHint =
+      replyLanguage?.code ??
+      detectSpokenIndicTarget(latestUserMessage(messages))?.elevenlabs
     const spokenText = prepareIndicSpeechText(
       stripUrlsForSpeech(text),
       languageHint,
@@ -393,10 +516,16 @@ export async function dispatchInboundToAiReply(
       }
     }
 
-    const textForCustomer = stripCheckoutUrlsFromReply(
-      text,
-      productCards.map((c) => c.checkoutUrl),
-    )
+    const replyText =
+      confirmTap && cartOffer && (!(text ?? '').trim() || handoff)
+        ? cartOfferFallbackText(cartOffer.items)
+        : text
+    const textForCustomer = stripCheckoutUrlsFromReply(replyText, [
+      ...productCards.map((c) => c.checkoutUrl),
+      ...productCards.map((c) => c.cartUrl),
+      cartOffer?.cartUrl,
+      cartOffer?.checkoutUrl,
+    ])
 
     const handedOff = await sendCustomerFacingText({
       db,
@@ -411,8 +540,14 @@ export async function dispatchInboundToAiReply(
       wantsAudio,
       audioSent,
       productCards,
+      chatButtonMode: cartOffer ? (confirmTap ? 'none' : 'cart') : 'nav',
     })
     if (handedOff) return
+
+    if (cartOffer) {
+      await sendCartOffer(sendArgs, cartOffer)
+      return
+    }
 
     await sendProductCards(sendArgs, productCards, shopify)
   } catch (err) {
@@ -447,10 +582,15 @@ async function sendCustomerFacingText(args: {
   wantsAudio: boolean
   audioSent: boolean
   productCards: ShopifyProductCard[]
+  chatButtonMode?: 'nav' | 'cart' | 'none'
 }): Promise<boolean> {
-  const chatButtons = args.config.fullAgentEnabled
-    ? buildAiChatButtons(args.shopify)
-    : []
+  const mode = args.chatButtonMode ?? 'nav'
+  const chatButtons =
+    !args.config.fullAgentEnabled || mode === 'none'
+      ? []
+      : mode === 'cart'
+        ? buildCartOfferButtons()
+        : buildAiChatButtons(args.shopify)
   const agentTap =
     args.messages.length > 0 &&
     args.messages[args.messages.length - 1]?.content?.includes(
@@ -488,7 +628,9 @@ async function sendCustomerFacingText(args: {
   if (
     args.wantsText ||
     (args.wantsAudio && !args.audioSent) ||
-    args.productCards.length > 0
+    args.productCards.length > 0 ||
+    mode === 'cart' ||
+    mode === 'none'
   ) {
     await engineSendText({
       ...args.sendArgs,
@@ -569,10 +711,13 @@ export async function generateCustomerFacingReply(args: {
   messages: ChatMessage[]
   knowledge: string[]
   shopify?: boolean
+  nativeCommerce?: boolean
   photoMatches?: Awaited<ReturnType<typeof matchProductsFromPhoto>>
   customerName?: string | null
   firstInbound?: boolean
   shopName?: string | null
+  customerMemory?: string | null
+  replyLanguage?: ChatLanguageLock | null
   tools?: LlmToolDef[]
   executeTool?: ExecuteLlmTool
 }): Promise<{ text: string; handoff: boolean }> {
@@ -581,6 +726,7 @@ export async function generateCustomerFacingReply(args: {
     systemPrompt: args.systemPrompt,
     messages: args.messages,
     customerName: args.customerName,
+    replyLanguage: args.replyLanguage,
     tools: args.tools,
     executeTool: args.executeTool,
   })
@@ -610,13 +756,17 @@ export async function generateCustomerFacingReply(args: {
       mode: 'draft',
       knowledge: args.knowledge,
       shopify: args.shopify,
+      nativeCommerce: args.nativeCommerce,
       photoMatches: args.photoMatches,
       customerName: args.customerName,
       firstInbound: args.firstInbound,
       shopName: args.shopName,
+      customerMemory: args.customerMemory,
+      replyLanguage: args.replyLanguage,
     }),
     messages: args.messages,
     customerName: args.customerName,
+    replyLanguage: args.replyLanguage,
     tools: args.tools,
     executeTool: args.executeTool,
   })
@@ -640,14 +790,38 @@ export function bindShopifyTools(
   shopify: ShopifyStoreConfig | null,
   contactPhone: string | null,
   productCards: ShopifyProductCard[],
-  opts: { imageTurn: boolean } = { imageTurn: false },
+  opts: {
+    imageTurn: boolean
+    customerImageUrl?: string | null
+    customerMediaId?: string | null
+    accessToken?: string | null
+    apiKey?: string | null
+    conversationId?: string | null
+    cartOffer?: { value: CartOffer | null }
+    nativeCommerce?: boolean
+    retailerIdSource?: import('@/lib/shopify/retailer-id').RetailerIdSource
+  } = { imageTurn: false },
 ): { tools?: LlmToolDef[]; executeTool?: ExecuteLlmTool } {
   if (!shopify) return {}
   return {
     tools: SHOPIFY_LLM_TOOLS,
     executeTool: async (name, args) => {
       const result = await executeShopifyTool(
-        { db, config: shopify, contactPhone },
+        {
+          db,
+          config: shopify,
+          contactPhone,
+          photoMatch: {
+            customerImageUrl: opts.customerImageUrl,
+            customerMediaId: opts.customerMediaId,
+            accessToken: opts.accessToken,
+            apiKey: opts.apiKey,
+          },
+          productCards,
+          conversationId: opts.conversationId,
+          nativeCommerce: opts.nativeCommerce,
+          retailerIdSource: opts.retailerIdSource,
+        },
         name,
         args,
       )
@@ -655,6 +829,9 @@ export function bindShopifyTools(
         opts.imageTurn &&
         (name === 'search_products' || name === 'list_new_arrivals')
       if (!skipCards) productCards.push(...result.cards)
+      if (result.cartOffer && opts.cartOffer) {
+        opts.cartOffer.value = result.cartOffer
+      }
       return result.json
     },
   }
@@ -683,6 +860,48 @@ async function hydrateCardImages(
 
 const MAX_PRODUCT_CARDS = 3
 
+async function sendNativeCatalogCards(
+  sendArgs: SendArgs,
+  cards: ShopifyProductCard[],
+  catalogId: string,
+): Promise<boolean> {
+  const unique: ShopifyProductCard[] = []
+  const seen = new Set<string>()
+  for (const card of cards) {
+    const retailerId = card.retailerId?.trim()
+    if (!retailerId || seen.has(retailerId)) continue
+    seen.add(retailerId)
+    unique.push(card)
+    if (unique.length >= MAX_PRODUCT_CARDS) break
+  }
+  if (unique.length === 0) return false
+  try {
+    if (unique.length === 1) {
+      const card = unique[0]
+      await engineSendProduct({
+        ...sendArgs,
+        catalogId,
+        productRetailerId: card.retailerId!,
+        bodyText: (card.caption || card.title).slice(0, 1024),
+        aiGenerated: true,
+      })
+      return true
+    }
+    await engineSendProductList({
+      ...sendArgs,
+      catalogId,
+      headerText: 'Products',
+      bodyText: unique.map((c) => c.title).join('\n').slice(0, 1024) || 'Take a look',
+      productRetailerIds: unique.map((c) => c.retailerId!),
+      aiGenerated: true,
+    })
+    return true
+  } catch (err) {
+    console.error('[ai auto-reply] native catalog send failed:', err)
+    return false
+  }
+}
+
 export async function sendProductCards(
   sendArgs: {
     accountId: string
@@ -693,6 +912,11 @@ export async function sendProductCards(
   cards: ShopifyProductCard[],
   shopify?: ShopifyStoreConfig | null,
 ): Promise<void> {
+  const catalogId = shopify?.metaCatalogId?.trim()
+  if (catalogId) {
+    const sentNative = await sendNativeCatalogCards(sendArgs, cards, catalogId)
+    if (sentNative) return
+  }
   const seen = new Set<string>()
   let sent = 0
   for (const card of cards) {
@@ -730,6 +954,36 @@ export async function sendProductCards(
     }
     await sendCheckoutCtaIfInStock(sendArgs, card)
     sent += 1
+  }
+}
+
+async function sendCartOffer(
+  sendArgs: SendArgs,
+  offer: CartOffer,
+): Promise<void> {
+  const body = (offer.summaryLines.join('\n') || 'Your cart').slice(0, 1024)
+  try {
+    await engineSendCtaUrl({
+      ...sendArgs,
+      bodyText: body,
+      displayText: VIEW_CART_BUTTON_LABEL,
+      url: offer.cartUrl,
+      aiGenerated: true,
+    })
+  } catch (err) {
+    console.error('[ai auto-reply] view cart CTA send failed:', err)
+  }
+  try {
+    await engineSendCtaUrl({
+      ...sendArgs,
+      bodyText: body,
+      displayText: CHECKOUT_BUTTON_LABEL,
+      url: offer.checkoutUrl,
+      headerImageUrl: offer.items.find((item) => item.imageUrl)?.imageUrl ?? undefined,
+      aiGenerated: true,
+    })
+  } catch (err) {
+    console.error('[ai auto-reply] cart checkout CTA send failed:', err)
   }
 }
 

@@ -22,6 +22,7 @@ const PUBLIC_API_PREFIXES = [
   '/api/ai/memory/cron',
   '/api/billing/cron',
   '/api/billing/razorpay/webhook',
+  '/api/commerce/razorpay/webhook',
 ]
 
 // Public legal pages Meta's go-live crawler fetches (no session).

@@ -2,6 +2,8 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { supabaseAdmin } from '@/lib/ai/admin-client'
 import { retrieveKnowledge } from '@/lib/ai/knowledge'
 import { loadShopifyConfig } from '@/lib/shopify'
+import { loadCommerceSettings } from '@/lib/shopify/commerce-config'
+import { nativeCommerceEnabled } from '@/lib/commerce/types'
 import { persistCallTurnMessage } from '@/lib/calling/persist-call-turn'
 import { bindShopifyTools, sendProductCards } from '@/lib/ai/auto-reply'
 import { loadLiveAiCall } from '@/lib/calling/live-ai-realtime'
@@ -16,7 +18,17 @@ import {
   searchLiveAiMemory,
 } from '@/lib/calling/live-ai-memory'
 import { loadAiConfig } from '@/lib/ai/config'
-import { LIVE_AI_HANDOFF_SPOKEN } from '@/lib/calling/live-ai-turn'
+import {
+  emptyContactMemory,
+  loadContactMemory,
+  persistLanguageLock,
+} from '@/lib/ai/chat-memory'
+import {
+  resolveLanguageLock,
+  storedLanguageLock,
+  type ChatLanguageLock,
+} from '@/lib/ai/language-lock'
+import { liveAiHandoffSpoken } from '@/lib/calling/live-ai-speech-language'
 import type { ShopifyProductCard } from '@/lib/shopify'
 
 export type LiveAiToolTranscriptRole = 'customer' | 'bot'
@@ -27,6 +39,18 @@ export type LiveAiToolResult = {
   spoken?: string
 }
 
+export type LiveAiTranscriptPersistResult = {
+  persisted: boolean
+  lock: ChatLanguageLock | null
+  changed: boolean
+}
+
+const EMPTY_TRANSCRIPT_PERSIST: LiveAiTranscriptPersistResult = {
+  persisted: false,
+  lock: null,
+  changed: false,
+}
+
 export async function persistLiveAiTranscript(args: {
   db?: SupabaseClient
   accountId: string
@@ -34,12 +58,12 @@ export async function persistLiveAiTranscript(args: {
   role: LiveAiToolTranscriptRole
   text: string
   itemId?: string
-}): Promise<{ persisted: boolean }> {
+}): Promise<LiveAiTranscriptPersistResult> {
   const db = args.db ?? supabaseAdmin()
   const call = await loadLiveAiCall({ db, accountId: args.accountId, callId: args.callId })
   const text = args.text.trim()
   if (!text || !call.conversation_id || isLiveAiNoiseTranscript(text)) {
-    return { persisted: false }
+    return EMPTY_TRANSCRIPT_PERSIST
   }
   await persistCallTurnMessage(db, {
     conversationId: call.conversation_id,
@@ -48,7 +72,37 @@ export async function persistLiveAiTranscript(args: {
     text,
     seq: args.itemId,
   })
-  return { persisted: true }
+  if (args.role !== 'customer' || !call.contact_id) {
+    return { persisted: true, lock: null, changed: false }
+  }
+
+  const memory = await loadContactMemory(db, args.accountId, call.contact_id).catch((err) => {
+    console.warn('[live-ai] loadContactMemory failed:', err)
+    return emptyContactMemory()
+  })
+  const resolved = resolveLanguageLock({
+    customerText: text,
+    stored: memory.facts,
+  })
+  if (!resolved.lock) {
+    return { persisted: true, lock: null, changed: false }
+  }
+  if (!resolved.changed) {
+    return { persisted: true, lock: resolved.lock, changed: false }
+  }
+  try {
+    await persistLanguageLock({
+      db,
+      accountId: args.accountId,
+      contactId: call.contact_id,
+      conversationId: call.conversation_id,
+      lock: resolved.lock,
+      existing: memory,
+    })
+  } catch (err) {
+    console.warn('[live-ai] persistLanguageLock failed:', err)
+  }
+  return { persisted: true, lock: resolved.lock, changed: true }
 }
 
 export async function executeLiveAiTool(args: {
@@ -63,16 +117,23 @@ export async function executeLiveAiTool(args: {
   const call = await loadLiveAiCall({ db, accountId: args.accountId, callId: args.callId })
 
   if (args.name === TRANSFER_TO_HUMAN_TOOL) {
+    const memory = call.contact_id
+      ? await loadContactMemory(db, args.accountId, call.contact_id).catch((err) => {
+          console.warn('[live-ai] loadContactMemory failed:', err)
+          return emptyContactMemory()
+        })
+      : emptyContactMemory()
+    const spoken = liveAiHandoffSpoken(storedLanguageLock(memory.facts))
     if (call.conversation_id) {
       await persistCallTurnMessage(db, {
         conversationId: call.conversation_id,
         direction: 'out',
         callId: call.id,
-        text: LIVE_AI_HANDOFF_SPOKEN,
+        text: spoken,
         seq: 'handoff',
       })
     }
-    return { output: JSON.stringify({ ok: true }), handoff: true, spoken: LIVE_AI_HANDOFF_SPOKEN }
+    return { output: JSON.stringify({ ok: true }), handoff: true, spoken }
   }
 
   const config = await loadAiConfig(db, args.accountId)
@@ -129,12 +190,20 @@ export async function executeLiveAiTool(args: {
     .maybeSingle()
 
   const productCards: ShopifyProductCard[] = []
+  const commerce = await loadCommerceSettings(db, args.accountId).catch(() => null)
   const bound = bindShopifyTools(
     db,
     shopify,
     contactRow?.phone ?? null,
     productCards,
-    { imageTurn: false },
+    {
+      imageTurn: false,
+      nativeCommerce: nativeCommerceEnabled({
+        metaCatalogId: commerce?.metaCatalogId ?? shopify.metaCatalogId,
+        waPaymentConfigurationName: commerce?.waPaymentConfigurationName,
+      }),
+      retailerIdSource: commerce?.retailerIdSource,
+    },
   )
   if (!bound.executeTool) {
     return {

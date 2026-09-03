@@ -42,6 +42,10 @@ BEGIN
     RAISE EXCEPTION 'public.accounts is missing — migration 017 did not apply';
   END IF;
 
+  IF to_regclass('public.whatsapp_commerce_orders') IS NULL THEN
+    RAISE EXCEPTION 'public.whatsapp_commerce_orders is missing — migration 064 did not apply';
+  END IF;
+
   RAISE NOTICE 'schema verification passed';
 END
 $$;

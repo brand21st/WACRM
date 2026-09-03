@@ -81,10 +81,67 @@ export interface InteractiveCtaUrlPayload {
   header_image?: string
 }
 
+export interface InteractiveProductPayload {
+  kind: 'product'
+  body: string
+  footer?: string
+  catalog_id: string
+  product_retailer_id: string
+}
+
+export interface InteractiveProductListPayload {
+  kind: 'product_list'
+  body: string
+  header: string
+  footer?: string
+  catalog_id: string
+  product_retailer_ids: string[]
+}
+
+export interface InteractiveCatalogMessagePayload {
+  kind: 'catalog_message'
+  body: string
+  footer?: string
+}
+
+export interface InteractiveOrderDetailsPayload {
+  kind: 'order_details'
+  body: string
+  footer?: string
+  header_image?: string
+  reference_id: string
+  catalog_id?: string
+}
+
+export interface InteractiveOrderStatusPayload {
+  kind: 'order_status'
+  body: string
+  reference_id: string
+  status: string
+}
+
+export interface InteractiveInboundOrderPayload {
+  kind: 'inbound_order'
+  catalog_id?: string
+  items: Array<{
+    product_retailer_id: string
+    quantity: number
+    item_price?: number
+    currency?: string
+    name?: string
+  }>
+}
+
 export type InteractiveMessagePayload =
   | InteractiveButtonsPayload
   | InteractiveListPayload
   | InteractiveCtaUrlPayload
+  | InteractiveProductPayload
+  | InteractiveProductListPayload
+  | InteractiveCatalogMessagePayload
+  | InteractiveOrderDetailsPayload
+  | InteractiveOrderStatusPayload
+  | InteractiveInboundOrderPayload
 
 export type InteractiveValidation =
   | { ok: true }
@@ -253,6 +310,42 @@ export function validateInteractivePayload(
     return ok()
   }
 
+  if (p.kind === 'product') {
+    const product = p as InteractiveProductPayload
+    if (!product.catalog_id?.trim() || !product.product_retailer_id?.trim()) {
+      return fail('Product messages need a catalog id and retailer id.')
+    }
+    return ok()
+  }
+
+  if (p.kind === 'product_list') {
+    const list = p as InteractiveProductListPayload
+    if (!list.header?.trim()) return fail('A product list needs a header.')
+    if (!list.catalog_id?.trim()) return fail('A product list needs a catalog id.')
+    if (!Array.isArray(list.product_retailer_ids) || list.product_retailer_ids.length < 1) {
+      return fail('Add at least one catalog product.')
+    }
+    return ok()
+  }
+
+  if (p.kind === 'catalog_message') return ok()
+
+  if (p.kind === 'order_details') {
+    const order = p as InteractiveOrderDetailsPayload
+    if (!order.reference_id?.trim()) return fail('order_details needs a reference_id.')
+    return ok()
+  }
+
+  if (p.kind === 'order_status') {
+    const status = p as InteractiveOrderStatusPayload
+    if (!status.reference_id?.trim()) return fail('order_status needs a reference_id.')
+    return ok()
+  }
+
+  if (p.kind === 'inbound_order') {
+    return fail('Inbound cart messages cannot be sent from the composer.')
+  }
+
   return fail('Interactive message must be reply buttons, a list, or a checkout link.')
 }
 
@@ -263,10 +356,22 @@ export function validateInteractivePayload(
 export function interactivePayloadPreviewText(
   payload: InteractiveMessagePayload,
 ): string {
+  if (payload.kind === 'inbound_order') {
+    const n = payload.items.length
+    return n === 1
+      ? `Cart: ${payload.items[0]?.name || payload.items[0]?.product_retailer_id}`
+      : `Cart: ${n} items`
+  }
   const body = payload.body?.trim()
   if (body) return body
   if (payload.kind === 'cta_url') {
     return payload.display_text.trim() || '[checkout]'
   }
+  if (payload.kind === 'product' || payload.kind === 'product_list') {
+    return '[catalog]'
+  }
+  if (payload.kind === 'catalog_message') return '[catalog]'
+  if (payload.kind === 'order_details') return '[order]'
+  if (payload.kind === 'order_status') return '[order status]'
   return payload.kind === 'buttons' ? '[buttons]' : '[list]'
 }

@@ -4,13 +4,13 @@ import { useState, useEffect, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { cn } from "@/lib/utils";
-import type { Contact, Deal, ContactNote, Tag } from "@/types";
+import type { Contact, ContactAiMemory, Deal, ContactNote, Tag } from "@/types";
 import {
   Phone,
   Mail,
   Copy,
   Check,
-  User,
+  Brain,
   Tag as TagIcon,
   DollarSign,
   StickyNote,
@@ -33,6 +33,7 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
   const [copied, setCopied] = useState(false);
   const [deals, setDeals] = useState<Deal[]>([]);
   const [notes, setNotes] = useState<ContactNote[]>([]);
+  const [aiMemory, setAiMemory] = useState<ContactAiMemory | null>(null);
   const [tags, setTags] = useState<(Tag & { contact_tag_id: string })[]>([]);
   const [newNote, setNewNote] = useState("");
   const [addingNote, setAddingNote] = useState(false);
@@ -43,7 +44,7 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
     const supabase = createClient();
 
     // Fetch deals, notes, and tags in parallel
-    const [dealsRes, notesRes, tagsRes] = await Promise.all([
+    const [dealsRes, notesRes, tagsRes, memoryRes] = await Promise.all([
       supabase
         .from("deals")
         .select("*, stage:pipeline_stages(*)")
@@ -58,10 +59,18 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
         .from("contact_tags")
         .select("id, tag_id, tags(*)")
         .eq("contact_id", contact.id),
+      supabase
+        .from("contact_ai_memory")
+        .select(
+          "id, account_id, contact_id, conversation_id, profile_summary, last_session_summary, facts, summarized_through_at, message_count_at_summary, created_at, updated_at",
+        )
+        .eq("contact_id", contact.id)
+        .maybeSingle(),
     ]);
 
     if (dealsRes.data) setDeals(dealsRes.data);
     if (notesRes.data) setNotes(notesRes.data);
+    setAiMemory((memoryRes.data as ContactAiMemory | null) ?? null);
     if (tagsRes.data) {
       const mapped = tagsRes.data
         .filter((ct: Record<string, unknown>) => ct.tags)
@@ -129,6 +138,15 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
 
   const displayName = contact.name || contact.phone;
   const initials = displayName.charAt(0).toUpperCase();
+  const lockedLanguage =
+    typeof aiMemory?.facts?.language === "string"
+      ? aiMemory.facts.language.trim()
+      : "";
+  const hasAiMemory = Boolean(
+    lockedLanguage ||
+      aiMemory?.profile_summary ||
+      aiMemory?.last_session_summary,
+  );
 
   return (
     <div className="flex h-full w-70 flex-col border-l border-border bg-card">
@@ -247,6 +265,57 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
                     </div>
                   </div>
                 ))
+              )}
+            </div>
+          </div>
+
+          {/* Divider */}
+          <div className="my-4 border-t border-border" />
+
+          {/* AI memory */}
+          <div>
+            <div className="flex items-center gap-2 px-1 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+              <Brain className="h-3 w-3" />
+              {tSidebar("aiMemory")}
+            </div>
+            <div className="mt-2 space-y-2">
+              {!hasAiMemory ? (
+                <p className="px-1 text-xs text-muted-foreground">
+                  {tSidebar("aiMemoryEmpty")}
+                </p>
+              ) : (
+                <>
+                  {lockedLanguage ? (
+                    <div className="rounded-lg bg-muted px-3 py-2">
+                      <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                        {tSidebar("aiMemoryLanguage")}
+                      </p>
+                      <p className="mt-1 text-xs text-foreground">
+                        {lockedLanguage}
+                      </p>
+                    </div>
+                  ) : null}
+                  {aiMemory?.last_session_summary ? (
+                    <div className="rounded-lg bg-muted px-3 py-2">
+                      <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                        {tSidebar("aiMemoryLastSession")}
+                      </p>
+                      <p className="mt-1 whitespace-pre-wrap text-xs text-foreground">
+                        {aiMemory.last_session_summary}
+                      </p>
+                    </div>
+                  ) : null}
+                  {aiMemory?.profile_summary ? (
+                    <div className="rounded-lg bg-muted px-3 py-2">
+                      <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                        {tSidebar("aiMemoryProfile")}
+                      </p>
+                      <p className="mt-1 whitespace-pre-wrap text-xs text-foreground">
+                        {aiMemory.profile_summary}
+                      </p>
+                    </div>
+                  ) : null}
+                </>
               )}
             </div>
           </div>

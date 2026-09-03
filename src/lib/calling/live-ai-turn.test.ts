@@ -1,7 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { AI_VOICE_DEFAULTS } from '@/lib/ai/types'
 import type { AiConfig } from '@/lib/ai/types'
-import { LIVE_AI_GREETING_USER, LIVE_AI_HANDOFF_SPOKEN, GREETING_FALLBACK, runLiveAiTurn } from './live-ai-turn'
+import {
+  LIVE_AI_GREETING_NEUTRAL,
+  LIVE_AI_GREETING_USER,
+  LIVE_AI_HANDOFF_SPOKEN,
+  GREETING_FALLBACK,
+  runLiveAiTurn,
+} from './live-ai-turn'
 
 const h = vi.hoisted(() => ({
   loadAiConfig: vi.fn(),
@@ -15,6 +21,26 @@ const h = vi.hoisted(() => ({
   transcribeSpeech: vi.fn(),
   synthesizeSpeech: vi.fn(),
   persistCallTurnMessage: vi.fn(),
+  loadContactMemory: vi.fn(),
+  emptyMemory: (facts: Record<string, unknown> = {}) => ({
+    profileSummary: '',
+    lastSessionSummary: '',
+    facts: {
+      intent: null,
+      products: [],
+      preferences: [],
+      language: null,
+      language_code: null,
+      language_script: null,
+      language_locked: false,
+      open_questions: [],
+      ...facts,
+    },
+    notes: [],
+    summarizedThroughAt: null,
+    messageCountAtSummary: 0,
+    conversationId: null,
+  }),
   call: null as Record<string, unknown> | null,
   contact: { name: 'Ada', phone: '1555000' } as Record<string, unknown> | null,
   settings: null as Record<string, unknown> | null,
@@ -42,10 +68,32 @@ vi.mock('@/lib/shopify', () => ({
   loadShopifyConfig: h.loadShopifyConfig,
   retrieveShopifyStoreContent: h.retrieveShopifyStoreContent,
 }))
+vi.mock('@/lib/shopify/commerce-config', () => ({
+  loadCommerceSettings: async () => ({
+    metaCatalogId: null,
+    waPaymentConfigurationName: null,
+    retailerIdSource: 'sku',
+  }),
+}))
 vi.mock('@/lib/ai/context', () => ({
   buildConversationContext: h.buildConversationContext,
 }))
 vi.mock('@/lib/ai/knowledge', () => ({ retrieveKnowledge: h.retrieveKnowledge }))
+vi.mock('@/lib/ai/chat-memory', () => ({
+  loadContactMemory: (...args: unknown[]) => h.loadContactMemory(...args),
+  persistLanguageLock: async ({ existing, lock }: { existing: { facts: Record<string, unknown> }; lock: { name: string; code: string; script: string } }) => ({
+    ...existing,
+    facts: {
+      ...existing.facts,
+      language: lock.name,
+      language_code: lock.code,
+      language_script: lock.script,
+      language_locked: true,
+    },
+  }),
+  formatCustomerMemoryBlock: () => '',
+  emptyContactMemory: () => h.emptyMemory(),
+}))
 vi.mock('@/lib/ai/auto-reply', () => ({
   generateCustomerFacingReply: h.generateCustomerFacingReply,
   bindShopifyTools: h.bindShopifyTools,
@@ -124,6 +172,8 @@ describe('runLiveAiTurn', () => {
       mimeType: 'audio/mpeg',
     })
     h.persistCallTurnMessage.mockResolvedValue({ messageId: 'm', inserted: true })
+    h.loadContactMemory.mockReset()
+    h.loadContactMemory.mockResolvedValue(h.emptyMemory())
   })
 
   it('greets without STT and persists the bot line', async () => {
@@ -136,7 +186,7 @@ describe('runLiveAiTurn', () => {
     expect(h.transcribeSpeech).not.toHaveBeenCalled()
     expect(h.generateCustomerFacingReply).toHaveBeenCalledWith(
       expect.objectContaining({
-        messages: [expect.objectContaining({ content: LIVE_AI_GREETING_USER })],
+        messages: [expect.objectContaining({ content: LIVE_AI_GREETING_NEUTRAL })],
       }),
     )
     expect(h.persistCallTurnMessage).toHaveBeenCalledWith(
@@ -195,7 +245,10 @@ describe('runLiveAiTurn', () => {
       kind: 'utterance',
       audio: { bytes: Buffer.from([9]), mimeType: 'audio/webm', fileName: 'u.webm' },
     })
-    expect(h.transcribeSpeech).toHaveBeenCalled()
+    expect(h.loadContactMemory).toHaveBeenCalled()
+    expect(h.transcribeSpeech).toHaveBeenCalledWith(
+      expect.objectContaining({ languageHint: undefined }),
+    )
     expect(h.persistCallTurnMessage).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({ direction: 'in', text: 'Do you have bags?' }),
@@ -274,5 +327,70 @@ describe('runLiveAiTurn', () => {
     )
     expect(result.reply).toBe(GREETING_FALLBACK)
     expect(result.audioBase64).toBeNull()
+  })
+
+  it('greets in the locked language when a prior chat lock exists', async () => {
+    h.loadContactMemory.mockResolvedValue(
+      h.emptyMemory({
+        language: 'Malayalam',
+        language_code: 'ml',
+        language_script: 'native',
+        language_locked: true,
+      }),
+    )
+    await runLiveAiTurn({
+      accountId: 'acct-1',
+      userId: 'user-1',
+      callId: 'call-1',
+      kind: 'greeting',
+    })
+    expect(h.generateCustomerFacingReply).toHaveBeenCalledWith(
+      expect.objectContaining({
+        messages: [expect.objectContaining({ content: LIVE_AI_GREETING_USER })],
+        replyLanguage: expect.objectContaining({ code: 'ml', locked: true }),
+      }),
+    )
+  })
+
+  it('does not hint STT from a soft cron language guess', async () => {
+    h.loadContactMemory.mockResolvedValue(
+      h.emptyMemory({
+        language: 'Malayalam',
+        language_code: 'ml',
+        language_script: 'native',
+        language_locked: false,
+      }),
+    )
+    await runLiveAiTurn({
+      accountId: 'acct-1',
+      userId: 'user-1',
+      callId: 'call-1',
+      kind: 'utterance',
+      audio: { bytes: Buffer.from([9]), mimeType: 'audio/webm', fileName: 'u.webm' },
+    })
+    expect(h.transcribeSpeech).toHaveBeenCalledWith(
+      expect.objectContaining({ languageHint: undefined }),
+    )
+  })
+
+  it('hints STT from a hard language lock', async () => {
+    h.loadContactMemory.mockResolvedValue(
+      h.emptyMemory({
+        language: 'Malayalam',
+        language_code: 'ml',
+        language_script: 'native',
+        language_locked: true,
+      }),
+    )
+    await runLiveAiTurn({
+      accountId: 'acct-1',
+      userId: 'user-1',
+      callId: 'call-1',
+      kind: 'utterance',
+      audio: { bytes: Buffer.from([9]), mimeType: 'audio/webm', fileName: 'u.webm' },
+    })
+    expect(h.transcribeSpeech).toHaveBeenCalledWith(
+      expect.objectContaining({ languageHint: 'ml' }),
+    )
   })
 })

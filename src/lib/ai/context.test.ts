@@ -97,6 +97,28 @@ describe('buildConversationContext', () => {
     expect(out).toEqual([{ role: 'user', content: 'pink gold saree' }])
   })
 
+  it('includes interactive product / cart bodies for the model', async () => {
+    const out = await buildConversationContext(
+      fakeDb([
+        {
+          sender_type: 'customer',
+          content_text: 'send cart link',
+          content_type: 'text',
+        },
+        {
+          sender_type: 'bot',
+          content_text: 'Red Bag — 49 USD',
+          content_type: 'interactive',
+        },
+      ]),
+      'conv-1',
+    )
+    expect(out).toEqual([
+      { role: 'assistant', content: 'Red Bag — 49 USD' },
+      { role: 'user', content: 'send cart link' },
+    ])
+  })
+
   it('drops empty / whitespace-only messages', async () => {
     const out = await buildConversationContext(
       fakeDb([

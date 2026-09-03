@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   CHECKOUT_BUTTON_LABEL,
+  VIEW_CART_BUTTON_LABEL,
   cardHasCheckout,
   ctaBodyFromCard,
   firstCheckoutFromCards,
@@ -45,6 +46,15 @@ describe('stripCheckoutFromReply', () => {
       'Ithu und.',
     )
   })
+
+  it('strips View cart labels with a cart URL', () => {
+    expect(
+      stripCheckoutFromReply(
+        'View cart: https://shop.example/cart/99:1',
+        'https://shop.example/cart/99:1',
+      ),
+    ).toBe('')
+  })
 })
 
 describe('stripCheckoutUrlsFromReply', () => {
@@ -65,6 +75,13 @@ describe('CHECKOUT_BUTTON_LABEL', () => {
   it('is Checkout NOW', () => {
     expect(CHECKOUT_BUTTON_LABEL).toBe('Checkout NOW')
     expect(CHECKOUT_BUTTON_LABEL.length).toBeLessThanOrEqual(20)
+  })
+})
+
+describe('VIEW_CART_BUTTON_LABEL', () => {
+  it('is View cart', () => {
+    expect(VIEW_CART_BUTTON_LABEL).toBe('View cart')
+    expect(VIEW_CART_BUTTON_LABEL.length).toBeLessThanOrEqual(20)
   })
 })
 

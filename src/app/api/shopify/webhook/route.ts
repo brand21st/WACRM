@@ -115,6 +115,19 @@ export async function POST(request: Request) {
       console.error(`[shopify/webhook] ${topic} notification failed:`, err)
       return NextResponse.json({ error: 'Notification failed' }, { status: 500 })
     }
+    try {
+      const { syncWhatsAppOrderFromShopify } = await import(
+        '@/lib/commerce/fulfillment'
+      )
+      await syncWhatsAppOrderFromShopify({
+        db: supabase,
+        accountId: row.account_id,
+        topic,
+        body,
+      })
+    } catch (err) {
+      console.warn(`[shopify/webhook] ${topic} WhatsApp order sync failed:`, err)
+    }
   } else {
     console.info(
       `[shopify/webhook] ${topic} for ${shopDomain} (account ${row.account_id})`,

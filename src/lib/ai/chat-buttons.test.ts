@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest'
 
 import {
   buildAiChatButtons,
+  buildCartOfferButtons,
   formatButtonTapForModel,
+  lastMessageHasAction,
   WACRM_CHAT_BUTTON_IDS,
 } from './chat-buttons'
 
@@ -20,6 +22,39 @@ describe('buildAiChatButtons', () => {
       WACRM_CHAT_BUTTON_IDS.help,
       WACRM_CHAT_BUTTON_IDS.agent,
     ])
+  })
+})
+
+describe('buildCartOfferButtons', () => {
+  it('returns confirm and more-options within Meta’s 20-char limit', () => {
+    const buttons = buildCartOfferButtons()
+    expect(buttons).toEqual([
+      { id: WACRM_CHAT_BUTTON_IDS.confirmOrder, title: 'Confirm order' },
+      { id: WACRM_CHAT_BUTTON_IDS.moreOptions, title: 'Check other options' },
+    ])
+    expect(buttons.every((b) => b.title.length <= 20)).toBe(true)
+  })
+})
+
+describe('lastMessageHasAction', () => {
+  it('detects a wacrm action id in the last message', () => {
+    expect(
+      lastMessageHasAction(
+        [
+          { content: 'hello' },
+          {
+            content: '[Customer tapped "Confirm order" (action: wacrm:confirm_order)]',
+          },
+        ],
+        WACRM_CHAT_BUTTON_IDS.confirmOrder,
+      ),
+    ).toBe(true)
+    expect(
+      lastMessageHasAction(
+        [{ content: '[Customer tapped "Check other options" (action: wacrm:more_options)]' }],
+        WACRM_CHAT_BUTTON_IDS.confirmOrder,
+      ),
+    ).toBe(false)
   })
 })
 

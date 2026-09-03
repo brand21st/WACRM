@@ -1,4 +1,5 @@
 export const CHECKOUT_BUTTON_LABEL = 'Checkout NOW'
+export const VIEW_CART_BUTTON_LABEL = 'View cart'
 
 const CTA_BODY_MAX = 1024
 
@@ -54,7 +55,7 @@ export function stripCheckoutFromReply(text: string, checkoutUrl: string): strin
   if (!href) return text.trim()
   const escaped = href.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   let out = text.replace(new RegExp(escaped, 'gi'), '')
-  out = out.replace(/\b(?:Buy(?:\s+now)?|Checkout)\s*:\s*/gi, '')
+  out = out.replace(/\b(?:Buy(?:\s+now)?|Checkout|View cart)\s*:\s*/gi, '')
   out = out.replace(/[ \t]+\n/g, '\n')
   out = out.replace(/\n{3,}/g, '\n\n')
   out = out.replace(/[ \t]{2,}/g, ' ')

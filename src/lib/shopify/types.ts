@@ -31,6 +31,8 @@ export interface ShopifyProductHit {
   title: string
   description: string
   imageUrl: string | null
+  /** Extra listing angles from Shopify `images` — used for vision confirm. */
+  imageUrls?: string[]
   productUrl: string
   cartUrl: string | null
   checkoutUrl: string | null
@@ -48,6 +50,7 @@ export interface ShopifyProductCard {
   checkoutUrl: string | null
   inStock: boolean
   caption: string
+  retailerId?: string | null
 }
 
 export interface ShopifyOrderHit {

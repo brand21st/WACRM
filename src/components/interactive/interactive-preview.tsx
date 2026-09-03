@@ -1,6 +1,6 @@
 "use client";
 
-import { ExternalLink, List, Reply } from "lucide-react";
+import { ExternalLink, List, Reply, ShoppingBag } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { InteractiveMessagePayload } from "@/lib/whatsapp/interactive";
 
@@ -21,6 +21,45 @@ export function InteractivePreview({
   payload: InteractiveMessagePayload;
   className?: string;
 }) {
+  if (payload.kind === "inbound_order") {
+    return (
+      <div
+        className={cn(
+          "w-full max-w-[260px] overflow-hidden rounded-lg bg-card text-foreground shadow-sm ring-1 ring-border",
+          className,
+        )}
+      >
+        <div className="px-3 py-2">
+          <p className="mb-1 flex items-center gap-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            <ShoppingBag className="h-3 w-3" />
+            Cart
+          </p>
+          <ul className="space-y-1 text-sm">
+            {payload.items.map((item, i) => (
+              <li key={`${item.product_retailer_id}-${i}`}>
+                {(item.name || item.product_retailer_id) + ` × ${item.quantity}`}
+              </li>
+            ))}
+          </ul>
+        </div>
+      </div>
+    );
+  }
+
+  const header =
+    "header" in payload && typeof payload.header === "string"
+      ? payload.header
+      : undefined;
+  const footer =
+    "footer" in payload && typeof payload.footer === "string"
+      ? payload.footer
+      : undefined;
+  const body = "body" in payload ? payload.body : "";
+  const headerImage =
+    payload.kind === "cta_url" || payload.kind === "order_details"
+      ? payload.header_image
+      : undefined;
+
   return (
     <div
       className={cn(
@@ -29,27 +68,27 @@ export function InteractivePreview({
       )}
     >
       <div className="px-3 py-2">
-        {payload.kind === "cta_url" && payload.header_image ? (
+        {headerImage ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
-            src={payload.header_image}
+            src={headerImage}
             alt=""
             className="-mx-3 -mt-2 mb-2 h-32 w-[calc(100%+1.5rem)] object-cover"
           />
         ) : null}
-        {payload.header ? (
-          <p className="mb-1 break-words text-sm font-semibold">
-            {payload.header}
-          </p>
+        {header ? (
+          <p className="mb-1 break-words text-sm font-semibold">{header}</p>
         ) : null}
         <p className="whitespace-pre-wrap break-words text-sm">
-          {payload.body || (
+          {body ? (
+            <WhatsAppStrikeBody text={body} />
+          ) : (
             <span className="text-muted-foreground">Message body…</span>
           )}
         </p>
-        {payload.footer ? (
+        {footer ? (
           <p className="mt-1 break-words text-[11px] text-muted-foreground">
-            {payload.footer}
+            {footer}
           </p>
         ) : null}
       </div>
@@ -77,7 +116,7 @@ export function InteractivePreview({
           <ExternalLink className="h-3.5 w-3.5" />
           <span className="truncate">{payload.display_text || "Checkout NOW"}</span>
         </button>
-      ) : (
+      ) : payload.kind === "list" ? (
         <button
           type="button"
           disabled
@@ -86,7 +125,48 @@ export function InteractivePreview({
           <List className="h-3.5 w-3.5" />
           <span className="truncate">{payload.button_label || "Menu"}</span>
         </button>
-      )}
+      ) : payload.kind === "order_details" ? (
+        <button
+          type="button"
+          disabled
+          className="flex w-full items-center justify-center gap-1.5 border-t border-border py-2 text-sm font-medium text-primary"
+        >
+          <span className="truncate">Review and Pay</span>
+        </button>
+      ) : payload.kind === "order_status" ? (
+        <div className="border-t border-border px-3 py-2 text-xs text-muted-foreground">
+          {payload.status}
+        </div>
+      ) : payload.kind === "product" ||
+        payload.kind === "product_list" ||
+        payload.kind === "catalog_message" ? (
+        <button
+          type="button"
+          disabled
+          className="flex w-full items-center justify-center gap-1.5 border-t border-border py-2 text-sm font-medium text-primary"
+        >
+          <ShoppingBag className="h-3.5 w-3.5" />
+          <span className="truncate">
+            {payload.kind === "catalog_message" ? "View catalog" : "View product"}
+          </span>
+        </button>
+      ) : null}
     </div>
+  );
+}
+
+/** WhatsApp `~strike~` in interactive body text (sale compare-at on product cards). */
+function WhatsAppStrikeBody({ text }: { text: string }) {
+  const parts = text.split(/(~[^~\n]+~)/g);
+  return (
+    <>
+      {parts.map((part, i) =>
+        part.length >= 3 && part.startsWith("~") && part.endsWith("~") ? (
+          <s key={i}>{part.slice(1, -1)}</s>
+        ) : (
+          <span key={i}>{part}</span>
+        ),
+      )}
+    </>
   );
 }

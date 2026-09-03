@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
+import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { SettingsPanelHead } from './settings-panel-head';
 import { UpgradePlanBanner } from './upgrade-plan-banner';
@@ -78,6 +79,22 @@ interface ShopifyConfigResponse {
   catalog_product_count?: number;
   last_content_sync_at?: string | null;
   content_item_count?: number;
+  meta_catalog_auto_sync?: boolean;
+  last_meta_catalog_sync_at?: string | null;
+  meta_catalog_item_count?: number;
+  retailer_id_source?: string | null;
+  wa_payment_configuration_name?: string | null;
+  razorpay_key_id?: string | null;
+  has_razorpay_secret?: boolean;
+  has_razorpay_webhook_secret?: boolean;
+  ship_beneficiary?: {
+    name?: string;
+    address_line1?: string;
+    address_line2?: string;
+    city?: string;
+    state?: string;
+    postal_code?: string;
+  } | null;
 }
 
 export function ShopifyConfigPanel() {
@@ -106,11 +123,34 @@ export function ShopifyConfigPanel() {
   const [contentCount, setContentCount] = useState(0);
   const [lastContentSync, setLastContentSync] = useState<string | null>(null);
   const [installing, setInstalling] = useState(false);
+  const [savingCommerce, setSavingCommerce] = useState(false);
+  const [syncingMeta, setSyncingMeta] = useState(false);
+  const [metaCatalogAutoSync, setMetaCatalogAutoSync] = useState(false);
+  const [lastMetaSync, setLastMetaSync] = useState<string | null>(null);
+  const [metaItemCount, setMetaItemCount] = useState(0);
+  const [retailerIdSource, setRetailerIdSource] = useState('sku');
+  const [paymentConfigName, setPaymentConfigName] = useState('');
+  const [razorpayKeyId, setRazorpayKeyId] = useState('');
+  const [razorpaySecret, setRazorpaySecret] = useState('');
+  const [razorpaySecretEdited, setRazorpaySecretEdited] = useState(false);
+  const [hasRazorpaySecret, setHasRazorpaySecret] = useState(false);
+  const [razorpayWebhookSecret, setRazorpayWebhookSecret] = useState('');
+  const [razorpayWebhookEdited, setRazorpayWebhookEdited] = useState(false);
+  const [hasRazorpayWebhookSecret, setHasRazorpayWebhookSecret] = useState(false);
+  const [shipName, setShipName] = useState('');
+  const [shipAddress1, setShipAddress1] = useState('');
+  const [shipAddress2, setShipAddress2] = useState('');
+  const [shipCity, setShipCity] = useState('');
+  const [shipState, setShipState] = useState('');
+  const [shipPin, setShipPin] = useState('');
 
   const origin = siteOrigin();
   const appUrl = origin ? `${origin}/settings?tab=shopify` : '';
   const callbackUrl = origin ? `${origin}/api/shopify/oauth/callback` : '';
   const webhookUrl = origin ? `${origin}/api/shopify/webhook` : '';
+  const razorpayWebhookUrl = origin
+    ? `${origin}/api/commerce/razorpay/webhook`
+    : '';
   const scopes = SHOPIFY_PARTNER_SCOPES;
   const webhookTopics = SHOPIFY_WEBHOOK_TOPICS.join(', ');
 
@@ -141,6 +181,24 @@ export function ShopifyConfigPanel() {
     setLastSync(data.last_catalog_sync_at ?? null);
     setContentCount(data.content_item_count ?? 0);
     setLastContentSync(data.last_content_sync_at ?? null);
+    setMetaCatalogAutoSync(data.meta_catalog_auto_sync === true);
+    setLastMetaSync(data.last_meta_catalog_sync_at ?? null);
+    setMetaItemCount(data.meta_catalog_item_count ?? 0);
+    setRetailerIdSource(data.retailer_id_source || 'sku');
+    setPaymentConfigName(data.wa_payment_configuration_name ?? '');
+    setRazorpayKeyId(data.razorpay_key_id ?? '');
+    setHasRazorpaySecret(Boolean(data.has_razorpay_secret));
+    setRazorpaySecret(data.has_razorpay_secret ? MASKED_TOKEN : '');
+    setRazorpaySecretEdited(false);
+    setHasRazorpayWebhookSecret(Boolean(data.has_razorpay_webhook_secret));
+    setRazorpayWebhookSecret(data.has_razorpay_webhook_secret ? MASKED_TOKEN : '');
+    setRazorpayWebhookEdited(false);
+    setShipName(data.ship_beneficiary?.name ?? '');
+    setShipAddress1(data.ship_beneficiary?.address_line1 ?? '');
+    setShipAddress2(data.ship_beneficiary?.address_line2 ?? '');
+    setShipCity(data.ship_beneficiary?.city ?? '');
+    setShipState(data.ship_beneficiary?.state ?? '');
+    setShipPin(data.ship_beneficiary?.postal_code ?? '');
   }, []);
 
   const load = useCallback(async () => {
@@ -206,7 +264,6 @@ export function ShopifyConfigPanel() {
           client_id: clientId || null,
           access_token: tokenEdited ? accessToken : undefined,
           is_active: isActive,
-          meta_catalog_id: metaCatalogId || null,
         }),
       });
       const data = await res.json();
@@ -248,6 +305,71 @@ export function ShopifyConfigPanel() {
       toast.error(t('syncFailed'));
     } finally {
       setSyncing(false);
+    }
+  };
+
+  const saveCommerce = async () => {
+    setSavingCommerce(true);
+    try {
+      const shipFilled = [shipName, shipAddress1, shipCity, shipState, shipPin].some(
+        (v) => v.trim(),
+      );
+      const res = await fetch('/api/shopify/commerce', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          meta_catalog_id: metaCatalogId,
+          meta_catalog_auto_sync: metaCatalogAutoSync,
+          retailer_id_source: retailerIdSource,
+          wa_payment_configuration_name: paymentConfigName,
+          razorpay_key_id: razorpayKeyId,
+          razorpay_key_secret: razorpaySecretEdited ? razorpaySecret : undefined,
+          razorpay_webhook_secret: razorpayWebhookEdited
+            ? razorpayWebhookSecret
+            : undefined,
+          ship_beneficiary: shipFilled
+            ? {
+                name: shipName,
+                address_line1: shipAddress1,
+                address_line2: shipAddress2 || undefined,
+                city: shipCity,
+                state: shipState,
+                country: 'India',
+                postal_code: shipPin,
+              }
+            : null,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data.error || t('commerceSaveFailed'));
+        return;
+      }
+      applyPayload({ ...data, configured: true, has_token: true });
+      toast.success(t('commerceSaved'));
+    } catch {
+      toast.error(t('commerceSaveFailed'));
+    } finally {
+      setSavingCommerce(false);
+    }
+  };
+
+  const syncMeta = async () => {
+    setSyncingMeta(true);
+    try {
+      const res = await fetch('/api/shopify/catalog/meta-sync', { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data.error || t('metaSyncFailed'));
+        return;
+      }
+      setMetaItemCount(data.count ?? 0);
+      setLastMetaSync(data.last_meta_catalog_sync_at ?? new Date().toISOString());
+      toast.success(t('metaSynced', { count: data.count ?? 0 }));
+    } catch {
+      toast.error(t('metaSyncFailed'));
+    } finally {
+      setSyncingMeta(false);
     }
   };
 
@@ -422,16 +544,6 @@ export function ShopifyConfigPanel() {
                 />
                 <p className="text-xs text-muted-foreground">{t('accessTokenHint')}</p>
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="meta-catalog">{t('metaCatalog')}</Label>
-                <Input
-                  id="meta-catalog"
-                  placeholder={t('metaCatalogPlaceholder')}
-                  value={metaCatalogId}
-                  onChange={(e) => setMetaCatalogId(e.target.value)}
-                  disabled={disabled}
-                />
-              </div>
               <div className="flex items-center justify-between rounded-lg border p-3">
                 <div>
                   <p className="text-sm font-medium">{t('active')}</p>
@@ -505,6 +617,178 @@ export function ShopifyConfigPanel() {
               >
                 {syncing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
                 {t('sync')}
+              </Button>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">{t('commerceTitle')}</CardTitle>
+              <CardDescription>{t('commerceDesc')}</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="meta-catalog">{t('metaCatalog')}</Label>
+                <Input
+                  id="meta-catalog"
+                  placeholder={t('metaCatalogPlaceholder')}
+                  value={metaCatalogId}
+                  onChange={(e) => setMetaCatalogId(e.target.value)}
+                  disabled={disabled}
+                />
+                <p className="text-xs text-muted-foreground">{t('metaCatalogHint')}</p>
+              </div>
+              <div className="flex items-center justify-between rounded-lg border p-3">
+                <div>
+                  <p className="text-sm font-medium">{t('metaAutoSync')}</p>
+                  <p className="text-xs text-muted-foreground">{t('metaAutoSyncDesc')}</p>
+                </div>
+                <Switch
+                  checked={metaCatalogAutoSync}
+                  onCheckedChange={setMetaCatalogAutoSync}
+                  disabled={disabled}
+                />
+              </div>
+              <p className="text-sm text-muted-foreground">
+                {t('metaSyncStatus', {
+                  count: metaItemCount,
+                  synced: lastMetaSync
+                    ? new Date(lastMetaSync).toLocaleString()
+                    : t('neverSynced'),
+                })}
+              </p>
+              <Button
+                variant="secondary"
+                onClick={() => void syncMeta()}
+                disabled={disabled || !configured || syncingMeta || !metaCatalogId.trim()}
+              >
+                {syncingMeta ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                {t('metaSync')}
+              </Button>
+              <div className="space-y-2">
+                <Label htmlFor="retailer-id-source">{t('retailerIdSource')}</Label>
+                <select
+                  id="retailer-id-source"
+                  className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs"
+                  value={retailerIdSource}
+                  onChange={(e) => setRetailerIdSource(e.target.value)}
+                  disabled={disabled}
+                >
+                  <option value="sku">{t('retailerIdSku')}</option>
+                  <option value="variant_id">{t('retailerIdVariant')}</option>
+                  <option value="facebook_shopify">{t('retailerIdFacebook')}</option>
+                </select>
+                <p className="text-xs text-muted-foreground">{t('retailerIdHint')}</p>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="wa-pay-config">{t('paymentConfigName')}</Label>
+                <Input
+                  id="wa-pay-config"
+                  placeholder={t('paymentConfigPlaceholder')}
+                  value={paymentConfigName}
+                  onChange={(e) => setPaymentConfigName(e.target.value)}
+                  disabled={disabled}
+                  maxLength={60}
+                />
+                <p className="text-xs text-muted-foreground">{t('paymentConfigHint')}</p>
+              </div>
+              <p className="text-xs text-muted-foreground">{t('gatewayComingSoon')}</p>
+              <div className="space-y-2">
+                <Label htmlFor="rzp-key">{t('razorpayKeyId')}</Label>
+                <Input
+                  id="rzp-key"
+                  value={razorpayKeyId}
+                  onChange={(e) => setRazorpayKeyId(e.target.value)}
+                  disabled={disabled}
+                  autoComplete="off"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="rzp-secret">{t('razorpayKeySecret')}</Label>
+                <Input
+                  id="rzp-secret"
+                  type="password"
+                  value={razorpaySecret}
+                  onChange={(e) => {
+                    setRazorpaySecret(e.target.value);
+                    setRazorpaySecretEdited(true);
+                  }}
+                  disabled={disabled}
+                  placeholder={hasRazorpaySecret ? MASKED_TOKEN : ''}
+                />
+                <p className="text-xs text-muted-foreground">{t('razorpaySecretHint')}</p>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="rzp-wh-secret">{t('razorpayWebhookSecret')}</Label>
+                <Input
+                  id="rzp-wh-secret"
+                  type="password"
+                  value={razorpayWebhookSecret}
+                  onChange={(e) => {
+                    setRazorpayWebhookSecret(e.target.value);
+                    setRazorpayWebhookEdited(true);
+                  }}
+                  disabled={disabled}
+                  placeholder={hasRazorpayWebhookSecret ? MASKED_TOKEN : ''}
+                />
+              </div>
+              <CopyUrlField
+                label={t('razorpayWebhookUrl')}
+                value={razorpayWebhookUrl}
+                hint={t('razorpayWebhookHint')}
+                onCopy={copyToClipboard}
+                copyLabel={t('copy')}
+              />
+              <div className="space-y-2">
+                <Label>{t('shipToTitle')}</Label>
+                <p className="text-xs text-muted-foreground">{t('shipToHint')}</p>
+                <Input
+                  placeholder={t('shipName')}
+                  value={shipName}
+                  onChange={(e) => setShipName(e.target.value)}
+                  disabled={disabled}
+                />
+                <Textarea
+                  placeholder={t('shipAddress')}
+                  value={shipAddress1}
+                  onChange={(e) => setShipAddress1(e.target.value)}
+                  disabled={disabled}
+                  rows={2}
+                />
+                <Input
+                  placeholder={t('shipAddress2')}
+                  value={shipAddress2}
+                  onChange={(e) => setShipAddress2(e.target.value)}
+                  disabled={disabled}
+                />
+                <div className="grid grid-cols-2 gap-2">
+                  <Input
+                    placeholder={t('shipCity')}
+                    value={shipCity}
+                    onChange={(e) => setShipCity(e.target.value)}
+                    disabled={disabled}
+                  />
+                  <Input
+                    placeholder={t('shipState')}
+                    value={shipState}
+                    onChange={(e) => setShipState(e.target.value)}
+                    disabled={disabled}
+                  />
+                </div>
+                <Input
+                  placeholder={t('shipPin')}
+                  value={shipPin}
+                  onChange={(e) => setShipPin(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                  disabled={disabled}
+                  inputMode="numeric"
+                />
+              </div>
+              <Button
+                onClick={() => void saveCommerce()}
+                disabled={disabled || savingCommerce || !configured}
+              >
+                {savingCommerce ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                {t('commerceSave')}
               </Button>
             </CardContent>
           </Card>

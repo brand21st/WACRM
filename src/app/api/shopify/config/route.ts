@@ -20,6 +20,10 @@ import {
   unpackShopifyCredential,
 } from '@/lib/shopify/credential-storage'
 import { bootstrapShopifyCatalog } from '@/lib/shopify/bootstrap-catalog'
+import {
+  loadCommerceSettings,
+  publicCommercePayload,
+} from '@/lib/shopify/commerce-config'
 
 function bad(message: string) {
   return NextResponse.json({ error: message }, { status: 400 })
@@ -67,7 +71,7 @@ async function persistShopifyConfig(
     plaintext: string
     isActive: boolean
     clientId: string | null
-    metaCatalogId: string | null
+    metaCatalogId?: string | null
     shopName: string | null
     primaryDomain: string | null
     currency: string | null
@@ -82,8 +86,10 @@ async function persistShopifyConfig(
     shop_name: args.shopName,
     primary_domain: args.primaryDomain,
     currency: args.currency,
-    meta_catalog_id: args.metaCatalogId,
     last_verified_at: new Date().toISOString(),
+    ...(args.metaCatalogId !== undefined
+      ? { meta_catalog_id: args.metaCatalogId }
+      : {}),
   }
   const withClientId = { ...base, client_id: args.clientId }
   const withoutClientId = base
@@ -179,11 +185,16 @@ export async function GET() {
       }
     }
 
+    const commerce = await loadCommerceSettings(supabase, accountId).catch(
+      () => null,
+    )
+
     return NextResponse.json({
       configured: true,
       has_token: Boolean(access_token),
       ...safe,
       client_id: clientId,
+      ...(commerce ? publicCommercePayload(commerce) : {}),
     })
   } catch (err) {
     return toErrorResponse(err)
@@ -217,9 +228,9 @@ export async function POST(request: Request) {
 
     const isActive = body.is_active !== false
     const metaCatalogId =
-      typeof body.meta_catalog_id === 'string' && body.meta_catalog_id.trim()
-        ? body.meta_catalog_id.trim()
-        : null
+      typeof body.meta_catalog_id === 'string'
+        ? body.meta_catalog_id.trim() || null
+        : undefined
 
     const clientId =
       typeof body.client_id === 'string' && body.client_id.trim()
@@ -298,7 +309,7 @@ export async function POST(request: Request) {
       plaintext,
       isActive,
       clientId: resolvedClientId,
-      metaCatalogId,
+      ...(metaCatalogId !== undefined ? { metaCatalogId } : {}),
       shopName,
       primaryDomain,
       currency,

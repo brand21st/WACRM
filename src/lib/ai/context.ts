@@ -18,8 +18,10 @@ interface DbMessage {
  *
  * Plain-text rows always qualify. Audio rows qualify when they have a
  * transcript in `content_text`. Image rows qualify when full-agent vision
- * or a caption filled `content_text`. Other media without usable text are
- * excluded.
+ * or a caption filled `content_text`. Interactive rows (product cards,
+ * cart / checkout CTAs, reply buttons) qualify via their body text so
+ * the model can recap last-shown items. Other media without usable text
+ * are excluded.
  *
  * Ordered oldest-first (chronological) so the transcript reads
  * naturally and the most recent customer message lands last.
@@ -33,7 +35,7 @@ export async function buildConversationContext(
     .from('messages')
     .select('sender_type, content_text, content_type, interactive_reply_id')
     .eq('conversation_id', conversationId)
-    .in('content_type', ['text', 'audio', 'image'])
+    .in('content_type', ['text', 'audio', 'image', 'interactive'])
     .order('created_at', { ascending: false })
     .limit(limit)
 

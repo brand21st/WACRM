@@ -7,6 +7,10 @@ import {
   isIndicScript,
   type IndicLanguageCodes,
 } from './indic-language'
+import {
+  indicCodesForLock,
+  type ChatLanguageLock,
+} from './language-lock'
 import { generateOpenAi } from './providers/openai'
 import { generateAnthropic } from './providers/anthropic'
 
@@ -25,7 +29,10 @@ const ROMANIZED_MIX: Record<string, string> = {
 
 export function rewriteScriptStyle(
   customerText?: string | null,
+  lock?: ChatLanguageLock | null,
 ): 'native' | 'romanized' {
+  if (lock?.script === 'native') return 'native'
+  if (lock?.script === 'romanized' || lock?.script === 'latin') return 'romanized'
   return isIndicScript(customerText) ? 'native' : 'romanized'
 }
 
@@ -65,8 +72,10 @@ export function shouldRewriteSpoken(args: {
   draft: string
   handoff?: boolean
   customerText?: string | null
+  replyLanguage?: ChatLanguageLock | null
 }): IndicLanguageCodes | null {
   if (args.handoff || !args.draft.trim()) return null
+  if (args.replyLanguage) return indicCodesForLock(args.replyLanguage)
   return detectSpokenIndicTarget(args.customerText)
 }
 
@@ -79,10 +88,13 @@ export async function spokenRewrite(args: {
   draft: string
   customerText?: string | null
   language?: IndicLanguageCodes | null
+  replyLanguage?: ChatLanguageLock | null
   customerName?: string | null
 }): Promise<string> {
   const language =
-    args.language ?? detectSpokenIndicTarget(args.customerText)
+    args.language ??
+    indicCodesForLock(args.replyLanguage) ??
+    detectSpokenIndicTarget(args.customerText)
   const draft = args.draft.trim()
   if (!language || !draft) return args.draft
 
@@ -93,7 +105,7 @@ export async function spokenRewrite(args: {
     systemPrompt: rewriteSystemPrompt(
       language,
       args.customerName,
-      rewriteScriptStyle(args.customerText),
+      rewriteScriptStyle(args.customerText, args.replyLanguage),
     ),
     messages: [{ role: 'user' as const, content: draft }] satisfies ChatMessage[],
     timeoutMs,

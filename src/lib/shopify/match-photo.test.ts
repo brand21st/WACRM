@@ -10,12 +10,14 @@ const h = vi.hoisted(() => ({
   searchCatalogSnapshot: vi.fn(),
   listNewArrivals: vi.fn(),
   searchProductsLive: vi.fn(),
+  hydrateListingImages: vi.fn(async (_config: unknown, hits: unknown) => hits),
 }))
 
 vi.mock('./catalog', () => ({
   searchCatalogSnapshot: h.searchCatalogSnapshot,
   listNewArrivals: h.listNewArrivals,
   searchProductsLive: h.searchProductsLive,
+  hydrateListingImages: h.hydrateListingImages,
 }))
 
 import {
@@ -79,6 +81,14 @@ describe('photoMatchQueries', () => {
     expect(queries[0]).toBe('red leather tote')
     expect(queries).toContain('red leather')
     expect(queries).toContain('red')
+  })
+
+  it('prefers structured searchQueries from shopping vision JSON', () => {
+    const queries = photoMatchQueries(
+      '{"type":"saree","color":"red","searchQueries":["pournami red saree","red saree"]}',
+    )
+    expect(queries[0]).toBe('pournami red saree')
+    expect(queries).toContain('red saree')
   })
 })
 
@@ -244,6 +254,62 @@ describe('matchProductsFromPhoto', () => {
       STORE,
       'red leather tote with gold zipper',
     )
+    expect(hits).toEqual([])
+  })
+
+  it('vision-confirms a single catalog candidate', async () => {
+    const tote = fixtureProduct()
+    h.searchCatalogSnapshot.mockResolvedValue([tote])
+    const confirmImpl = vi.fn(async () => [tote])
+
+    const hits = await matchProductsFromPhoto(db, STORE, 'red leather tote', {
+      customerImageUrl: 'https://cdn.example/customer.jpg',
+      apiKey: 'sk-test',
+      confirmImpl,
+    })
+    expect(confirmImpl).toHaveBeenCalledWith(
+      expect.objectContaining({
+        candidates: [tote],
+      }),
+    )
+    expect(hits).toEqual([tote])
+  })
+
+  it('keeps a vision-confirmed hit even when title tokens do not overlap', async () => {
+    const saree = fixtureProduct({
+      id: 'gid://shopify/Product/8',
+      handle: 'kerala-saree',
+      title: 'കേരള സാരി',
+      description: 'handloom',
+      variants: [],
+    })
+    h.searchCatalogSnapshot.mockResolvedValue([saree])
+
+    const hits = await matchProductsFromPhoto(db, STORE, 'red cotton dress', {
+      customerImageUrl: 'https://cdn.example/customer.jpg',
+      apiKey: 'sk-test',
+      confirmImpl: async () => [saree],
+    })
+    expect(hits).toEqual([saree])
+  })
+
+  it('returns nothing when vision confirm says none match', async () => {
+    const tote = fixtureProduct()
+    const backpack = fixtureProduct({
+      id: 'gid://shopify/Product/3',
+      handle: 'red-leather-backpack',
+      title: 'Red Leather Backpack',
+      description: 'A red leather backpack',
+      imageUrl: 'https://cdn.example/backpack.jpg',
+      productUrl: 'https://shop.example/products/red-leather-backpack',
+    })
+    h.searchCatalogSnapshot.mockResolvedValue([tote, backpack])
+
+    const hits = await matchProductsFromPhoto(db, STORE, 'red leather bag', {
+      customerImageUrl: 'https://cdn.example/customer.jpg',
+      apiKey: 'sk-test',
+      confirmImpl: async () => [],
+    })
     expect(hits).toEqual([])
   })
 

@@ -22,6 +22,7 @@ export interface ShopifyGqlProduct {
   createdAt?: string | null
   publishedAt?: string | null
   featuredImage?: { url?: string | null } | null
+  images?: { nodes?: { url?: string | null }[] | null } | null
   variants?: { nodes?: ShopifyGqlVariant[] | null } | null
 }
 
@@ -45,12 +46,14 @@ export function mapGqlProduct(
     variants.find((v) => v.available) ?? variants[0] ?? null
 
   const productUrl = productPageUrl(primaryDomain, handle)
+  const imageUrls = listingImageUrls(node)
   return {
     id: node.id,
     handle,
     title,
     description: (node.description || '').trim(),
-    imageUrl: node.featuredImage?.url?.trim() || null,
+    imageUrl: node.featuredImage?.url?.trim() || imageUrls[0] || null,
+    imageUrls: imageUrls.length > 0 ? imageUrls : undefined,
     productUrl,
     cartUrl: defaultVariant
       ? cartPermalink(primaryDomain, defaultVariant.variantId)
@@ -63,6 +66,20 @@ export function mapGqlProduct(
     currency,
     variants,
   }
+}
+
+export function listingImageUrls(node: ShopifyGqlProduct): string[] {
+  const urls: string[] = []
+  const seen = new Set<string>()
+  const push = (raw?: string | null) => {
+    const url = raw?.trim()
+    if (!url || seen.has(url)) return
+    seen.add(url)
+    urls.push(url)
+  }
+  push(node.featuredImage?.url)
+  for (const img of node.images?.nodes ?? []) push(img?.url)
+  return urls
 }
 
 function mapGqlVariant(v: ShopifyGqlVariant): ShopifyVariantHit | null {

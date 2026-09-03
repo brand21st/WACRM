@@ -28,6 +28,9 @@ import {
   sendInteractiveButtons,
   sendInteractiveCtaUrl,
   sendInteractiveList,
+  sendInteractiveProduct,
+  sendInteractiveProductList,
+  sendCatalogMessage,
   type MediaKind,
 } from '@/lib/whatsapp/meta-api';
 import {
@@ -397,6 +400,44 @@ export async function sendMessageToConversation(
           contextMessageId,
         });
         return result.messageId;
+      }
+      if (p.kind === 'product') {
+        const result = await sendInteractiveProduct({
+          phoneNumberId: config.phone_number_id,
+          accessToken,
+          to: phone,
+          catalogId: p.catalog_id,
+          productRetailerId: p.product_retailer_id,
+          bodyText: p.body,
+          footerText: p.footer,
+        });
+        return result.messageId;
+      }
+      if (p.kind === 'product_list') {
+        const result = await sendInteractiveProductList({
+          phoneNumberId: config.phone_number_id,
+          accessToken,
+          to: phone,
+          catalogId: p.catalog_id,
+          headerText: p.header,
+          bodyText: p.body,
+          footerText: p.footer,
+          productRetailerIds: p.product_retailer_ids,
+        });
+        return result.messageId;
+      }
+      if (p.kind === 'catalog_message') {
+        const result = await sendCatalogMessage({
+          phoneNumberId: config.phone_number_id,
+          accessToken,
+          to: phone,
+          bodyText: p.body,
+          footerText: p.footer,
+        });
+        return result.messageId;
+      }
+      if (p.kind === 'order_details' || p.kind === 'order_status' || p.kind === 'inbound_order') {
+        throw new Error('This interactive type is sent by the commerce engine, not the composer.');
       }
       const result = await sendInteractiveList({
         phoneNumberId: config.phone_number_id,

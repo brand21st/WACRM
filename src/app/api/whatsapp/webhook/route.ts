@@ -12,10 +12,17 @@ import { runAutomationsForTrigger } from '@/lib/automations/engine'
 import { dispatchInboundToFlows } from '@/lib/flows/engine'
 import { dispatchInboundToAiReply } from '@/lib/ai/auto-reply'
 import { loadAiConfig } from '@/lib/ai/config'
+import { loadAccountPlatformFlags } from '@/lib/ai/platform-settings'
 import { describeInboundImage } from '@/lib/ai/describe-inbound-image'
 import { sendPhotoWaitAck } from '@/lib/ai/photo-wait-ack'
 import { engineSendTypingIndicator } from '@/lib/flows/meta-send'
 import { loadShopifyConfig } from '@/lib/shopify/config'
+import { handleInboundWhatsAppOrder } from '@/lib/commerce/checkout'
+import { parseInboundOrderMessage } from '@/lib/commerce/inbound-order'
+import {
+  handleWhatsAppPaymentStatus,
+  isPaymentStatus,
+} from '@/lib/commerce/payment'
 import { transcribeInboundVoiceNote } from '@/lib/ai/transcribe-inbound'
 import { enqueueVoiceInboundJob } from '@/lib/ai/voice-inbound-jobs'
 import { dispatchWebhookEvent } from '@/lib/webhooks/deliver'
@@ -80,6 +87,18 @@ interface WhatsAppMessage {
   button?: { text?: string; payload?: string }
   /** Present when the customer swipe-replies to one of our messages. */
   context?: { id: string }
+  /** Native catalog cart the customer sent from WhatsApp. */
+  order?: {
+    catalog_id?: string
+    text?: string
+    product_items?: Array<{
+      product_retailer_id?: string
+      quantity?: number
+      item_price?: number
+      currency?: string
+      name?: string
+    }>
+  }
 }
 
 interface WhatsAppWebhookEntry {
@@ -101,6 +120,17 @@ interface WhatsAppWebhookEntry {
         status: string
         timestamp: string
         recipient_id: string
+        type?: string
+        payment?: {
+          reference_id?: string
+          transaction?: {
+            id?: string
+            pg_transaction_id?: string
+            type?: string
+            status?: string
+            method?: { type?: string }
+          }
+        }
       }>
       calls?: Array<{
         id: string
@@ -289,6 +319,14 @@ async function processWebhook(body: { entry?: WhatsAppWebhookEntry[] }) {
       // Handle status updates
       if (value.statuses) {
         for (const status of value.statuses) {
+          if (isPaymentStatus(status)) {
+            await handleWhatsAppPaymentStatus({
+              db: supabaseAdmin(),
+              phoneNumberId: value.metadata.phone_number_id,
+              status,
+            })
+            continue
+          }
           await handleStatusUpdate(status)
         }
       }
@@ -337,6 +375,15 @@ async function processWebhook(body: { entry?: WhatsAppWebhookEntry[] }) {
       }
 
       const config = configRows[0]
+
+      const flags = await loadAccountPlatformFlags(config.account_id)
+      if (flags?.status === 'suspended') {
+        console.warn(
+          '[webhook] skipping inbound for suspended account',
+          config.account_id,
+        )
+        continue
+      }
 
       let decryptedAccessToken: string
       try {
@@ -697,7 +744,7 @@ async function processMessage(
     mirrorMedia ? { accountId } : null
   )
   let contentText = parsed.contentText
-  const { mediaUrl, mediaType, interactiveReplyId, mediaBuffer } = parsed
+  const { mediaUrl, mediaType, interactiveReplyId, mediaBuffer, interactivePayload } = parsed
 
   // Resolve swipe-reply context if present. A missing parent is fine —
   // we just store NULL and the UI renders the message without a quote.
@@ -728,7 +775,7 @@ async function processMessage(
   // allowed value so the INSERT doesn't fail with a constraint error.
   const ALLOWED_CONTENT_TYPES = new Set([
     'text', 'image', 'document', 'audio', 'video',
-    'location', 'template', 'interactive', 'call',
+    'location', 'template', 'interactive', 'call', 'order',
   ])
   const contentType = ALLOWED_CONTENT_TYPES.has(message.type)
     ? message.type
@@ -779,6 +826,7 @@ async function processMessage(
         // the column; null for every other content_type so existing inserts
         // behave identically.
         interactive_reply_id: interactiveReplyId,
+        interactive_payload: interactivePayload,
       },
       { onConflict: 'conversation_id,message_id', ignoreDuplicates: true }
     )
@@ -825,6 +873,19 @@ async function processMessage(
   // update above so the write can be gated on the row's CURRENT status in
   // SQL — see the helper for why that matters.
   await reopenClosedConversation(supabaseAdmin(), conversation)
+
+  if (message.type === 'order') {
+    await handleInboundWhatsAppOrder({
+      db: supabaseAdmin(),
+      accountId,
+      userId: configOwnerUserId,
+      conversationId: conversation.id,
+      contactId: contactRecord.id,
+      contactPhone: contactRecord.phone ?? senderPhone,
+      contactName: contactRecord.name ?? contactName,
+      message,
+    })
+  }
 
   // Speech-to-text + spoken auto-reply run off this request via
   // `voice_inbound_jobs` (GET /api/voice/cron). Holding Meta's webhook
@@ -1076,6 +1137,7 @@ async function processMessage(
         ? 'image'
         : 'text'
   const shouldAiReply =
+    contentType !== 'order' &&
     !queuedVoice &&
     aiConfig?.autoReplyEnabled &&
     inboundText.trim() &&
@@ -1133,6 +1195,7 @@ async function parseMessageContent(
    * tap with the right affordance. Null for everything else.
    */
   interactiveReplyId: string | null
+  interactivePayload?: Record<string, unknown> | null
   /** Inbound audio bytes from the mirror download, reused for STT. */
   mediaBuffer: Buffer | null
 }> {
@@ -1343,6 +1406,22 @@ async function parseMessageContent(
         ...empty,
         contentText: label || payload,
         interactiveReplyId: payload || label,
+      }
+    }
+
+    case 'order': {
+      const parsed = parseInboundOrderMessage(message)
+      if (!parsed) {
+        return { ...empty, contentText: '[Cart]' }
+      }
+      return {
+        ...empty,
+        contentText: parsed.previewText,
+        interactivePayload: {
+          kind: 'inbound_order',
+          catalog_id: parsed.catalog_id ?? undefined,
+          items: parsed.items,
+        },
       }
     }
 

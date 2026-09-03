@@ -37,11 +37,46 @@ describe('live AI customer memory', () => {
       thread: [{ role: 'customer', text: 'Need the black bag' }],
       recall: [{ role: 'customer', text: 'Need the black bag' }],
       languageHint: 'Malayalam',
+      replyLanguage: {
+        code: 'ml',
+        name: 'Malayalam',
+        script: 'native',
+        locked: true,
+      },
     })
     expect(block).toContain('Prefers WhatsApp, VIP')
     expect(block).toContain('Customer: Need the black bag')
-    expect(block).toContain('speaking Malayalam')
+    expect(block).toContain('Locked reply language: Malayalam')
     expect(block).toContain('do not re-ask')
+  })
+
+  it('includes stored chat-session profile', () => {
+    const block = formatLiveAiMemoryBlock({
+      notes: [],
+      thread: [],
+      recall: [],
+      languageHint: null,
+      stored: {
+        profileSummary: 'Wants a black tote',
+        lastSessionSummary: 'Asked about stock yesterday',
+        facts: {
+          intent: 'buy',
+          products: ['black tote'],
+          preferences: [],
+          language: 'English',
+          language_code: 'en',
+          language_script: 'latin',
+          language_locked: true,
+          open_questions: [],
+        },
+        notes: [],
+        summarizedThroughAt: null,
+        messageCountAtSummary: 4,
+        conversationId: 'c1',
+      },
+    })
+    expect(block).toContain('Wants a black tote')
+    expect(block).toContain('Asked about stock yesterday')
   })
 
   it('searches notes and older recall lines', () => {

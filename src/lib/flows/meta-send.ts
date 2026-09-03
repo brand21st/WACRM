@@ -2,12 +2,18 @@ import {
   sendInteractiveButtons,
   sendInteractiveCtaUrl,
   sendInteractiveList,
+  sendInteractiveProduct,
+  sendInteractiveProductList,
+  sendCatalogMessage,
+  sendOrderDetailsMessage,
+  sendOrderStatusMessage,
   sendMediaMessage,
   sendTextMessage,
   sendTypingIndicator,
   type InteractiveButton,
   type InteractiveListSection,
   type MediaKind,
+  type WhatsAppOrderStatus,
 } from '@/lib/whatsapp/meta-api'
 import type { InteractiveMessagePayload } from '@/lib/whatsapp/interactive'
 import { decrypt } from '@/lib/whatsapp/encryption'
@@ -357,10 +363,105 @@ export async function engineSendCtaUrl(
   return sendInteractiveViaMeta({ ...args, kind: 'cta_url' })
 }
 
+interface SendInteractiveProductEngineArgs {
+  accountId: string
+  userId: string
+  conversationId: string
+  contactId: string
+  catalogId: string
+  productRetailerId: string
+  bodyText: string
+  footerText?: string
+  aiGenerated?: boolean
+}
+
+export async function engineSendProduct(
+  args: SendInteractiveProductEngineArgs,
+): Promise<{ whatsapp_message_id: string }> {
+  return sendInteractiveViaMeta({ ...args, kind: 'product' })
+}
+
+interface SendInteractiveProductListEngineArgs {
+  accountId: string
+  userId: string
+  conversationId: string
+  contactId: string
+  catalogId: string
+  headerText: string
+  bodyText: string
+  footerText?: string
+  productRetailerIds: string[]
+  aiGenerated?: boolean
+}
+
+export async function engineSendProductList(
+  args: SendInteractiveProductListEngineArgs,
+): Promise<{ whatsapp_message_id: string }> {
+  return sendInteractiveViaMeta({ ...args, kind: 'product_list' })
+}
+
+interface SendCatalogMessageEngineArgs {
+  accountId: string
+  userId: string
+  conversationId: string
+  contactId: string
+  bodyText: string
+  footerText?: string
+  aiGenerated?: boolean
+}
+
+export async function engineSendCatalogMessage(
+  args: SendCatalogMessageEngineArgs,
+): Promise<{ whatsapp_message_id: string }> {
+  return sendInteractiveViaMeta({ ...args, kind: 'catalog_message' })
+}
+
+interface SendOrderDetailsEngineArgs {
+  accountId: string
+  userId: string
+  conversationId: string
+  contactId: string
+  bodyText: string
+  footerText?: string
+  referenceId: string
+  catalogId?: string
+  interactive: Record<string, unknown>
+  aiGenerated?: boolean
+}
+
+export async function engineSendOrderDetails(
+  args: SendOrderDetailsEngineArgs,
+): Promise<{ whatsapp_message_id: string }> {
+  return sendInteractiveViaMeta({ ...args, kind: 'order_details' })
+}
+
+interface SendOrderStatusEngineArgs {
+  accountId: string
+  userId: string
+  conversationId: string
+  contactId: string
+  bodyText: string
+  referenceId: string
+  status: WhatsAppOrderStatus
+  description?: string
+  aiGenerated?: boolean
+}
+
+export async function engineSendOrderStatus(
+  args: SendOrderStatusEngineArgs,
+): Promise<{ whatsapp_message_id: string }> {
+  return sendInteractiveViaMeta({ ...args, kind: 'order_status' })
+}
+
 type SendInput =
   | (SendInteractiveButtonsEngineArgs & { kind: 'buttons' })
   | (SendInteractiveListEngineArgs & { kind: 'list' })
   | (SendInteractiveCtaUrlEngineArgs & { kind: 'cta_url' })
+  | (SendInteractiveProductEngineArgs & { kind: 'product' })
+  | (SendInteractiveProductListEngineArgs & { kind: 'product_list' })
+  | (SendCatalogMessageEngineArgs & { kind: 'catalog_message' })
+  | (SendOrderDetailsEngineArgs & { kind: 'order_details' })
+  | (SendOrderStatusEngineArgs & { kind: 'order_status' })
 
 async function sendInteractiveViaMeta(
   input: SendInput,
@@ -420,6 +521,62 @@ async function sendInteractiveViaMeta(
         headerText: input.headerText,
         footerText: input.footerText,
         headerImageUrl: input.headerImageUrl,
+      })
+      return r.messageId
+    }
+    if (input.kind === 'product') {
+      const r = await sendInteractiveProduct({
+        phoneNumberId: config.phone_number_id,
+        accessToken,
+        to: phone,
+        catalogId: input.catalogId,
+        productRetailerId: input.productRetailerId,
+        bodyText: input.bodyText,
+        footerText: input.footerText,
+      })
+      return r.messageId
+    }
+    if (input.kind === 'product_list') {
+      const r = await sendInteractiveProductList({
+        phoneNumberId: config.phone_number_id,
+        accessToken,
+        to: phone,
+        catalogId: input.catalogId,
+        headerText: input.headerText,
+        bodyText: input.bodyText,
+        footerText: input.footerText,
+        productRetailerIds: input.productRetailerIds,
+      })
+      return r.messageId
+    }
+    if (input.kind === 'catalog_message') {
+      const r = await sendCatalogMessage({
+        phoneNumberId: config.phone_number_id,
+        accessToken,
+        to: phone,
+        bodyText: input.bodyText,
+        footerText: input.footerText,
+      })
+      return r.messageId
+    }
+    if (input.kind === 'order_details') {
+      const r = await sendOrderDetailsMessage({
+        phoneNumberId: config.phone_number_id,
+        accessToken,
+        to: phone,
+        interactive: input.interactive,
+      })
+      return r.messageId
+    }
+    if (input.kind === 'order_status') {
+      const r = await sendOrderStatusMessage({
+        phoneNumberId: config.phone_number_id,
+        accessToken,
+        to: phone,
+        referenceId: input.referenceId,
+        status: input.status,
+        bodyText: input.bodyText,
+        description: input.description,
       })
       return r.messageId
     }
@@ -491,14 +648,52 @@ async function sendInteractiveViaMeta(
             url: input.url,
             header_image: input.headerImageUrl,
           }
-        : {
-            kind: 'list',
-            body: input.bodyText,
-            header: input.headerText,
-            footer: input.footerText,
-            button_label: input.buttonLabel,
-            sections: input.sections,
-          }
+        : input.kind === 'product'
+          ? {
+              kind: 'product',
+              body: input.bodyText,
+              footer: input.footerText,
+              catalog_id: input.catalogId,
+              product_retailer_id: input.productRetailerId,
+            }
+          : input.kind === 'product_list'
+            ? {
+                kind: 'product_list',
+                body: input.bodyText,
+                header: input.headerText,
+                footer: input.footerText,
+                catalog_id: input.catalogId,
+                product_retailer_ids: input.productRetailerIds,
+              }
+            : input.kind === 'catalog_message'
+              ? {
+                  kind: 'catalog_message',
+                  body: input.bodyText,
+                  footer: input.footerText,
+                }
+              : input.kind === 'order_details'
+                ? {
+                    kind: 'order_details',
+                    body: input.bodyText,
+                    footer: input.footerText,
+                    reference_id: input.referenceId,
+                    catalog_id: input.catalogId,
+                  }
+                : input.kind === 'order_status'
+                  ? {
+                      kind: 'order_status',
+                      body: input.bodyText,
+                      reference_id: input.referenceId,
+                      status: input.status,
+                    }
+                  : {
+                      kind: 'list',
+                      body: input.bodyText,
+                      header: input.headerText,
+                      footer: input.footerText,
+                      button_label: input.buttonLabel,
+                      sections: input.sections,
+                    }
 
   const { error: msgErr } = await db.from('messages').insert({
     conversation_id: input.conversationId,

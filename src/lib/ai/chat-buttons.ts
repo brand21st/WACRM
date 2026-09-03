@@ -6,6 +6,8 @@ export const WACRM_CHAT_BUTTON_IDS = {
   orders: 'wacrm:orders',
   agent: 'wacrm:agent',
   help: 'wacrm:help',
+  confirmOrder: 'wacrm:confirm_order',
+  moreOptions: 'wacrm:more_options',
 } as const
 
 /**
@@ -23,6 +25,22 @@ export function buildAiChatButtons(shopifyConnected: boolean): InteractiveButton
     { id: WACRM_CHAT_BUTTON_IDS.help, title: 'Get help' },
     { id: WACRM_CHAT_BUTTON_IDS.agent, title: 'Talk to agent' },
   ]
+}
+
+/** Confirm / browse-more buttons on cart-offer turns (max 20 chars each). */
+export function buildCartOfferButtons(): InteractiveButton[] {
+  return [
+    { id: WACRM_CHAT_BUTTON_IDS.confirmOrder, title: 'Confirm order' },
+    { id: WACRM_CHAT_BUTTON_IDS.moreOptions, title: 'Check other options' },
+  ]
+}
+
+export function lastMessageHasAction(
+  messages: { content: string }[],
+  actionId: string,
+): boolean {
+  const last = messages[messages.length - 1]?.content
+  return Boolean(last?.includes(actionId))
 }
 
 export function formatButtonTapForModel(

@@ -285,6 +285,37 @@ describe('generateReply — spoken rewrite', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
+  it('rewrites using the locked language even when the last turn is English', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        okResponse({
+          choices: [{ message: { content: 'stiff formal draft' } }],
+        }),
+      )
+      .mockResolvedValueOnce(
+        okResponse({
+          choices: [{ message: { content: 'spoken shop line' } }],
+        }),
+      )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const res = await generateReply({
+      config: config({ provider: 'openai' }),
+      systemPrompt: 'sys',
+      messages: [{ role: 'user', content: 'Do you have this dress in red?' }],
+      replyLanguage: {
+        code: 'ml',
+        name: 'Malayalam',
+        script: 'romanized',
+        locked: true,
+      },
+    })
+
+    expect(res.text).toBe('spoken shop line')
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
   it('keeps the draft when the spoken rewrite fails', async () => {
     const fetchMock = vi
       .fn()

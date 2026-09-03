@@ -16,6 +16,8 @@ export interface SpeechToTextArgs {
   audio: Uint8Array | ArrayBuffer | Buffer
   mimeType: string
   fileName?: string
+  /** ISO 639-1. Omit to let Scribe auto-detect. */
+  languageCode?: string
   timeoutMs?: number
   fetchImpl?: typeof fetch
 }
@@ -62,6 +64,8 @@ export async function speechToText(args: SpeechToTextArgs): Promise<string> {
     new Blob([Buffer.from(bytes)], { type: mime! }),
     fileName,
   )
+  const languageCode = args.languageCode?.trim()
+  if (languageCode) form.append('language_code', languageCode)
 
   const timeoutMs = args.timeoutMs ?? elevenLabsTimeoutMs()
   const fetchImpl = args.fetchImpl ?? fetch

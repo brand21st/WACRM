@@ -1478,3 +1478,271 @@ export async function callAction(args: CallActionArgs): Promise<void> {
     await throwMetaError(response, `Meta calling API error: ${response.status}`)
   }
 }
+
+async function postWhatsAppMessage(
+  phoneNumberId: string,
+  accessToken: string,
+  body: Record<string, unknown>,
+): Promise<MetaSendResult> {
+  const response = await fetch(`${META_API_BASE}/${phoneNumberId}/messages`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify(body),
+  })
+  if (!response.ok) {
+    await throwMetaError(response, `Meta API error: ${response.status}`)
+  }
+  const data = (await response.json()) as { messages?: { id: string }[] }
+  const messageId = data.messages?.[0]?.id
+  if (!messageId) throw new Error('Meta API returned no message id')
+  return { messageId }
+}
+
+export interface SendInteractiveProductArgs {
+  phoneNumberId: string
+  accessToken: string
+  to: string
+  catalogId: string
+  productRetailerId: string
+  bodyText: string
+  footerText?: string
+}
+
+export async function sendInteractiveProduct(
+  args: SendInteractiveProductArgs,
+): Promise<MetaSendResult> {
+  validateInteractiveBody(args.bodyText)
+  const catalogId = args.catalogId.trim()
+  const productRetailerId = args.productRetailerId.trim()
+  if (!catalogId || !productRetailerId) {
+    throw new Error('Native product messages need catalog_id and product_retailer_id')
+  }
+  const interactive: Record<string, unknown> = {
+    type: 'product',
+    body: { text: args.bodyText },
+    action: {
+      catalog_id: catalogId,
+      product_retailer_id: productRetailerId,
+    },
+  }
+  if (args.footerText?.trim()) interactive.footer = { text: args.footerText.trim() }
+  return postWhatsAppMessage(args.phoneNumberId, args.accessToken, {
+    messaging_product: 'whatsapp',
+    recipient_type: 'individual',
+    to: args.to,
+    type: 'interactive',
+    interactive,
+  })
+}
+
+export interface SendInteractiveProductListArgs {
+  phoneNumberId: string
+  accessToken: string
+  to: string
+  catalogId: string
+  headerText: string
+  bodyText: string
+  footerText?: string
+  productRetailerIds: string[]
+  sectionTitle?: string
+}
+
+export async function sendInteractiveProductList(
+  args: SendInteractiveProductListArgs,
+): Promise<MetaSendResult> {
+  validateInteractiveBody(args.bodyText)
+  const header = args.headerText.trim()
+  if (!header) throw new Error('product_list messages need a header')
+  const catalogId = args.catalogId.trim()
+  const ids = [...new Set(args.productRetailerIds.map((id) => id.trim()).filter(Boolean))]
+  if (!catalogId || ids.length === 0) {
+    throw new Error('product_list needs catalog_id and at least one retailer id')
+  }
+  const interactive: Record<string, unknown> = {
+    type: 'product_list',
+    header: { type: 'text', text: header.slice(0, INTERACTIVE_LIMITS.headerTextMaxLength) },
+    body: { text: args.bodyText },
+    action: {
+      catalog_id: catalogId,
+      sections: [
+        {
+          title: (args.sectionTitle || 'Products').slice(0, 24),
+          product_items: ids.slice(0, 30).map((id) => ({ product_retailer_id: id })),
+        },
+      ],
+    },
+  }
+  if (args.footerText?.trim()) interactive.footer = { text: args.footerText.trim() }
+  return postWhatsAppMessage(args.phoneNumberId, args.accessToken, {
+    messaging_product: 'whatsapp',
+    recipient_type: 'individual',
+    to: args.to,
+    type: 'interactive',
+    interactive,
+  })
+}
+
+export async function sendCatalogMessage(args: {
+  phoneNumberId: string
+  accessToken: string
+  to: string
+  bodyText: string
+  footerText?: string
+}): Promise<MetaSendResult> {
+  validateInteractiveBody(args.bodyText)
+  const interactive: Record<string, unknown> = {
+    type: 'catalog_message',
+    body: { text: args.bodyText },
+    action: { name: 'catalog' },
+  }
+  if (args.footerText?.trim()) interactive.footer = { text: args.footerText.trim() }
+  return postWhatsAppMessage(args.phoneNumberId, args.accessToken, {
+    messaging_product: 'whatsapp',
+    recipient_type: 'individual',
+    to: args.to,
+    type: 'interactive',
+    interactive,
+  })
+}
+
+export async function sendOrderDetailsMessage(args: {
+  phoneNumberId: string
+  accessToken: string
+  to: string
+  interactive: Record<string, unknown>
+}): Promise<MetaSendResult> {
+  return postWhatsAppMessage(args.phoneNumberId, args.accessToken, {
+    messaging_product: 'whatsapp',
+    recipient_type: 'individual',
+    to: args.to,
+    type: 'interactive',
+    interactive: args.interactive,
+  })
+}
+
+export const ORDER_STATUS_VALUES = [
+  'processing',
+  'partially_shipped',
+  'shipped',
+  'completed',
+  'canceled',
+] as const
+
+export type WhatsAppOrderStatus = (typeof ORDER_STATUS_VALUES)[number]
+
+export async function sendOrderStatusMessage(args: {
+  phoneNumberId: string
+  accessToken: string
+  to: string
+  referenceId: string
+  status: WhatsAppOrderStatus
+  bodyText: string
+  description?: string
+}): Promise<MetaSendResult> {
+  validateInteractiveBody(args.bodyText)
+  if (!ORDER_STATUS_VALUES.includes(args.status)) {
+    throw new Error(`Unsupported order_status "${args.status}"`)
+  }
+  const order: Record<string, unknown> = { status: args.status }
+  if (args.description?.trim()) {
+    order.description = args.description.trim().slice(0, 120)
+  }
+  return postWhatsAppMessage(args.phoneNumberId, args.accessToken, {
+    messaging_product: 'whatsapp',
+    recipient_type: 'individual',
+    to: args.to,
+    type: 'interactive',
+    interactive: {
+      type: 'order_status',
+      body: { text: args.bodyText },
+      action: {
+        name: 'review_order',
+        parameters: {
+          reference_id: args.referenceId,
+          order,
+        },
+      },
+    },
+  })
+}
+
+export interface PaymentLookupResult {
+  reference_id: string
+  status: 'pending' | 'captured'
+  transactions: Array<{
+    id?: string
+    pg_transaction_id?: string
+    type?: string
+    status?: string
+    method?: { type?: string }
+  }>
+}
+
+export async function lookupWhatsAppPayment(args: {
+  phoneNumberId: string
+  accessToken: string
+  configurationName: string
+  referenceId: string
+}): Promise<PaymentLookupResult | null> {
+  const config = encodeURIComponent(args.configurationName.trim())
+  const ref = encodeURIComponent(args.referenceId.trim())
+  const url = `${META_API_BASE}/${args.phoneNumberId}/payments/${config}/${ref}`
+  const response = await fetch(url, {
+    headers: { Authorization: `Bearer ${args.accessToken}` },
+  })
+  if (!response.ok) {
+    await throwMetaError(response, `Payment lookup failed (${response.status})`)
+  }
+  const data = (await response.json()) as {
+    payments?: Array<Record<string, unknown>>
+  }
+  const payment = data.payments?.[0]
+  if (!payment) return null
+  const status = payment.status === 'captured' ? 'captured' : 'pending'
+  const transactions = Array.isArray(payment.transactions)
+    ? (payment.transactions as PaymentLookupResult['transactions'])
+    : []
+  return {
+    reference_id: String(payment.reference_id ?? args.referenceId),
+    status,
+    transactions,
+  }
+}
+
+export async function refundWhatsAppPayment(args: {
+  phoneNumberId: string
+  accessToken: string
+  referenceId: string
+  paymentConfigId: string
+  valuePaise: number
+  speed?: 'normal' | 'instant'
+}): Promise<{ id: string; status: string }> {
+  const response = await fetch(
+    `${META_API_BASE}/${args.phoneNumberId}/payments_refund`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${args.accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        reference_id: args.referenceId,
+        speed: args.speed ?? 'normal',
+        payment_config_id: args.paymentConfigId,
+        amount: {
+          currency: 'INR',
+          value: String(Math.max(1, Math.round(args.valuePaise))),
+          offset: '100',
+        },
+      }),
+    },
+  )
+  if (!response.ok) {
+    await throwMetaError(response, `Refund failed (${response.status})`)
+  }
+  const data = (await response.json()) as { id?: string; status?: string }
+  return { id: data.id ?? '', status: data.status ?? 'pending' }
+}

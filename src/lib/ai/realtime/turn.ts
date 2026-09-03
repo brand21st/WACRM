@@ -6,6 +6,9 @@ import { effectiveRealtimeVoice } from './voices'
 /** Cheaper Realtime model for WhatsApp one-shot turns. Override with AI_REALTIME_MODEL. */
 export const DEFAULT_REALTIME_MODEL = 'gpt-realtime-2.1-mini'
 
+/** Reasoning voice model for inbound Live AI WhatsApp calls. Override with AI_LIVE_CALL_REALTIME_MODEL. */
+export const DEFAULT_LIVE_CALL_REALTIME_MODEL = 'gpt-realtime-2.1'
+
 /** PCM16 mono sample rate Realtime emits for audio/pcm. */
 export const REALTIME_PCM_SAMPLE_RATE = 24_000
 
@@ -15,6 +18,11 @@ export const REALTIME_TURN_TIMEOUT_MS = 45_000
 export function realtimeModelId(): string {
   const raw = process.env.AI_REALTIME_MODEL?.trim()
   return raw || DEFAULT_REALTIME_MODEL
+}
+
+export function liveCallRealtimeModelId(): string {
+  const raw = process.env.AI_LIVE_CALL_REALTIME_MODEL?.trim()
+  return raw || DEFAULT_LIVE_CALL_REALTIME_MODEL
 }
 
 export interface RealtimeTurnArgs {

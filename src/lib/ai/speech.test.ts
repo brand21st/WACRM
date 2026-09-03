@@ -66,6 +66,27 @@ describe('speech dispatch', () => {
     expect(h.sarvamStt).not.toHaveBeenCalled()
   })
 
+  it('forwards an ElevenLabs STT hint only when provided', async () => {
+    await transcribeSpeech({
+      config: config(),
+      audio: AUDIO,
+      mimeType: 'audio/ogg',
+    })
+    expect(h.elevenLabsStt).toHaveBeenCalledWith(
+      expect.not.objectContaining({ languageCode: expect.anything() }),
+    )
+
+    await transcribeSpeech({
+      config: config(),
+      audio: AUDIO,
+      mimeType: 'audio/ogg',
+      languageHint: 'ml',
+    })
+    expect(h.elevenLabsStt).toHaveBeenLastCalledWith(
+      expect.objectContaining({ languageCode: 'ml' }),
+    )
+  })
+
   it('transcribes with Sarvam when voice_provider is sarvam', async () => {
     const text = await transcribeSpeech({
       config: config({
@@ -78,6 +99,24 @@ describe('speech dispatch', () => {
     expect(text).toBe('namaste from sarvam')
     expect(h.sarvamStt).toHaveBeenCalled()
     expect(h.elevenLabsStt).not.toHaveBeenCalled()
+    expect(h.sarvamStt).toHaveBeenCalledWith(
+      expect.objectContaining({ languageCode: 'unknown' }),
+    )
+  })
+
+  it('maps a locked ISO hint to a Sarvam BCP-47 code', async () => {
+    await transcribeSpeech({
+      config: config({
+        voiceProvider: 'sarvam',
+        sarvamApiKey: 'sv-test',
+      }),
+      audio: AUDIO,
+      mimeType: 'audio/ogg',
+      languageHint: 'ml',
+    })
+    expect(h.sarvamStt).toHaveBeenCalledWith(
+      expect.objectContaining({ languageCode: 'ml-IN' }),
+    )
   })
 
   it('synthesises with ElevenLabs by default', async () => {

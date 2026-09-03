@@ -28,7 +28,7 @@ const STOP = new Set([
 export function tokensFromDescription(description: string): string[] {
   return description
     .toLowerCase()
-    .replace(/[^a-z0-9\s-]/g, ' ')
+    .replace(/[^\p{L}\p{M}\p{N}\s-]/gu, ' ')
     .split(/\s+/)
     .filter((t) => t.length >= 2 && !STOP.has(t))
 }

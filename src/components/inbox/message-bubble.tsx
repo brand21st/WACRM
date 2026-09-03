@@ -181,6 +181,16 @@ function MessageContent({
         </div>
       );
 
+    case "order":
+      if (message.interactive_payload) {
+        return <InteractivePreview payload={message.interactive_payload} />;
+      }
+      return (
+        <p className="whitespace-pre-wrap break-words text-sm">
+          {message.content_text || t("unsupported")}
+        </p>
+      );
+
     case "call": {
       const parsed = parseCallPreview(message.content_text);
       const status = parsed?.status ?? "missed";

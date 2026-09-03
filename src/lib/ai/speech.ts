@@ -23,6 +23,7 @@ import {
   isIndicScript,
 } from './indic-language'
 import { prepareIndicSpeechText } from './speech-text'
+import { sarvamCodeFromIso } from './language-lock'
 import { DEFAULT_SARVAM_PACE } from './voice'
 
 const INDIC_SARVAM_PACE = 0.9
@@ -32,6 +33,11 @@ export interface TranscribeArgs {
   audio: Uint8Array | ArrayBuffer | Buffer
   mimeType: string
   fileName?: string
+  /**
+   * ISO 639-1 from a hard language lock. Omit on the first turn so STT
+   * auto-detects. Never pass a soft cron guess.
+   */
+  languageHint?: string | null
 }
 
 export interface SynthesizeArgs {
@@ -66,13 +72,14 @@ export function canSpeak(config: AiConfig): boolean {
 
 export async function transcribeSpeech(args: TranscribeArgs): Promise<string> {
   const { config } = args
+  const hint = args.languageHint?.trim() || ''
   if (config.voiceProvider === 'sarvam' && config.sarvamApiKey) {
     return sarvamStt({
       apiKey: config.sarvamApiKey,
       audio: args.audio,
       mimeType: args.mimeType,
       fileName: args.fileName,
-      languageCode: 'unknown',
+      languageCode: hint ? sarvamCodeFromIso(hint) : 'unknown',
     })
   }
   return elevenLabsStt({
@@ -80,6 +87,7 @@ export async function transcribeSpeech(args: TranscribeArgs): Promise<string> {
     audio: args.audio,
     mimeType: args.mimeType,
     fileName: args.fileName,
+    ...(hint ? { languageCode: hint } : {}),
   })
 }
 

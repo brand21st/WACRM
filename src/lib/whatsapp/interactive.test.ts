@@ -139,6 +139,39 @@ const validCta: InteractiveCtaUrlPayload = {
   url: 'https://shop.example/cart/99:1?checkout',
 }
 
+describe('validateInteractivePayload — product catalog', () => {
+  it('accepts product and product_list', () => {
+    expect(
+      validateInteractivePayload({
+        kind: 'product',
+        body: 'Red Bag',
+        catalog_id: '111',
+        product_retailer_id: 'BAG-RED',
+      }),
+    ).toEqual({ ok: true })
+    expect(
+      validateInteractivePayload({
+        kind: 'product_list',
+        body: 'Take a look',
+        header: 'Products',
+        catalog_id: '111',
+        product_retailer_ids: ['BAG-RED', 'BAG-BLUE'],
+      }),
+    ).toEqual({ ok: true })
+  })
+
+  it('rejects a product without catalog ids', () => {
+    expect(
+      validateInteractivePayload({
+        kind: 'product',
+        body: 'Red Bag',
+        catalog_id: '',
+        product_retailer_id: '',
+      }).ok,
+    ).toBe(false)
+  })
+})
+
 describe('validateInteractivePayload — cta_url', () => {
   it('accepts a checkout CTA', () => {
     expect(validateInteractivePayload(validCta)).toEqual({ ok: true })

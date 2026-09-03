@@ -95,13 +95,28 @@ describe('buildSystemPrompt', () => {
     expect(prompt).toMatch(/delivery time/i)
     expect(prompt).toMatch(/customer-facing answer must still be in the customer/i)
     expect(prompt).toMatch(/Shopify is connected/)
-    expect(prompt).toMatch(/Checkout NOW button is sent separately/)
-    expect(prompt).toMatch(/Do not paste checkout or Buy now URLs/)
-    expect(prompt).toMatch(/Product cards sent in chat already list variants/)
+    expect(prompt).toMatch(/Checkout NOW button and View cart button are sent separately/)
+    expect(prompt).toMatch(/Do not paste checkout, cart, or Buy now URLs/)
+    expect(prompt).toMatch(/call offer_cart/)
+    expect(prompt).toMatch(/wacrm:confirm_order/)
+    expect(prompt).toMatch(/wacrm:more_options/)
+    expect(prompt).toMatch(/Product cards sent in chat already list in-stock variants/)
     expect(prompt).toMatch(/matching variants from tool results/)
     expect(prompt).not.toMatch(/Do not mention Shopify/)
     expect(prompt).not.toMatch(/can’t find live products|can't find live products/)
     expect(prompt).not.toMatch(/This is their first message/)
+  })
+
+  it('tells the model to use native WhatsApp cart when commerce is on', () => {
+    const prompt = buildSystemPrompt({
+      userPrompt: null,
+      mode: 'auto_reply',
+      shopify: true,
+      nativeCommerce: true,
+    })
+    expect(prompt).toMatch(/Add to cart/)
+    expect(prompt).toMatch(/Send order/)
+    expect(prompt).not.toMatch(/Checkout NOW button and View cart button are sent separately/)
   })
 
   it('requires a named shop welcome on the first Shopify inbound', () => {
@@ -149,6 +164,66 @@ describe('buildSystemPrompt', () => {
     expect(prompt).toMatch(/Mid-conversation: just answer/)
     expect(prompt).not.toMatch(/This is their first message/)
     expect(prompt).not.toMatch(/MUST open with a short welcome/)
+  })
+
+  it('injects prior chat memory and tells the model not to re-ask or recite it', () => {
+    const prompt = buildSystemPrompt({
+      userPrompt: null,
+      mode: 'auto_reply',
+      customerMemory: 'Profile: Wants Pournami Red. Last session: Asked for size M.',
+    })
+    expect(prompt).toMatch(/Customer memory from prior chats/)
+    expect(prompt).toMatch(/Wants Pournami Red/)
+    expect(prompt).toMatch(/Do not re-ask/)
+    expect(prompt).toMatch(/Do not recite this dump/)
+    expect(prompt).toMatch(/untrusted/)
+  })
+
+  it('omits the memory block when none is stored', () => {
+    const prompt = buildSystemPrompt({
+      userPrompt: null,
+      mode: 'auto_reply',
+    })
+    expect(prompt).not.toMatch(/Customer memory from prior chats/)
+  })
+
+  it('locks the reply language until the customer asks to switch', () => {
+    const prompt = buildSystemPrompt({
+      userPrompt: null,
+      mode: 'auto_reply',
+      replyLanguage: {
+        code: 'ml',
+        name: 'Malayalam',
+        script: 'native',
+        locked: true,
+      },
+    })
+    expect(prompt).toMatch(/Locked reply language: Malayalam \(native script\)/)
+    expect(prompt).toMatch(/not a language change/)
+    expect(prompt).toMatch(/Only switch if they clearly ask/)
+  })
+
+  it('names a vision-matched product without asking for Buy URLs', () => {
+    const prompt = buildSystemPrompt({
+      userPrompt: null,
+      mode: 'auto_reply',
+      shopify: true,
+      photoMatches: [
+        {
+          title: 'Red Bag',
+          priceMin: '49',
+          priceMax: '49',
+          currency: 'USD',
+          productUrl: 'https://shop.example/products/red-bag',
+          checkoutUrl: 'https://shop.example/cart/99:1?checkout',
+        },
+      ],
+    })
+    expect(prompt).toMatch(/Vision already matched this photo/)
+    expect(prompt).toMatch(/Red Bag \(49 USD\)/)
+    expect(prompt).toMatch(/Checkout NOW is sent separately/)
+    expect(prompt).not.toMatch(/Include the View\/Buy/)
+    expect(prompt).not.toMatch(/Buy: https/)
   })
 
   it('does not add a shop welcome when Shopify is off', () => {

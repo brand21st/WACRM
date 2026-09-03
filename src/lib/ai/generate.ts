@@ -9,6 +9,7 @@ import { HANDOFF_SENTINEL, aiRequestTimeoutMs } from './defaults'
 import { generateOpenAi } from './providers/openai'
 import { generateAnthropic } from './providers/anthropic'
 import type { ExecuteLlmTool, LlmToolDef } from './providers/shared'
+import type { ChatLanguageLock } from './language-lock'
 import { latestCustomerText, shouldRewriteSpoken, spokenRewrite } from './spoken-rewrite'
 
 export interface GenerateArgs {
@@ -21,6 +22,8 @@ export interface GenerateArgs {
   executeTool?: ExecuteLlmTool
   /** Speakable first name so the spoken rewrite keeps the honorific. */
   customerName?: string | null
+  /** Locked reply language — rewrite stays here even if the last turn mixed English. */
+  replyLanguage?: ChatLanguageLock | null
 }
 
 /**
@@ -61,6 +64,7 @@ export async function generateReply(args: GenerateArgs): Promise<GenerateResult>
     draft: parsed.text,
     handoff: parsed.handoff,
     customerText: latestCustomerText(messages),
+    replyLanguage: args.replyLanguage,
   })
   if (!language) return parsed
 
@@ -68,6 +72,7 @@ export async function generateReply(args: GenerateArgs): Promise<GenerateResult>
     config,
     draft: parsed.text,
     language,
+    replyLanguage: args.replyLanguage,
     customerText: latestCustomerText(messages),
     customerName: args.customerName,
   })

@@ -55,6 +55,33 @@ describe('shouldRewriteSpoken', () => {
     ).toBeNull()
   })
 
+  it('uses the locked language over a mixed English turn', () => {
+    expect(
+      shouldRewriteSpoken({
+        draft: 'It is available.',
+        customerText: 'Do you have this dress in red?',
+        replyLanguage: {
+          code: 'ml',
+          name: 'Malayalam',
+          script: 'romanized',
+          locked: true,
+        },
+      }),
+    ).toEqual({ sarvam: 'ml-IN', elevenlabs: 'ml' })
+    expect(
+      shouldRewriteSpoken({
+        draft: 'It is available.',
+        customerText: 'ethra und alle',
+        replyLanguage: {
+          code: 'en',
+          name: 'English',
+          script: 'latin',
+          locked: true,
+        },
+      }),
+    ).toBeNull()
+  })
+
   it('targets Malayalam and Hindi customer turns', () => {
     expect(
       shouldRewriteSpoken({

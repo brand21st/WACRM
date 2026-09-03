@@ -44,6 +44,20 @@ describe('speechToText', () => {
     const form = init.body as FormData
     expect(form.get('model_id')).toBe(ELEVENLABS_STT_MODEL)
     expect(form.get('file')).toBeInstanceOf(Blob)
+    expect(form.get('language_code')).toBeNull()
+  })
+
+  it('appends language_code only when a hint is set', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(okResponse({ text: 'hello' }))
+    await speechToText({
+      apiKey: 'xi-test',
+      audio: AUDIO,
+      mimeType: 'audio/ogg; codecs=opus',
+      languageCode: 'ml',
+      fetchImpl,
+    })
+    const form = fetchImpl.mock.calls[0][1].body as FormData
+    expect(form.get('language_code')).toBe('ml')
   })
 
   it('rejects unsupported MIME types', async () => {

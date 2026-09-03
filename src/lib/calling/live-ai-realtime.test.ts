@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { HANDOFF_SENTINEL } from '@/lib/ai/defaults'
-import { LIVE_AI_HANDOFF_SPOKEN } from './live-ai-turn'
+import { DETECT_FIRST_SPOKEN_LANGUAGE } from '@/lib/ai/language-lock'
+import { LIVE_AI_GREETING_NEUTRAL, LIVE_AI_GREETING_USER, LIVE_AI_HANDOFF_SPOKEN } from './live-ai-turn'
 import { liveAiCallUserPrompt } from './live-ai-prompt'
 import {
   buildLiveAiSpokenInstructions,
@@ -58,6 +59,11 @@ describe('live AI Realtime session helpers', () => {
     expect(text).toContain(HANDOFF_SENTINEL)
     expect(text).toContain('Customer: Hi')
     expect(text).toContain('search_customer_memory')
+    expect(text).toContain('Answer simple questions immediately')
+    expect(text).toContain('one-sentence preamble')
+    expect(text).toContain(LIVE_AI_GREETING_NEUTRAL)
+    expect(text).toContain(DETECT_FIRST_SPOKEN_LANGUAGE)
+    expect(text).not.toContain(LIVE_AI_GREETING_USER)
     expect(text).not.toContain('This call will be recorded')
   })
 
@@ -98,6 +104,8 @@ describe('live AI Realtime session helpers', () => {
       voice: 'marin',
     })
     expect(session.type).toBe('realtime')
+    expect(session.model).toBe('gpt-realtime-2.1')
+    expect(session.reasoning).toEqual({ effort: 'low' })
     expect(session.instructions).toBe('Be brief.')
     expect(session.output_modalities).toEqual(['audio'])
     expect((session.audio as { output: { voice: string } }).output.voice).toBe('marin')
@@ -105,6 +113,67 @@ describe('live AI Realtime session helpers', () => {
       (session.audio as { input: { turn_detection: { create_response: boolean } } }).input
         .turn_detection.create_response,
     ).toBe(true)
+    expect(
+      (session.audio as { input: { transcription: { model?: string; languages?: string[] } } })
+        .input.transcription.model,
+    ).toBe('gpt-live-transcribe')
+    expect(
+      (session.audio as { input: { transcription: { languages?: string[] } } }).input
+        .transcription.languages,
+    ).toBeUndefined()
+  })
+
+  it('hints Malayalam plus English on gpt-live-transcribe when locked', () => {
+    const locked = buildRealtimeSessionConfig({
+      instructions: 'Be brief.',
+      tools: [],
+      transcriptionLanguage: 'ml',
+    })
+    expect(
+      (locked.audio as { input: { transcription: { model?: string; languages?: string[]; delay?: string } } })
+        .input.transcription,
+    ).toMatchObject({
+      model: 'gpt-live-transcribe',
+      languages: ['ml', 'en'],
+      delay: 'medium',
+    })
+
+    const unlocked = buildRealtimeSessionConfig({
+      instructions: 'Be brief.',
+      tools: [],
+      transcriptionLanguage: null,
+    })
+    expect(
+      (unlocked.audio as { input: { transcription: { languages?: string[] } } }).input
+        .transcription.languages,
+    ).toBeUndefined()
+  })
+
+  it('uses the locked-language greeting when a hard lock exists', () => {
+    const text = buildLiveAiSpokenInstructions({
+      systemPrompt: 'You sell bags.',
+      replyLanguage: {
+        code: 'ml',
+        name: 'Malayalam',
+        script: 'native',
+        locked: true,
+      },
+    })
+    expect(text).toContain(LIVE_AI_GREETING_USER)
+    expect(text).toContain('This WhatsApp voice call is in Malayalam')
+    expect(text).toContain('Kerala Malayalam')
+    expect(text).toContain('ഇതുണ്ട്, നോക്കിക്കോ')
+    expect(text).not.toContain(DETECT_FIRST_SPOKEN_LANGUAGE)
+  })
+
+  it('greets in Kerala Malayalam when prior chat was Malayalam', () => {
+    const text = buildLiveAiSpokenInstructions({
+      systemPrompt: 'You sell bags.',
+      languageHint: 'Malayalam',
+    })
+    expect(text).toContain('Prior WhatsApp')
+    expect(text).toContain('ഹലോ, എന്താ സഹായിക്കട്ടെ')
+    expect(text).toContain('Kerala Malayalam')
   })
 
   it('asks Realtime for text when live TTS voice is on', () => {

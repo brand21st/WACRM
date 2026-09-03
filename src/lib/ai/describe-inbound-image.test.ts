@@ -1,5 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { describeInboundImage, PRODUCT_PHOTO_PLACEHOLDER } from './describe-inbound-image'
+import {
+  describeInboundImage,
+  flattenShoppingVisionDescription,
+  PRODUCT_PHOTO_PLACEHOLDER,
+  shoppingOrSupportPrompt,
+  shoppingSearchQueriesFromDescription,
+} from './describe-inbound-image'
 
 describe('describeInboundImage', () => {
   beforeEach(() => {
@@ -58,6 +64,35 @@ describe('describeInboundImage', () => {
       messages: { content: { text: string }[] }[]
     }
     expect(body.messages?.[0]?.content?.[0]?.text).toMatch(/searchable attributes/i)
+    expect(body.messages?.[0]?.content?.[0]?.text).toMatch(/searchQueries/)
+  })
+
+  it('flattens shopping-vision JSON into searchable text', async () => {
+    vi.mocked(fetch).mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        choices: [
+          {
+            message: {
+              content:
+                '{"type":"tote bag","color":"red","brand":"","pattern":"","material":"leather","visibleText":"","searchQueries":["red leather tote","leather tote"]}',
+            },
+          },
+        ],
+      }),
+    } as Response)
+
+    const out = await describeInboundImage({
+      provider: 'openai',
+      apiKey: 'sk-test',
+      mediaUrl: 'https://cdn.example/photo.jpg',
+      caption: null,
+      purpose: 'shopping',
+    })
+    expect(out).toMatch(/red leather tote/)
+    expect(out).toMatch(/leather tote/)
+    expect(out).not.toMatch(/searchQueries/)
   })
 
   it('downloads Meta media as a data URL when the stored URL is not public', async () => {
@@ -131,5 +166,28 @@ describe('describeInboundImage', () => {
       purpose: 'shopping',
     })
     expect(out).toBe(PRODUCT_PHOTO_PLACEHOLDER)
+  })
+})
+
+describe('shopping vision JSON', () => {
+  it('asks for searchable attributes and catalog phrases', () => {
+    const prompt = shoppingOrSupportPrompt('shopping', '')
+    expect(prompt).toMatch(/item type/i)
+    expect(prompt).toMatch(/SKU/i)
+    expect(prompt).toMatch(/searchQueries/)
+  })
+
+  it('extracts searchQueries and flattens JSON to plain text', () => {
+    const raw =
+      '{"type":"saree","color":"red","brand":"","pattern":"","material":"cotton","visibleText":"Pournami","searchQueries":["pournami red saree"]}'
+    expect(shoppingSearchQueriesFromDescription(raw)).toEqual([
+      'pournami red saree',
+    ])
+    expect(flattenShoppingVisionDescription(raw)).toBe(
+      'pournami red saree. red cotton saree Pournami',
+    )
+    expect(flattenShoppingVisionDescription('red leather tote')).toBe(
+      'red leather tote',
+    )
   })
 })

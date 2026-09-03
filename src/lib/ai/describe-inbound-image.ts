@@ -106,7 +106,7 @@ async function visionDescribe(args: {
       },
       body: JSON.stringify({
         model: VISION_MODEL,
-        max_completion_tokens: 300,
+        max_completion_tokens: 400,
         messages: [
           {
             role: 'user',
@@ -138,8 +138,86 @@ async function visionDescribe(args: {
   const data = (await res.json()) as {
     choices?: { message?: { content?: string } }[]
   }
-  const text = data?.choices?.[0]?.message?.content?.trim()
-  return text || null
+      const text = data?.choices?.[0]?.message?.content?.trim()
+  return text ? flattenShoppingVisionDescription(text) : null
+}
+
+export type ShoppingVisionAttrs = {
+  type: string
+  color: string
+  brand: string
+  pattern: string
+  material: string
+  visibleText: string
+  searchQueries: string[]
+}
+
+/** Pull JSON out of a vision reply. Returns null for plain sentences. */
+export function parseShoppingVisionJson(
+  raw: string,
+): ShoppingVisionAttrs | null {
+  const match = raw.match(/\{[\s\S]*\}/)
+  if (!match) return null
+  try {
+    const parsed = JSON.parse(match[0]) as Record<string, unknown>
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return null
+    }
+    const str = (key: string) =>
+      typeof parsed[key] === 'string' ? parsed[key].trim() : ''
+    const searchQueries = Array.isArray(parsed.searchQueries)
+      ? parsed.searchQueries
+          .filter((q): q is string => typeof q === 'string' && q.trim().length > 0)
+          .map((q) => q.trim().slice(0, 80))
+          .slice(0, 6)
+      : []
+    const type = str('type') || str('itemType')
+    const visibleText = str('visibleText') || str('text') || str('sku')
+    if (
+      !type &&
+      !searchQueries.length &&
+      !str('color') &&
+      !str('brand') &&
+      !visibleText
+    ) {
+      return null
+    }
+    return {
+      type,
+      color: str('color'),
+      brand: str('brand'),
+      pattern: str('pattern'),
+      material: str('material'),
+      visibleText,
+      searchQueries,
+    }
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Turn a shopping-vision JSON blob into searchable plain text.
+ * Leaves ordinary sentences unchanged.
+ */
+export function flattenShoppingVisionDescription(raw: string): string {
+  const parsed = parseShoppingVisionJson(raw)
+  if (!parsed) return raw.trim()
+  const attrs = [
+    parsed.color,
+    parsed.material,
+    parsed.pattern,
+    parsed.type,
+    parsed.brand,
+    parsed.visibleText,
+  ].filter(Boolean)
+  const sentence = attrs.join(' ')
+  const queries = parsed.searchQueries.join(', ')
+  return [queries, sentence].filter(Boolean).join('. ') || raw.trim()
+}
+
+export function shoppingSearchQueriesFromDescription(raw: string): string[] {
+  return parseShoppingVisionJson(raw)?.searchQueries ?? []
 }
 
 export function shoppingOrSupportPrompt(
@@ -153,7 +231,9 @@ export function shoppingOrSupportPrompt(
     return (
       'This is a product photo a customer sent on WhatsApp.' +
       extra +
-      ' List searchable attributes only: item type, color, brand or logo, pattern, material, and any visible text or SKU. One or two sentences, no fluff.'
+      ' Extract searchable attributes only: item type, color, brand or logo, pattern, material, and any visible text or SKU. ' +
+      'Reply with JSON only: {"type":"","color":"","brand":"","pattern":"","material":"","visibleText":"","searchQueries":["short catalog phrase"]}. ' +
+      'searchQueries are 1–4 short phrases a store search would use. No fluff.'
     )
   }
   return caption

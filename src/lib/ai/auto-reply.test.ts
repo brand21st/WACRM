@@ -11,13 +11,23 @@ const h = vi.hoisted(() => ({
   matchProductsFromPhoto: vi.fn(),
   toCard: vi.fn(),
   getProductLive: vi.fn(),
+  buildCartOffer: vi.fn(),
+  resolveCartOfferItems: vi.fn(),
+  cartOfferFallbackText: vi.fn(),
   buildConversationContext: vi.fn(),
+  loadContactMemory: vi.fn(),
+  persistLanguageLock: vi.fn(),
+  formatCustomerMemoryBlock: vi.fn(),
+  emptyContactMemory: vi.fn(),
   retrieveKnowledge: vi.fn(),
   retrieveShopifyStoreContent: vi.fn(),
   generateReply: vi.fn(),
   engineSendText: vi.fn(),
   engineSendInteractiveButtons: vi.fn(),
   engineSendCtaUrl: vi.fn(),
+  engineSendProduct: vi.fn(),
+  engineSendProductList: vi.fn(),
+  loadCommerceSettings: vi.fn(),
   engineSendMedia: vi.fn(),
   engineSendTypingIndicator: vi.fn(),
   textToSpeech: vi.fn(),
@@ -45,23 +55,45 @@ vi.mock('@/lib/shopify', () => ({
   toCard: h.toCard,
   getProductLive: h.getProductLive,
   retrieveShopifyStoreContent: h.retrieveShopifyStoreContent,
+  buildCartOffer: h.buildCartOffer,
+  resolveCartOfferItems: h.resolveCartOfferItems,
+  cartOfferFallbackText: h.cartOfferFallbackText,
   SHOPIFY_LLM_TOOLS: [
     {
       name: 'search_products',
       description: 'search',
       parameters: { type: 'object', properties: { query: { type: 'string' } } },
     },
+    {
+      name: 'offer_cart',
+      description: 'cart',
+      parameters: { type: 'object', properties: {} },
+    },
   ],
 }))
 vi.mock('./context', () => ({ buildConversationContext: h.buildConversationContext }))
+vi.mock('./chat-memory', () => ({
+  loadContactMemory: h.loadContactMemory,
+  persistLanguageLock: h.persistLanguageLock,
+  formatCustomerMemoryBlock: h.formatCustomerMemoryBlock,
+  emptyContactMemory: h.emptyContactMemory,
+}))
 vi.mock('./knowledge', () => ({ retrieveKnowledge: h.retrieveKnowledge }))
 vi.mock('./generate', () => ({ generateReply: h.generateReply }))
 vi.mock('@/lib/flows/meta-send', () => ({
   engineSendText: h.engineSendText,
   engineSendInteractiveButtons: h.engineSendInteractiveButtons,
   engineSendCtaUrl: h.engineSendCtaUrl,
+  engineSendProduct: h.engineSendProduct,
+  engineSendProductList: h.engineSendProductList,
   engineSendMedia: h.engineSendMedia,
   engineSendTypingIndicator: h.engineSendTypingIndicator,
+}))
+vi.mock('@/lib/shopify/commerce-config', () => ({
+  loadCommerceSettings: h.loadCommerceSettings,
+}))
+vi.mock('@/lib/commerce/checkout', () => ({
+  tryCompleteCommerceAddress: vi.fn(async () => false),
 }))
 vi.mock('./speech', () => ({
   canSpeak: (config: { ttsEnabled: boolean; voiceProvider: string; elevenlabsApiKey: string | null; sarvamApiKey: string | null }) =>
@@ -176,7 +208,27 @@ beforeEach(() => {
   h.state.contactName = null
   h.loadAiConfig.mockResolvedValue(aiConfig())
   h.loadShopifyConfig.mockResolvedValue(null)
+  h.loadCommerceSettings.mockResolvedValue({
+    metaCatalogId: null,
+    metaCatalogAutoSync: false,
+    lastMetaCatalogSyncAt: null,
+    metaCatalogItemCount: 0,
+    retailerIdSource: 'sku',
+    waPaymentConfigurationName: null,
+    razorpayKeyId: null,
+    hasRazorpaySecret: false,
+    hasRazorpayWebhookSecret: false,
+    shipBeneficiary: null,
+  })
   h.executeShopifyTool.mockResolvedValue({ json: '{}', cards: [] })
+  h.buildCartOffer.mockReturnValue(null)
+  h.resolveCartOfferItems.mockResolvedValue([])
+  h.cartOfferFallbackText.mockImplementation(
+    (items: { title: string; quantity: number; price?: string | null }[]) =>
+      items.length === 0
+        ? ''
+        : `Here is your cart:\n${items.map((i) => `• ${i.title}`).join('\n')}`,
+  )
   h.matchProductsFromPhoto.mockResolvedValue([])
   h.getProductLive.mockResolvedValue(null)
   h.rehostPublicImage.mockResolvedValue('https://cdn.example/hosted.jpg')
@@ -235,6 +287,7 @@ beforeEach(() => {
       cartUrl: p.cartUrl ?? null,
       checkoutUrl: p.checkoutUrl ?? null,
       inStock,
+      retailerId: null,
       caption: [
         p.title,
         price,
@@ -248,12 +301,62 @@ beforeEach(() => {
     }
   })
   h.buildConversationContext.mockResolvedValue([{ role: 'user', content: 'hi' }])
+  h.loadContactMemory.mockResolvedValue({
+    profileSummary: '',
+    lastSessionSummary: '',
+    facts: {
+      intent: null,
+      products: [],
+      preferences: [],
+      language: null,
+      language_code: null,
+      language_script: null,
+      language_locked: false,
+      open_questions: [],
+    },
+    notes: [],
+    summarizedThroughAt: null,
+    messageCountAtSummary: 0,
+    conversationId: null,
+  })
+  h.persistLanguageLock.mockImplementation(
+    async (args: { existing: Record<string, unknown>; lock: { name: string; code: string; script: string } }) => ({
+      ...args.existing,
+      facts: {
+        language: args.lock.name,
+        language_code: args.lock.code,
+        language_script: args.lock.script,
+        language_locked: true,
+      },
+    }),
+  )
+  h.formatCustomerMemoryBlock.mockReturnValue('')
+  h.emptyContactMemory.mockReturnValue({
+    profileSummary: '',
+    lastSessionSummary: '',
+    facts: {
+      intent: null,
+      products: [],
+      preferences: [],
+      language: null,
+      language_code: null,
+      language_script: null,
+      language_locked: false,
+      open_questions: [],
+    },
+    notes: [],
+    summarizedThroughAt: null,
+    messageCountAtSummary: 0,
+    conversationId: null,
+  })
   h.retrieveKnowledge.mockResolvedValue([])
   h.retrieveShopifyStoreContent.mockResolvedValue([])
   h.generateReply.mockResolvedValue({ text: 'Hello!', handoff: false })
   h.engineSendText.mockResolvedValue({ whatsapp_message_id: 'm1' })
   h.engineSendInteractiveButtons.mockResolvedValue({ whatsapp_message_id: 'm-btn' })
   h.engineSendCtaUrl.mockReset().mockResolvedValue({ whatsapp_message_id: 'm-cta' })
+  h.engineSendProduct.mockReset().mockResolvedValue({ whatsapp_message_id: 'm-prod' })
+  h.engineSendProductList.mockReset().mockResolvedValue({ whatsapp_message_id: 'm-list' })
   h.engineSendMedia.mockResolvedValue({ whatsapp_message_id: 'm-audio' })
   h.engineSendTypingIndicator.mockResolvedValue(undefined)
   h.synthesizeSpeech.mockResolvedValue({
@@ -431,6 +534,68 @@ describe('dispatchInboundToAiReply — eligibility gates', () => {
       name: 'claim_ai_reply_slot',
       args: { max_replies: null },
     })
+  })
+
+  it('injects stored chat memory into the system prompt', async () => {
+    h.formatCustomerMemoryBlock.mockReturnValue(
+      'Profile: Wants a red saree, size M',
+    )
+    await dispatchInboundToAiReply(ARGS)
+    expect(h.loadContactMemory).toHaveBeenCalled()
+    const prompt = h.generateReply.mock.calls[0]?.[0]?.systemPrompt as string
+    expect(prompt).toMatch(/Wants a red saree, size M/)
+    expect(prompt).toMatch(/Do not re-ask/)
+    expect(prompt).toMatch(/Do not recite this dump/)
+  })
+
+  it('locks Malayalam and keeps it when the next turn is English product text', async () => {
+    h.buildConversationContext.mockResolvedValue([
+      { role: 'user', content: 'ethra und alle' },
+    ])
+    await dispatchInboundToAiReply(ARGS)
+    expect(h.persistLanguageLock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        lock: expect.objectContaining({ code: 'ml' }),
+      }),
+    )
+    expect(h.generateReply.mock.calls[0][0].systemPrompt).toMatch(
+      /Locked reply language: Malayalam/,
+    )
+    expect(h.generateReply.mock.calls[0][0].replyLanguage).toMatchObject({
+      code: 'ml',
+    })
+
+    h.persistLanguageLock.mockClear()
+    h.generateReply.mockClear()
+    h.loadContactMemory.mockResolvedValue({
+      profileSummary: '',
+      lastSessionSummary: '',
+      facts: {
+        intent: null,
+        products: [],
+        preferences: [],
+        language: 'Malayalam',
+        language_code: 'ml',
+        language_script: 'romanized',
+        language_locked: true,
+        open_questions: [],
+      },
+      notes: [],
+      summarizedThroughAt: null,
+      messageCountAtSummary: 1,
+      conversationId: 'conv-1',
+    })
+    h.buildConversationContext.mockResolvedValue([
+      { role: 'user', content: 'Do you have this dress in red?' },
+    ])
+    await dispatchInboundToAiReply(ARGS)
+    expect(h.persistLanguageLock).not.toHaveBeenCalled()
+    expect(h.generateReply.mock.calls[0][0].replyLanguage).toMatchObject({
+      code: 'ml',
+    })
+    expect(h.generateReply.mock.calls[0][0].systemPrompt).toMatch(
+      /Locked reply language: Malayalam/,
+    )
   })
 
   it('skips when there is nothing to reply to', async () => {
@@ -1183,7 +1348,7 @@ describe('dispatchInboundToAiReply — vision photo match', () => {
     expect(h.matchProductsFromPhoto).toHaveBeenCalled()
     expect(h.executeShopifyTool).not.toHaveBeenCalled()
     expect(h.generateReply.mock.calls[0][0].systemPrompt).toMatch(
-      /Vision catalog search already ran/,
+      /Vision already matched this photo/,
     )
     expect(
       h.engineSendMedia.mock.calls.filter((c) => c[0].kind === 'image'),
@@ -1201,7 +1366,7 @@ describe('dispatchInboundToAiReply — vision photo match', () => {
         url: 'https://shop.example/cart/99:1?checkout',
         headerImageUrl: 'https://cdn.example/bag.jpg',
         bodyText: expect.stringMatching(
-          /Red Bag[\s\S]*Stock in[\s\S]*Variants: S, L[\s\S]*Color: Red, Blue[\s\S]*View:/,
+          /Red Bag[\s\S]*Stock in[\s\S]*Variants: S[\s\S]*Color: Red[\s\S]*View:/,
         ),
       }),
     )
@@ -1383,6 +1548,250 @@ describe('dispatchInboundToAiReply — vision photo match', () => {
         apiKey: 'sk-test',
       }),
     )
+  })
+})
+
+describe('dispatchInboundToAiReply — cart offer', () => {
+  const shopifyRow = {
+    accountId: 'acct-1',
+    shopDomain: 'acme.myshopify.com',
+    accessToken: 'shpat_test',
+    isActive: true,
+    shopName: 'Acme',
+    primaryDomain: 'https://shop.example',
+    currency: 'USD',
+    metaCatalogId: null,
+    lastVerifiedAt: null,
+    lastCatalogSyncAt: null,
+    catalogProductCount: 2,
+  }
+
+  const offer = {
+    items: [
+      {
+        variantId: '99',
+        quantity: 1,
+        title: 'Red Bag',
+        price: '49 USD',
+        imageUrl: 'https://cdn.example/bag.jpg',
+      },
+    ],
+    cartUrl: 'https://shop.example/cart/99:1',
+    checkoutUrl: 'https://shop.example/cart/99:1?checkout',
+    summaryLines: ['Red Bag — 49 USD'],
+  }
+
+  it('sends summary buttons plus View cart and one aggregated Checkout NOW', async () => {
+    h.loadAiConfig.mockResolvedValue(aiConfig({ fullAgentEnabled: true }))
+    h.loadShopifyConfig.mockResolvedValue(shopifyRow)
+    h.executeShopifyTool.mockResolvedValue({
+      json: JSON.stringify({
+        items: offer.items,
+        cart_url: offer.cartUrl,
+        checkout_url: offer.checkoutUrl,
+      }),
+      cards: [],
+      cartOffer: offer,
+    })
+    h.generateReply.mockImplementation(async (args: { executeTool?: Function }) => {
+      if (args.executeTool) await args.executeTool('offer_cart', {})
+      return {
+        text: 'You asked for the red bag. Here is your cart.',
+        handoff: false,
+      }
+    })
+
+    await dispatchInboundToAiReply(ARGS)
+
+    expect(h.engineSendInteractiveButtons).toHaveBeenCalledWith(
+      expect.objectContaining({
+        bodyText: 'You asked for the red bag. Here is your cart.',
+        buttons: [
+          { id: 'wacrm:confirm_order', title: 'Confirm order' },
+          { id: 'wacrm:more_options', title: 'Check other options' },
+        ],
+      }),
+    )
+    expect(h.engineSendCtaUrl).toHaveBeenCalledTimes(2)
+    expect(h.engineSendCtaUrl).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        displayText: 'View cart',
+        url: 'https://shop.example/cart/99:1',
+      }),
+    )
+    expect(h.engineSendCtaUrl).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        displayText: 'Checkout NOW',
+        url: 'https://shop.example/cart/99:1?checkout',
+      }),
+    )
+    expect(
+      h.engineSendCtaUrl.mock.calls.some(
+        (c) =>
+          c[0].displayText === 'Checkout NOW' &&
+          c[0].url === 'https://shop.example/cart/99:1?checkout' &&
+          c[0].headerImageUrl === 'https://cdn.example/bag.jpg',
+      ),
+    ).toBe(true)
+  })
+
+  it('sends cart CTAs on Confirm order without a tool call', async () => {
+    h.loadAiConfig.mockResolvedValue(aiConfig({ fullAgentEnabled: true }))
+    h.loadShopifyConfig.mockResolvedValue(shopifyRow)
+    h.buildConversationContext.mockResolvedValue([
+      {
+        role: 'user',
+        content:
+          '[Customer tapped "Confirm order" (action: wacrm:confirm_order)]',
+      },
+    ])
+    h.resolveCartOfferItems.mockResolvedValue(offer.items)
+    h.buildCartOffer.mockReturnValue(offer)
+    h.generateReply.mockResolvedValue({
+      text: 'Confirming your red bag.',
+      handoff: false,
+    })
+
+    await dispatchInboundToAiReply(ARGS)
+
+    expect(h.resolveCartOfferItems).toHaveBeenCalled()
+    expect(h.engineSendInteractiveButtons).not.toHaveBeenCalled()
+    expect(h.engineSendText).toHaveBeenCalledWith(
+      expect.objectContaining({ text: 'Confirming your red bag.' }),
+    )
+    expect(h.engineSendCtaUrl).toHaveBeenCalledTimes(2)
+    expect(h.engineSendCtaUrl.mock.calls.map((c) => c[0].displayText)).toEqual([
+      'View cart',
+      'Checkout NOW',
+    ])
+  })
+
+  it('does not send the cart bundle on Check other options', async () => {
+    h.loadAiConfig.mockResolvedValue(aiConfig({ fullAgentEnabled: true }))
+    h.loadShopifyConfig.mockResolvedValue(shopifyRow)
+    h.buildConversationContext.mockResolvedValue([
+      {
+        role: 'user',
+        content:
+          '[Customer tapped "Check other options" (action: wacrm:more_options)]',
+      },
+    ])
+    h.executeShopifyTool.mockResolvedValue({
+      json: JSON.stringify({ products: [] }),
+      cards: [
+        {
+          title: 'Blue Bag',
+          imageUrl: 'https://cdn.example/blue.jpg',
+          productUrl: 'https://shop.example/products/blue-bag',
+          cartUrl: 'https://shop.example/cart/77:1',
+          checkoutUrl: 'https://shop.example/cart/77:1?checkout',
+          inStock: true,
+          caption: 'Blue Bag\n39 USD\nStock in',
+        },
+      ],
+      cartOffer: offer,
+    })
+    h.generateReply.mockImplementation(async (args: { executeTool?: Function }) => {
+      if (args.executeTool) await args.executeTool('search_products', { query: 'bag' })
+      return { text: 'Here are other bags.', handoff: false }
+    })
+
+    await dispatchInboundToAiReply(ARGS)
+
+    expect(h.engineSendInteractiveButtons).toHaveBeenCalledWith(
+      expect.objectContaining({
+        buttons: expect.arrayContaining([
+          expect.objectContaining({ id: 'wacrm:products' }),
+        ]),
+      }),
+    )
+    expect(
+      h.engineSendCtaUrl.mock.calls.some((c) => c[0].displayText === 'View cart'),
+    ).toBe(false)
+    expect(h.engineSendCtaUrl).toHaveBeenCalledWith(
+      expect.objectContaining({
+        displayText: 'Checkout NOW',
+        url: 'https://shop.example/cart/77:1?checkout',
+      }),
+    )
+  })
+
+  it('does not send CTAs when last-shown is empty', async () => {
+    h.loadAiConfig.mockResolvedValue(aiConfig({ fullAgentEnabled: true }))
+    h.loadShopifyConfig.mockResolvedValue(shopifyRow)
+    h.buildConversationContext.mockResolvedValue([
+      {
+        role: 'user',
+        content:
+          '[Customer tapped "Confirm order" (action: wacrm:confirm_order)]',
+      },
+    ])
+    h.resolveCartOfferItems.mockResolvedValue([])
+    h.buildCartOffer.mockReturnValue(null)
+    h.generateReply.mockResolvedValue({
+      text: 'Tell me which product you want first.',
+      handoff: false,
+    })
+
+    await dispatchInboundToAiReply(ARGS)
+
+    expect(h.engineSendCtaUrl).not.toHaveBeenCalled()
+    expect(h.engineSendInteractiveButtons).toHaveBeenCalledWith(
+      expect.objectContaining({
+        bodyText: 'Tell me which product you want first.',
+      }),
+    )
+  })
+
+  it('sends native catalog cards instead of checkout CTAs when catalog id is set', async () => {
+    h.loadAiConfig.mockResolvedValue(aiConfig({ fullAgentEnabled: true }))
+    h.loadShopifyConfig.mockResolvedValue({
+      ...shopifyRow,
+      metaCatalogId: '1234567890',
+    })
+    h.loadCommerceSettings.mockResolvedValue({
+      metaCatalogId: '1234567890',
+      metaCatalogAutoSync: true,
+      lastMetaCatalogSyncAt: null,
+      metaCatalogItemCount: 1,
+      retailerIdSource: 'sku',
+      waPaymentConfigurationName: 'razorpay_prod',
+      razorpayKeyId: null,
+      hasRazorpaySecret: false,
+      hasRazorpayWebhookSecret: false,
+      shipBeneficiary: null,
+    })
+    h.executeShopifyTool.mockResolvedValue({
+      json: '{}',
+      cards: [
+        {
+          title: 'Red Bag',
+          imageUrl: 'https://cdn.example/bag.jpg',
+          productUrl: 'https://shop.example/products/red-bag',
+          cartUrl: 'https://shop.example/cart/99:1',
+          checkoutUrl: 'https://shop.example/cart/99:1?checkout',
+          inStock: true,
+          caption: 'Red Bag',
+          retailerId: 'BAG-RED',
+        },
+      ],
+    })
+    h.generateReply.mockImplementation(async (args: { executeTool?: Function }) => {
+      if (args.executeTool) await args.executeTool('search_products', { query: 'bag' })
+      return { text: 'Here is the bag.', handoff: false }
+    })
+
+    await dispatchInboundToAiReply(ARGS)
+
+    expect(h.engineSendProduct).toHaveBeenCalledWith(
+      expect.objectContaining({
+        catalogId: '1234567890',
+        productRetailerId: 'BAG-RED',
+      }),
+    )
+    expect(h.engineSendCtaUrl).not.toHaveBeenCalled()
   })
 })
 

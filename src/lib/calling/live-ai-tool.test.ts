@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { AI_VOICE_DEFAULTS } from '@/lib/ai/types'
 import type { AiConfig } from '@/lib/ai/types'
 import { LIVE_AI_HANDOFF_SPOKEN } from './live-ai-turn'
+import { LIVE_AI_HANDOFF_SPOKEN_ML } from './live-ai-speech-language'
 import { TRANSFER_TO_HUMAN_TOOL, SEARCH_CUSTOMER_MEMORY_TOOL } from './live-ai-constants'
 
 const h = vi.hoisted(() => ({
@@ -12,6 +13,8 @@ const h = vi.hoisted(() => ({
   sendProductCards: vi.fn(),
   persistCallTurnMessage: vi.fn(),
   loadLiveAiCustomerMemory: vi.fn(),
+  loadContactMemory: vi.fn(),
+  persistLanguageLock: vi.fn(),
   call: null as Record<string, unknown> | null,
   contact: { phone: '1555000' } as Record<string, unknown> | null,
 }))
@@ -36,6 +39,13 @@ vi.mock('@/lib/ai/config', () => ({ loadAiConfig: h.loadAiConfig }))
 vi.mock('@/lib/shopify', () => ({
   loadShopifyConfig: h.loadShopifyConfig,
 }))
+vi.mock('@/lib/shopify/commerce-config', () => ({
+  loadCommerceSettings: async () => ({
+    metaCatalogId: null,
+    waPaymentConfigurationName: null,
+    retailerIdSource: 'sku',
+  }),
+}))
 vi.mock('@/lib/ai/knowledge', () => ({ retrieveKnowledge: h.retrieveKnowledge }))
 vi.mock('@/lib/ai/auto-reply', () => ({
   bindShopifyTools: h.bindShopifyTools,
@@ -43,6 +53,24 @@ vi.mock('@/lib/ai/auto-reply', () => ({
 }))
 vi.mock('@/lib/calling/persist-call-turn', () => ({
   persistCallTurnMessage: h.persistCallTurnMessage,
+}))
+vi.mock('@/lib/ai/chat-memory', () => ({
+  loadContactMemory: (...args: unknown[]) => h.loadContactMemory(...args),
+  persistLanguageLock: (...args: unknown[]) => h.persistLanguageLock(...args),
+  emptyContactMemory: () => ({
+    profileSummary: '',
+    lastSessionSummary: '',
+    facts: {
+      language: null,
+      language_code: null,
+      language_script: null,
+      language_locked: false,
+    },
+    notes: [],
+    summarizedThroughAt: null,
+    messageCountAtSummary: 0,
+    conversationId: null,
+  }),
 }))
 vi.mock('@/lib/calling/live-ai-memory', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/calling/live-ai-memory')>()
@@ -78,6 +106,34 @@ beforeEach(() => {
   h.sendProductCards.mockReset()
   h.persistCallTurnMessage.mockReset()
   h.loadLiveAiCustomerMemory.mockReset()
+  h.loadContactMemory.mockReset()
+  h.persistLanguageLock.mockReset()
+  h.loadContactMemory.mockResolvedValue({
+    profileSummary: '',
+    lastSessionSummary: '',
+    facts: {
+      language: null,
+      language_code: null,
+      language_script: null,
+      language_locked: false,
+    },
+    notes: [],
+    summarizedThroughAt: null,
+    messageCountAtSummary: 0,
+    conversationId: null,
+  })
+  h.persistLanguageLock.mockImplementation(
+    async ({ existing, lock }: { existing: { facts: Record<string, unknown> }; lock: { name: string; code: string; script: string } }) => ({
+      ...existing,
+      facts: {
+        ...existing.facts,
+        language: lock.name,
+        language_code: lock.code,
+        language_script: lock.script,
+        language_locked: true,
+      },
+    }),
+  )
   h.call = {
     id: 'call-1',
     account_id: 'acct-1',
@@ -117,6 +173,35 @@ describe('executeLiveAiTool', () => {
         direction: 'out',
         text: LIVE_AI_HANDOFF_SPOKEN,
       }),
+    )
+  })
+
+  it('hands off in Malayalam when the contact is locked to Malayalam', async () => {
+    h.loadContactMemory.mockResolvedValue({
+      profileSummary: '',
+      lastSessionSummary: '',
+      facts: {
+        language: 'Malayalam',
+        language_code: 'ml',
+        language_script: 'native',
+        language_locked: true,
+      },
+      notes: [],
+      summarizedThroughAt: null,
+      messageCountAtSummary: 0,
+      conversationId: 'conv-1',
+    })
+    const result = await executeLiveAiTool({
+      accountId: 'acct-1',
+      userId: 'user-1',
+      callId: 'call-1',
+      name: TRANSFER_TO_HUMAN_TOOL,
+      arguments: {},
+    })
+    expect(result.spoken).toBe(LIVE_AI_HANDOFF_SPOKEN_ML)
+    expect(h.persistCallTurnMessage).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ text: LIVE_AI_HANDOFF_SPOKEN_ML }),
     )
   })
 
@@ -205,6 +290,9 @@ describe('persistLiveAiTranscript', () => {
       itemId: 'item_1',
     })
     expect(result.persisted).toBe(true)
+    expect(result.changed).toBe(true)
+    expect(result.lock).toMatchObject({ code: 'en', locked: true })
+    expect(h.persistLanguageLock).toHaveBeenCalled()
     expect(h.persistCallTurnMessage).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({
@@ -223,6 +311,56 @@ describe('persistLiveAiTranscript', () => {
       text: 'This call will be recorded for the following purpose: quality',
     })
     expect(result.persisted).toBe(false)
+    expect(result.changed).toBe(false)
     expect(h.persistCallTurnMessage).not.toHaveBeenCalled()
+    expect(h.persistLanguageLock).not.toHaveBeenCalled()
+  })
+
+  it('locks from confident Malayalam speech', async () => {
+    const result = await persistLiveAiTranscript({
+      accountId: 'acct-1',
+      callId: 'call-1',
+      role: 'customer',
+      text: 'എനിക്ക് ഒരു ബാഗ് വേണം',
+    })
+    expect(result.persisted).toBe(true)
+    expect(result.changed).toBe(true)
+    expect(result.lock).toMatchObject({ code: 'ml', locked: true })
+    expect(h.persistLanguageLock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        lock: expect.objectContaining({ code: 'ml', locked: true }),
+      }),
+    )
+  })
+
+  it('does not lock bot lines or short acks', async () => {
+    const bot = await persistLiveAiTranscript({
+      accountId: 'acct-1',
+      callId: 'call-1',
+      role: 'bot',
+      text: 'We have bags in stock.',
+    })
+    expect(bot.persisted).toBe(true)
+    expect(bot.changed).toBe(false)
+    expect(h.persistLanguageLock).not.toHaveBeenCalled()
+
+    const ack = await persistLiveAiTranscript({
+      accountId: 'acct-1',
+      callId: 'call-1',
+      role: 'customer',
+      text: 'ok',
+    })
+    expect(ack.persisted).toBe(true)
+    expect(ack.changed).toBe(false)
+    expect(h.persistLanguageLock).not.toHaveBeenCalled()
+
+    const hi = await persistLiveAiTranscript({
+      accountId: 'acct-1',
+      callId: 'call-1',
+      role: 'customer',
+      text: 'hi',
+    })
+    expect(hi.changed).toBe(false)
+    expect(h.persistLanguageLock).not.toHaveBeenCalled()
   })
 })

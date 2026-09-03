@@ -2,9 +2,14 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { shopifyGraphql } from './client'
 import { CUSTOMERS_BY_QUERY, ORDERS_BY_QUERY } from './queries'
 import { getProductLive, listNewArrivals, searchProducts } from './catalog'
-import { matchProductsFromPhoto } from './match-photo'
+import {
+  matchProductsFromPhoto,
+  type MatchProductsFromPhotoOpts,
+} from './match-photo'
 import { searchStoreContent } from './store-content'
 import { customerSearchQueries, shopifyPhoneMatchesContact } from './phone'
+import { retailerIdForProduct } from './retailer-id'
+import type { RetailerIdSource } from './retailer-id'
 import type {
   ShopifyOrderHit,
   ShopifyProductCard,
@@ -12,6 +17,11 @@ import type {
   ShopifyStoreConfig,
 } from './types'
 import type { LlmToolDef } from '@/lib/ai/providers/shared'
+import {
+  buildCartOffer,
+  resolveCartOfferItems,
+  type CartOffer,
+} from './cart-offer'
 
 export const SHOPIFY_LLM_TOOLS: LlmToolDef[] = [
   {
@@ -56,7 +66,7 @@ export const SHOPIFY_LLM_TOOLS: LlmToolDef[] = [
   {
     name: 'match_product_from_photo',
     description:
-      'Match a customer product photo against the Shopify catalog using a vision description (item type, color, brand, pattern, text on the item). Returns the closest 1–3 products.',
+      'Match a customer product photo against the Shopify catalog. Uses a vision description to search, then confirms the same product against listing photos. Returns 0–2 exact matches — never invent products.',
     parameters: {
       type: 'object',
       properties: {
@@ -111,17 +121,32 @@ export const SHOPIFY_LLM_TOOLS: LlmToolDef[] = [
       },
     },
   },
+  {
+    name: 'offer_cart',
+    description:
+      'Build a cart link and checkout link from products already shown in this chat. Call when the customer asks for their cart, a checkout link, “send me the link”, or is ready to buy. Recap what they asked in the spoken reply — do not paste cart or checkout URLs. If nothing has been shown yet, search the catalog first.',
+    parameters: {
+      type: 'object',
+      properties: {},
+    },
+  },
 ]
 
 export interface ShopifyToolContext {
   db: SupabaseClient
   config: ShopifyStoreConfig
   contactPhone: string | null
+  photoMatch?: MatchProductsFromPhotoOpts
+  productCards?: ShopifyProductCard[]
+  conversationId?: string | null
+  nativeCommerce?: boolean
+  retailerIdSource?: RetailerIdSource
 }
 
 export interface ShopifyToolResult {
   json: string
   cards: ShopifyProductCard[]
+  cartOffer?: CartOffer | null
 }
 
 export async function executeShopifyTool(
@@ -134,14 +159,18 @@ export async function executeShopifyTool(
       case 'search_products':
         return productsResult(
           await searchProducts(ctx.db, ctx.config, str(args.query)),
+          ctx.retailerIdSource,
         )
       case 'get_product': {
         const hit = await getProductLive(ctx.config, str(args.id))
-        return productsResult(hit ? [hit] : [])
+        return productsResult(hit ? [hit] : [], ctx.retailerIdSource)
       }
       case 'list_new_arrivals': {
         const limit = clampInt(args.limit, 1, 8, 6)
-        return productsResult(await listNewArrivals(ctx.db, ctx.config, limit))
+        return productsResult(
+          await listNewArrivals(ctx.db, ctx.config, limit),
+          ctx.retailerIdSource,
+        )
       }
       case 'match_product_from_photo': {
         return productsResult(
@@ -149,7 +178,9 @@ export async function executeShopifyTool(
             ctx.db,
             ctx.config,
             str(args.description),
+            ctx.photoMatch,
           ),
+          ctx.retailerIdSource,
         )
       }
       case 'search_store_info': {
@@ -195,6 +226,54 @@ export async function executeShopifyTool(
           ),
           cards: [],
         }
+      case 'offer_cart': {
+        const items = await resolveCartOfferItems({
+          db: ctx.db,
+          conversationId: ctx.conversationId,
+          cards: ctx.productCards ?? [],
+        })
+        if (ctx.nativeCommerce) {
+          return {
+            json: JSON.stringify({
+              items: items.map((item) => ({
+                title: item.title,
+                quantity: item.quantity,
+                price: item.price ?? null,
+              })),
+              native_checkout: true,
+              note:
+                'WhatsApp native checkout is on. Do not send cart or checkout URLs. Tell the customer to tap Add to cart on the product cards, then Send order. A Review and Pay bill is sent after they send the cart.',
+            }),
+            cards: [],
+            cartOffer: null,
+          }
+        }
+        const offer = buildCartOffer(ctx.config.primaryDomain, items)
+        if (!offer) {
+          return {
+            json: JSON.stringify({
+              items: [],
+              note: 'No products have been shown yet. Search the catalog first, then offer the cart. Do not invent items or paste URLs.',
+            }),
+            cards: [],
+            cartOffer: null,
+          }
+        }
+        return {
+          json: JSON.stringify({
+            items: offer.items.map((item) => ({
+              title: item.title,
+              quantity: item.quantity,
+              price: item.price ?? null,
+            })),
+            cart_url: offer.cartUrl,
+            checkout_url: offer.checkoutUrl,
+            summary_lines: offer.summaryLines,
+          }),
+          cards: [],
+          cartOffer: offer,
+        }
+      }
       default:
         return { json: JSON.stringify({ error: `Unknown tool: ${name}` }), cards: [] }
     }
@@ -204,7 +283,10 @@ export async function executeShopifyTool(
   }
 }
 
-function productsResult(hits: ShopifyProductHit[]): ShopifyToolResult {
+function productsResult(
+  hits: ShopifyProductHit[],
+  source?: RetailerIdSource,
+): ShopifyToolResult {
   if (hits.length === 0) {
     return {
       json: JSON.stringify({
@@ -216,7 +298,7 @@ function productsResult(hits: ShopifyProductHit[]): ShopifyToolResult {
   }
   return {
     json: JSON.stringify({ products: hits.map(summarizeProduct) }),
-    cards: hits.slice(0, 3).map(toCard),
+    cards: hits.slice(0, 3).map((hit) => toCard(hit, source)),
   }
 }
 
@@ -300,13 +382,14 @@ function otherVariantLabel(v: ShopifyProductHit['variants'][number]): string {
 function variantCaptionLines(
   variants: ShopifyProductHit['variants'],
 ): string[] {
-  const sizes = uniqueOptionValues(variants, (v) => optionValue(v, /^size$/i))
-  const colors = uniqueOptionValues(variants, (v) =>
+  const inStock = variants.filter((v) => v.available)
+  const sizes = uniqueOptionValues(inStock, (v) => optionValue(v, /^size$/i))
+  const colors = uniqueOptionValues(inStock, (v) =>
     optionValue(v, /^colou?r$/i),
   )
   const other =
     sizes.length === 0 && colors.length === 0
-      ? uniqueOptionValues(variants, otherVariantLabel)
+      ? uniqueOptionValues(inStock, otherVariantLabel)
       : []
   return [
     ...optionLine('Variants', sizes.length > 0 ? sizes : other),
@@ -314,11 +397,38 @@ function variantCaptionLines(
   ]
 }
 
-export function toCard(p: ShopifyProductHit): ShopifyProductCard {
-  const price =
+function salePriceLine(p: ShopifyProductHit): string {
+  const sale =
     p.priceMin && p.priceMax && p.priceMin !== p.priceMax
-      ? `${p.priceMin}–${p.priceMax}${p.currency ? ` ${p.currency}` : ''}`
-      : `${p.priceMin ?? ''}${p.currency ? ` ${p.currency}` : ''}`.trim()
+      ? `${p.priceMin}–${p.priceMax}`
+      : (p.priceMin ?? '')
+  const currency = p.currency ? ` ${p.currency}` : ''
+  if (!sale) return ''
+  const compareAt = pickCompareAt(p)
+  if (compareAt) return `~${compareAt}~ ${sale}${currency}`.trim()
+  return `${sale}${currency}`.trim()
+}
+
+function pickCompareAt(p: ShopifyProductHit): string | null {
+  const inStock = p.variants.filter((v) => v.available)
+  const pool = inStock.length > 0 ? inStock : p.variants
+  const onSale = pool.filter((v) => {
+    const price = Number(v.price)
+    const compare = Number(v.compareAtPrice)
+    return Number.isFinite(price) && Number.isFinite(compare) && compare > price
+  })
+  if (onSale.length === 0) return null
+  const cheapest = onSale.reduce((a, b) =>
+    Number(a.price) <= Number(b.price) ? a : b,
+  )
+  return cheapest.compareAtPrice
+}
+
+export function toCard(
+  p: ShopifyProductHit,
+  source: RetailerIdSource = 'sku',
+): ShopifyProductCard {
+  const price = salePriceLine(p)
   const inStock = productInStock(p)
   const lines = [
     p.title,
@@ -335,6 +445,7 @@ export function toCard(p: ShopifyProductHit): ShopifyProductCard {
     checkoutUrl: p.checkoutUrl,
     inStock,
     caption: lines.join('\n').slice(0, 1024),
+    retailerId: retailerIdForProduct(p, source) || null,
   }
 }
 
