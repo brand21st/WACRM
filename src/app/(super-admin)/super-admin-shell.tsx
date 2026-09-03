@@ -9,12 +9,17 @@ import { AuthProvider, useAuth } from "@/hooks/use-auth";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 
-const NAV = [
+const NAV: Array<{
+  href: string
+  labelKey: "overview" | "accounts" | "ai" | "packages"
+  icon: typeof LayoutDashboard
+  exact?: boolean
+}> = [
   { href: "/super-admin", labelKey: "overview", icon: LayoutDashboard, exact: true },
   { href: "/super-admin/accounts", labelKey: "accounts", icon: Users },
   { href: "/super-admin/ai", labelKey: "ai", icon: Sparkles },
   { href: "/super-admin/packages", labelKey: "packages", icon: Package },
-] as const;
+];
 
 interface NavPackage {
   id: string;
