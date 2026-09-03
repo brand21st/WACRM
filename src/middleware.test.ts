@@ -131,3 +131,62 @@ describe("middleware — refreshed auth cookies survive redirects", () => {
     expect(res.cookies.get(ROTATED.name)?.value).toBe(ROTATED.value);
   });
 });
+
+describe("middleware — host split", () => {
+  it("leaves the landing homepage on vachat.in", async () => {
+    mockUser = null;
+
+    const res = await middleware(new NextRequest("https://vachat.in/"));
+    expect(res.headers.get("location")).toBeNull();
+    expect(res.status).toBeLessThan(400);
+  });
+
+  it("308s CRM paths from the landing host to cloud.vachat.in", async () => {
+    mockUser = null;
+
+    const res = await middleware(new NextRequest("https://www.vachat.in/login"));
+    expect(res.status).toBe(308);
+    expect(res.headers.get("location")).toBe("https://cloud.vachat.in/login");
+  });
+
+  it("308s www.cloud to the canonical app host", async () => {
+    mockUser = { id: "user-1" };
+
+    const res = await middleware(
+      new NextRequest("https://www.cloud.vachat.in/inbox?q=1"),
+    );
+    expect(res.status).toBe(308);
+    expect(res.headers.get("location")).toBe(
+      "https://cloud.vachat.in/inbox?q=1",
+    );
+  });
+
+  it("keeps legal pages on the landing host", async () => {
+    mockUser = null;
+
+    const res = await middleware(new NextRequest("https://vachat.in/privacy"));
+    expect(res.headers.get("location")).toBeNull();
+    expect(res.status).toBeLessThan(400);
+  });
+
+  it("sends logged-out visitors on the app host / to /login", async () => {
+    mockUser = null;
+    refreshedCookies = [{ ...ROTATED, value: "cleared" }];
+
+    const res = await middleware(new NextRequest("https://cloud.vachat.in/"));
+    expect(res.status).toBe(307);
+    expect(res.headers.get("location")).toBe("https://cloud.vachat.in/login");
+    expect(res.cookies.get(ROTATED.name)?.value).toBe("cleared");
+  });
+
+  it("sends a signed-in merchant on the app host / to /dashboard", async () => {
+    mockUser = { id: "user-1" };
+    refreshedCookies = [ROTATED];
+
+    const res = await middleware(new NextRequest("https://cloud.vachat.in/"));
+    expect(res.headers.get("location")).toBe(
+      "https://cloud.vachat.in/dashboard",
+    );
+    expect(res.cookies.get(ROTATED.name)?.value).toBe(ROTATED.value);
+  });
+});

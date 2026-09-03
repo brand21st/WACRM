@@ -1,5 +1,12 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
+import {
+  APP_HOST,
+  isCrmPath,
+  isLandingHost,
+  isWwwAppHost,
+  normalizeHost,
+} from '@/lib/hosts'
 
 // Routes Meta/Shopify/cron hit without a browser session. Skip the
 // Supabase getUser() round-trip — it can hang or slow webhook acks.
@@ -19,10 +26,45 @@ const PUBLIC_API_PREFIXES = [
 // Public legal pages Meta's go-live crawler fetches (no session).
 const PUBLIC_PAGE_PREFIXES = ['/privacy', '/terms', '/data-deletion']
 
+function requestHostname(request: NextRequest): string {
+  const forwarded = request.headers
+    .get('x-forwarded-host')
+    ?.split(',')[0]
+    ?.trim()
+  return normalizeHost(forwarded || request.nextUrl.hostname)
+}
+
+function redirectToAppHost(request: NextRequest): NextResponse {
+  const url = request.nextUrl.clone()
+  url.protocol = 'https:'
+  url.hostname = APP_HOST
+  url.port = ''
+  return NextResponse.redirect(url, 308)
+}
+
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
+  if (PUBLIC_API_PREFIXES.some((prefix) => pathname.startsWith(prefix))) {
+    return NextResponse.next({ request })
+  }
+
+  const hostname = requestHostname(request)
+  if (isWwwAppHost(hostname)) {
+    return redirectToAppHost(request)
+  }
+  if (isLandingHost(hostname) && isCrmPath(pathname)) {
+    return redirectToAppHost(request)
+  }
   if (
-    PUBLIC_API_PREFIXES.some((prefix) => pathname.startsWith(prefix)) ||
+    isLandingHost(hostname) &&
+    (pathname === '/' ||
+      PUBLIC_PAGE_PREFIXES.some(
+        (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
+      ))
+  ) {
+    return NextResponse.next({ request })
+  }
+  if (
     PUBLIC_PAGE_PREFIXES.some(
       (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
     )
@@ -96,6 +138,22 @@ export async function middleware(request: NextRequest) {
     } else {
       url.pathname = '/dashboard'
       url.search = ''
+    }
+    return withRefreshedCookies(NextResponse.redirect(url))
+  }
+
+  // App host `/` is the CRM entry, not a marketing page. Send
+  // visitors to login or their home instead of a blind /dashboard
+  // bounce that middleware would then rewrite anyway.
+  if (pathname === '/') {
+    const url = request.nextUrl.clone()
+    url.search = ''
+    if (!user) {
+      url.pathname = '/login'
+    } else if (user.app_metadata?.is_platform_admin === true) {
+      url.pathname = '/super-admin'
+    } else {
+      url.pathname = '/dashboard'
     }
     return withRefreshedCookies(NextResponse.redirect(url))
   }
