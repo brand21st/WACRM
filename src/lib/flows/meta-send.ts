@@ -5,6 +5,7 @@ import {
   sendInteractiveProduct,
   sendInteractiveProductList,
   sendCatalogMessage,
+  sendAddressMessage,
   sendOrderDetailsMessage,
   sendOrderStatusMessage,
   sendMediaMessage,
@@ -12,6 +13,7 @@ import {
   sendTypingIndicator,
   type InteractiveButton,
   type InteractiveListSection,
+  type AddressMessageValues,
   type MediaKind,
   type WhatsAppOrderStatus,
 } from '@/lib/whatsapp/meta-api'
@@ -416,6 +418,24 @@ export async function engineSendCatalogMessage(
   return sendInteractiveViaMeta({ ...args, kind: 'catalog_message' })
 }
 
+interface SendAddressMessageEngineArgs {
+  accountId: string
+  userId: string
+  conversationId: string
+  contactId: string
+  bodyText: string
+  values?: AddressMessageValues
+  validationErrors?: AddressMessageValues
+  savedAddresses?: Array<{ id: string; value: AddressMessageValues }>
+  aiGenerated?: boolean
+}
+
+export async function engineSendAddressMessage(
+  args: SendAddressMessageEngineArgs,
+): Promise<{ whatsapp_message_id: string }> {
+  return sendInteractiveViaMeta({ ...args, kind: 'address_message' })
+}
+
 interface SendOrderDetailsEngineArgs {
   accountId: string
   userId: string
@@ -460,6 +480,7 @@ type SendInput =
   | (SendInteractiveProductEngineArgs & { kind: 'product' })
   | (SendInteractiveProductListEngineArgs & { kind: 'product_list' })
   | (SendCatalogMessageEngineArgs & { kind: 'catalog_message' })
+  | (SendAddressMessageEngineArgs & { kind: 'address_message' })
   | (SendOrderDetailsEngineArgs & { kind: 'order_details' })
   | (SendOrderStatusEngineArgs & { kind: 'order_status' })
 
@@ -556,6 +577,18 @@ async function sendInteractiveViaMeta(
         to: phone,
         bodyText: input.bodyText,
         footerText: input.footerText,
+      })
+      return r.messageId
+    }
+    if (input.kind === 'address_message') {
+      const r = await sendAddressMessage({
+        phoneNumberId: config.phone_number_id,
+        accessToken,
+        to: phone,
+        bodyText: input.bodyText,
+        values: input.values,
+        validationErrors: input.validationErrors,
+        savedAddresses: input.savedAddresses,
       })
       return r.messageId
     }
@@ -671,7 +704,12 @@ async function sendInteractiveViaMeta(
                   body: input.bodyText,
                   footer: input.footerText,
                 }
-              : input.kind === 'order_details'
+              : input.kind === 'address_message'
+                ? {
+                    kind: 'address_message',
+                    body: input.bodyText,
+                  }
+                : input.kind === 'order_details'
                 ? {
                     kind: 'order_details',
                     body: input.bodyText,

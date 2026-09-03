@@ -1608,6 +1608,88 @@ export async function sendCatalogMessage(args: {
   })
 }
 
+/**
+ * Fields Meta's India address form renders. Used as the key space for
+ * prefill `values` and inline `validation_errors`.
+ */
+export const ADDRESS_MESSAGE_FIELDS = [
+  'name',
+  'phone_number',
+  'in_pin_code',
+  'house_number',
+  'floor_number',
+  'tower_number',
+  'building_name',
+  'address',
+  'landmark_area',
+  'city',
+  'state',
+] as const
+
+export type AddressMessageField = (typeof ADDRESS_MESSAGE_FIELDS)[number]
+
+export type AddressMessageValues = Partial<Record<AddressMessageField, string>>
+
+/**
+ * Send the native WhatsApp address form (India only). The customer taps
+ * the CTA, fills a structured form inside WhatsApp, and submits — the
+ * answer arrives as an `nfm_reply` inbound message rather than free text.
+ *
+ * `values` prefills the form (a known Shopify address, or the customer's
+ * previous attempt when re-asking); `validationErrors` renders inline
+ * errors under those same fields after a server-side check fails.
+ *
+ * Clients that don't support the form get nothing visible — Meta sends a
+ * `failed` status with error 1026 instead, which callers use to fall back
+ * to a plain-text address prompt.
+ */
+export async function sendAddressMessage(args: {
+  phoneNumberId: string
+  accessToken: string
+  to: string
+  bodyText: string
+  values?: AddressMessageValues
+  validationErrors?: AddressMessageValues
+  savedAddresses?: Array<{ id: string; value: AddressMessageValues }>
+}): Promise<MetaSendResult> {
+  validateInteractiveBody(args.bodyText)
+  const parameters: Record<string, unknown> = { country: 'IN' }
+  const values = compactAddressFields(args.values)
+  if (values) parameters.values = values
+  const validationErrors = compactAddressFields(args.validationErrors)
+  if (validationErrors) parameters.validation_errors = validationErrors
+  const saved = (args.savedAddresses ?? [])
+    .map((entry) => ({ id: entry.id.trim(), value: compactAddressFields(entry.value) }))
+    .filter((entry): entry is { id: string; value: AddressMessageValues } =>
+      Boolean(entry.id && entry.value),
+    )
+  if (saved.length > 0) parameters.saved_addresses = saved
+
+  return postWhatsAppMessage(args.phoneNumberId, args.accessToken, {
+    messaging_product: 'whatsapp',
+    recipient_type: 'individual',
+    to: args.to,
+    type: 'interactive',
+    interactive: {
+      type: 'address_message',
+      body: { text: args.bodyText },
+      action: { name: 'address_message', parameters },
+    },
+  })
+}
+
+function compactAddressFields(
+  input: AddressMessageValues | undefined,
+): AddressMessageValues | null {
+  if (!input) return null
+  const out: AddressMessageValues = {}
+  for (const field of ADDRESS_MESSAGE_FIELDS) {
+    const value = input[field]?.trim()
+    if (value) out[field] = value
+  }
+  return Object.keys(out).length > 0 ? out : null
+}
+
 export async function sendOrderDetailsMessage(args: {
   phoneNumberId: string
   accessToken: string

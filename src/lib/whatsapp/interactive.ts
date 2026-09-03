@@ -120,6 +120,11 @@ export interface InteractiveOrderStatusPayload {
   status: string
 }
 
+export interface InteractiveAddressMessagePayload {
+  kind: 'address_message'
+  body: string
+}
+
 export interface InteractiveInboundOrderPayload {
   kind: 'inbound_order'
   catalog_id?: string
@@ -142,6 +147,7 @@ export type InteractiveMessagePayload =
   | InteractiveCatalogMessagePayload
   | InteractiveOrderDetailsPayload
   | InteractiveOrderStatusPayload
+  | InteractiveAddressMessagePayload
   | InteractiveInboundOrderPayload
 
 /** Payloads the composer / send APIs may emit (excludes inbound-only shapes). */
@@ -208,6 +214,9 @@ export function validateInteractivePayload(
 
   if (kind === 'inbound_order') {
     return fail('Inbound cart messages cannot be sent from the composer.')
+  }
+  if (kind === 'address_message') {
+    return fail('Address forms are sent by the commerce checkout, not the composer.')
   }
 
   const body = raw.body
@@ -394,6 +403,7 @@ export function interactivePayloadPreviewText(
     return '[catalog]'
   }
   if (payload.kind === 'catalog_message') return '[catalog]'
+  if (payload.kind === 'address_message') return '[address form]'
   if (payload.kind === 'order_details') return '[order]'
   if (payload.kind === 'order_status') return '[order status]'
   return payload.kind === 'buttons' ? '[buttons]' : '[list]'

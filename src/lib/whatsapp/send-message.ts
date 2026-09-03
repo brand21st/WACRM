@@ -437,7 +437,12 @@ export async function sendMessageToConversation(
         });
         return result.messageId;
       }
-      if (p.kind === 'order_details' || p.kind === 'order_status' || p.kind === 'inbound_order') {
+      if (
+        p.kind === 'order_details' ||
+        p.kind === 'order_status' ||
+        p.kind === 'address_message' ||
+        p.kind === 'inbound_order'
+      ) {
         throw new Error('This interactive type is sent by the commerce engine, not the composer.');
       }
       const result = await sendInteractiveList({

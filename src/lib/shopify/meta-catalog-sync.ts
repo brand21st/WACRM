@@ -96,12 +96,40 @@ export function catalogIdLooksLikeWhatsAppAsset(
   return null
 }
 
+/**
+ * Result of asking Meta which catalogs a WABA has. `unavailable` is a
+ * distinct state on purpose: a token that can't read the catalog edges
+ * proves nothing about whether a catalog is connected, and conflating
+ * the two made the sync error tell users to connect a catalog they
+ * already had.
+ */
+export type WabaCatalogLookup =
+  | { status: 'ok'; catalogs: { id: string; name?: string }[] }
+  | { status: 'unavailable'; reason: string }
+
+/**
+ * Graph's reply when the app or token lacks `catalog_management`. It
+ * comes back on every catalog edge — including the read we use to list a
+ * WABA's catalogs — so it has to be recognised before any conclusion is
+ * drawn from an empty catalog list.
+ */
+function looksLikeMissingCatalogScope(message: string): boolean {
+  // Matched narrowly: Graph's unrelated object-not-found reply also says
+  // "cannot be loaded due to missing permissions", so only the bare
+  // "Missing Permission" (which always ends the message) counts here.
+  return (
+    /has not been approved to use this api|application capabilities|access token permissions/i.test(
+      message,
+    ) || /missing permission\.?\s*$/i.test(message)
+  )
+}
+
 export function explainMetaCatalogSyncError(opts: {
   catalogId: string
   graphMessage: string
   phoneNumberId: string
   wabaId: string
-  connected: { id: string; name?: string }[]
+  connected: WabaCatalogLookup
 }): string {
   const swapped = catalogIdLooksLikeWhatsAppAsset(
     opts.catalogId,
@@ -110,12 +138,21 @@ export function explainMetaCatalogSyncError(opts: {
   )
   if (swapped) return swapped
 
+  const probeBlocked =
+    opts.connected.status === 'unavailable' &&
+    looksLikeMissingCatalogScope(opts.connected.reason)
+  if (looksLikeMissingCatalogScope(opts.graphMessage) || probeBlocked) {
+    return `This WhatsApp access token cannot use catalogs — Meta replied "${opts.graphMessage}". The token needs the catalog_management permission, which WhatsApp-only tokens do not include. In Meta Business Settings → Users → System users, give the system user access to the catalog, generate a new token with catalog_management (plus whatsapp_business_management and whatsapp_business_messaging), then paste it into Settings → WhatsApp. Catalog ${opts.catalogId} itself does not need to change.`
+  }
+
   const connectedHint =
-    opts.connected.length > 0
-      ? ` Catalog connected to this WhatsApp account: ${opts.connected
-          .map((c) => (c.name ? `${c.id} (${c.name})` : c.id))
-          .join(', ')}.`
-      : ' No product catalog is connected to this WhatsApp Business Account yet — connect one in WhatsApp Manager → Catalog.'
+    opts.connected.status === 'unavailable'
+      ? ` Could not check which catalogs are connected to this WhatsApp Business Account: ${opts.connected.reason}`
+      : opts.connected.catalogs.length > 0
+        ? ` Catalog connected to this WhatsApp account: ${opts.connected.catalogs
+            .map((c) => (c.name ? `${c.id} (${c.name})` : c.id))
+            .join(', ')}.`
+        : ' No product catalog is connected to this WhatsApp Business Account yet — connect one in WhatsApp Manager → Catalog.'
 
   if (
     /does not exist|missing permissions|does not support this operation|Unsupported post request/i.test(
@@ -133,23 +170,45 @@ export function explainMetaCatalogSyncError(opts: {
 export async function listWabaProductCatalogs(
   wabaId: string,
   accessToken: string,
-): Promise<{ id: string; name?: string }[]> {
+): Promise<WabaCatalogLookup> {
   const id = wabaId.trim()
-  if (!id) return []
+  if (!id) {
+    return {
+      status: 'unavailable',
+      reason: 'no WhatsApp Business Account ID is saved for this account.',
+    }
+  }
   const url = `${META_API_BASE}/${encodeURIComponent(id)}/product_catalogs?fields=id,name`
-  const res = await fetch(url, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  })
-  if (!res.ok) return []
+  let res: Response
+  try {
+    res = await fetch(url, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    })
+  } catch (err) {
+    return {
+      status: 'unavailable',
+      reason: err instanceof Error ? err.message : String(err),
+    }
+  }
   const body = (await res.json().catch(() => null)) as {
     data?: { id?: string; name?: string }[]
+    error?: { message?: string }
   } | null
-  return (body?.data ?? [])
-    .map((row) => ({
-      id: String(row.id ?? '').trim(),
-      name: row.name?.trim() || undefined,
-    }))
-    .filter((row) => row.id)
+  if (!res.ok) {
+    return {
+      status: 'unavailable',
+      reason: body?.error?.message || `Graph returned ${res.status}.`,
+    }
+  }
+  return {
+    status: 'ok',
+    catalogs: (body?.data ?? [])
+      .map((row) => ({
+        id: String(row.id ?? '').trim(),
+        name: row.name?.trim() || undefined,
+      }))
+      .filter((row) => row.id),
+  }
 }
 
 export async function syncMetaCatalog(

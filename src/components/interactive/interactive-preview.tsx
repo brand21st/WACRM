@@ -1,6 +1,6 @@
 "use client";
 
-import { ExternalLink, List, Reply, ShoppingBag } from "lucide-react";
+import { ExternalLink, List, MapPin, Reply, ShoppingBag } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { InteractiveMessagePayload } from "@/lib/whatsapp/interactive";
 
@@ -132,6 +132,15 @@ export function InteractivePreview({
           className="flex w-full items-center justify-center gap-1.5 border-t border-border py-2 text-sm font-medium text-primary"
         >
           <span className="truncate">Review and Pay</span>
+        </button>
+      ) : payload.kind === "address_message" ? (
+        <button
+          type="button"
+          disabled
+          className="flex w-full items-center justify-center gap-1.5 border-t border-border py-2 text-sm font-medium text-primary"
+        >
+          <MapPin className="h-3.5 w-3.5" />
+          <span className="truncate">Provide address</span>
         </button>
       ) : payload.kind === "order_status" ? (
         <div className="border-t border-border px-3 py-2 text-xs text-muted-foreground">

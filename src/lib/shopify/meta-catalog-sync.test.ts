@@ -71,11 +71,41 @@ describe('explainMetaCatalogSyncError', () => {
         "Unsupported post request. Object with ID '1537621380970509' does not exist, cannot be loaded due to missing permissions, or does not support this operation.",
       phoneNumberId: '1273107552556381',
       wabaId: '1754381179136878',
-      connected: [{ id: '111222333', name: 'Store catalog' }],
+      connected: { status: 'ok', catalogs: [{ id: '111222333', name: 'Store catalog' }] },
     })
     expect(message).toMatch(/Commerce Manager/)
     expect(message).toMatch(/catalog_management/)
     expect(message).toMatch(/111222333/)
     expect(message).not.toMatch(/Unsupported post request/)
+  })
+
+  it('blames the missing catalog_management scope, not the catalog', () => {
+    const message = explainMetaCatalogSyncError({
+      catalogId: '1537621380970509',
+      graphMessage: '(#100) Missing Permission',
+      phoneNumberId: '1273107552556381',
+      wabaId: '1754381179136878',
+      // The probe is blocked by the very same missing scope.
+      connected: {
+        status: 'unavailable',
+        reason:
+          '(#100) This application has not been approved to use this api. Please check the application capabilities or access token permissions.',
+      },
+    })
+    expect(message).toMatch(/catalog_management/)
+    expect(message).toMatch(/System users/)
+    expect(message).not.toMatch(/No product catalog is connected/)
+  })
+
+  it('does not claim a catalog is missing when the check itself failed', () => {
+    const message = explainMetaCatalogSyncError({
+      catalogId: '1537621380970509',
+      graphMessage: 'Temporary Graph outage',
+      phoneNumberId: '1273107552556381',
+      wabaId: '1754381179136878',
+      connected: { status: 'unavailable', reason: 'Graph returned 500.' },
+    })
+    expect(message).toMatch(/Could not check which catalogs are connected/)
+    expect(message).not.toMatch(/No product catalog is connected/)
   })
 })

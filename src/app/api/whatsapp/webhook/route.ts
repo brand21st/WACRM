@@ -17,7 +17,15 @@ import { describeInboundImage } from '@/lib/ai/describe-inbound-image'
 import { sendPhotoWaitAck } from '@/lib/ai/photo-wait-ack'
 import { engineSendTypingIndicator } from '@/lib/flows/meta-send'
 import { loadShopifyConfig } from '@/lib/shopify/config'
-import { handleInboundWhatsAppOrder } from '@/lib/commerce/checkout'
+import {
+  completeCommerceAddressFromForm,
+  handleAddressFormDeliveryFailure,
+  handleInboundWhatsAppOrder,
+} from '@/lib/commerce/checkout'
+import {
+  addressFormPreviewText,
+  parseAddressMessageReply,
+} from '@/lib/commerce/address-form'
 import { parseInboundOrderMessage } from '@/lib/commerce/inbound-order'
 import {
   handleWhatsAppPaymentStatus,
@@ -72,9 +80,15 @@ interface WhatsAppMessage {
    * to advance the per-contact run.
    */
   interactive?: {
-    type: 'button_reply' | 'list_reply'
+    type: 'button_reply' | 'list_reply' | 'nfm_reply'
     button_reply?: { id: string; title: string }
     list_reply?: { id: string; title: string; description?: string }
+    /**
+     * Submission of a native WhatsApp form. `name` identifies which form
+     * (`address_message` for the India delivery-address form) and
+     * `response_json` carries the filled fields as a JSON string.
+     */
+    nfm_reply?: { name?: string; body?: string; response_json?: string }
   }
   /**
    * Set when the customer taps a QUICK_REPLY button on a *template*
@@ -121,6 +135,7 @@ interface WhatsAppWebhookEntry {
         timestamp: string
         recipient_id: string
         type?: string
+        errors?: Array<{ code?: number; title?: string; message?: string }>
         payment?: {
           reference_id?: string
           transaction?: {
@@ -326,6 +341,21 @@ async function processWebhook(body: { entry?: WhatsAppWebhookEntry[] }) {
               status,
             })
             continue
+          }
+          // 1026 (receiver incapable) on an address form means the
+          // customer's WhatsApp never rendered it, so checkout would
+          // stall silently. Re-ask with the plain-text prompt.
+          if (
+            status.status === 'failed' &&
+            status.errors?.some((e) => e.code === 1026)
+          ) {
+            await handleAddressFormDeliveryFailure({
+              db: supabaseAdmin(),
+              phoneNumberId: value.metadata.phone_number_id,
+              messageId: status.id,
+            }).catch((err) =>
+              console.error('[commerce] address form fallback failed:', err),
+            )
           }
           await handleStatusUpdate(status)
         }
@@ -887,6 +917,26 @@ async function processMessage(
     })
   }
 
+  // Native address form submitted → finish the pending cart and bill it.
+  // Handled here rather than in the AI path because the answer is
+  // structured, so there's nothing for the model to interpret.
+  const addressFormReply =
+    message.type === 'interactive' &&
+    message.interactive?.nfm_reply?.name === 'address_message'
+      ? message.interactive.nfm_reply
+      : null
+  let addressFormHandled = false
+  if (addressFormReply) {
+    addressFormHandled = await completeCommerceAddressFromForm({
+      db: supabaseAdmin(),
+      accountId,
+      userId: configOwnerUserId,
+      conversationId: conversation.id,
+      contactId: contactRecord.id,
+      responseJson: addressFormReply.response_json,
+    })
+  }
+
   // Speech-to-text + spoken auto-reply run off this request via
   // `voice_inbound_jobs` (GET /api/voice/cron). Holding Meta's webhook
   // open for overlapping OGG downloads + ElevenLabs used to 500 the
@@ -1046,6 +1096,7 @@ async function processMessage(
   let flowConsumed = false
   if (
     contentType !== 'audio' &&
+    !addressFormHandled &&
     !(aiConfig?.fullAgentEnabled && !interactiveReplyId)
   ) {
     const flowResult = await dispatchInboundToFlows({
@@ -1087,7 +1138,12 @@ async function processMessage(
   )[] = []
   // Content-level triggers are suppressed when a flow consumed the
   // message — or when full-agent mode owns the thread.
-  if (!flowConsumed && contentType !== 'audio' && !aiConfig?.fullAgentEnabled) {
+  if (
+    !flowConsumed &&
+    !addressFormHandled &&
+    contentType !== 'audio' &&
+    !aiConfig?.fullAgentEnabled
+  ) {
     automationTriggers.push('new_message_received', 'keyword_match')
     // Interactive tap → fire the interactive_reply trigger too (only
     // meaningful when a button/list reply actually arrived). Enables
@@ -1138,6 +1194,7 @@ async function processMessage(
         : 'text'
   const shouldAiReply =
     contentType !== 'order' &&
+    !addressFormHandled &&
     !queuedVoice &&
     aiConfig?.autoReplyEnabled &&
     inboundText.trim() &&
@@ -1375,6 +1432,20 @@ async function parseMessageContent(
       // Use the human-readable title as contentText so the inbox bubble
       // renders the tap legibly ("Existing customer"), and stash the
       // stable id separately so the Flows engine can route on it.
+      // Native form submission (the India address form). There's no
+      // stable reply id to route on — the answer itself is the payload,
+      // handled after insert by the commerce checkout.
+      const formReply = message.interactive?.nfm_reply
+      if (formReply?.name === 'address_message') {
+        const submission = parseAddressMessageReply(formReply.response_json)
+        return {
+          ...empty,
+          contentText: submission
+            ? addressFormPreviewText(submission)
+            : '[Address form submitted]',
+        }
+      }
+
       const reply =
         message.interactive?.button_reply ?? message.interactive?.list_reply
       if (reply?.id) {

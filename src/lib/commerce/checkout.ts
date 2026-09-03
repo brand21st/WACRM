@@ -2,9 +2,11 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { loadCommerceSettings } from '@/lib/shopify/commerce-config'
 import { isMissingDbRelation } from '@/lib/shopify/config-db'
 import {
+  engineSendAddressMessage,
   engineSendOrderDetails,
   engineSendText,
 } from '@/lib/flows/meta-send'
+import type { AddressMessageValues } from '@/lib/whatsapp/meta-api'
 import { buildOrderDetailsInteractive } from './order-details'
 import { newCommerceReferenceId } from './money'
 import { nativeCommerceEnabled } from './types'
@@ -16,6 +18,11 @@ import {
   parseBeneficiaryFromText,
   resolveBeneficiary,
 } from './beneficiary'
+import {
+  ADDRESS_FORM_BODY,
+  addressFormValuesFromBeneficiary,
+  parseAddressMessageReply,
+} from './address-form'
 import { isCompleteBeneficiary } from './order-details'
 
 export async function handleInboundWhatsAppOrder(args: {
@@ -74,18 +81,13 @@ export async function handleInboundWhatsAppOrder(args: {
   if (!inserted) return 'skipped'
 
   if (!beneficiary) {
-    try {
-      await engineSendText({
-        accountId: args.accountId,
-        userId: args.userId,
-        conversationId: args.conversationId,
-        contactId: args.contactId,
-        text: ADDRESS_PROMPT,
-        aiGenerated: true,
-      })
-    } catch (err) {
-      console.error('[commerce] address prompt failed:', err)
-    }
+    await askForDeliveryAddress({
+      accountId: args.accountId,
+      userId: args.userId,
+      conversationId: args.conversationId,
+      contactId: args.contactId,
+      values: addressFormValuesFromBeneficiary(null, args.contactPhone),
+    })
     return 'awaiting_address'
   }
 
@@ -104,6 +106,171 @@ export async function handleInboundWhatsAppOrder(args: {
   return sent ? 'billed' : 'skipped'
 }
 
+/**
+ * Ask for the delivery address using WhatsApp's native India address
+ * form, falling back to the plain-text prompt when the form can't be
+ * sent (non-India numbers, older API versions, a Meta rejection). The
+ * form gives us structured fields instead of parsing free text, so it's
+ * always the first attempt.
+ */
+async function askForDeliveryAddress(args: {
+  accountId: string
+  userId: string
+  conversationId: string
+  contactId: string
+  values?: AddressMessageValues
+  validationErrors?: AddressMessageValues
+}): Promise<void> {
+  try {
+    await engineSendAddressMessage({
+      accountId: args.accountId,
+      userId: args.userId,
+      conversationId: args.conversationId,
+      contactId: args.contactId,
+      bodyText: ADDRESS_FORM_BODY,
+      values: args.values,
+      validationErrors: args.validationErrors,
+      aiGenerated: true,
+    })
+    return
+  } catch (err) {
+    console.warn('[commerce] address form send failed, using text prompt:', err)
+  }
+  await sendAddressTextPrompt(args)
+}
+
+async function sendAddressTextPrompt(args: {
+  accountId: string
+  userId: string
+  conversationId: string
+  contactId: string
+}): Promise<void> {
+  try {
+    await engineSendText({
+      accountId: args.accountId,
+      userId: args.userId,
+      conversationId: args.conversationId,
+      contactId: args.contactId,
+      text: ADDRESS_PROMPT,
+      aiGenerated: true,
+    })
+  } catch (err) {
+    console.error('[commerce] address prompt failed:', err)
+  }
+}
+
+/**
+ * Handle a submitted native address form (`nfm_reply`). Returns false
+ * when this conversation has no order waiting on an address, so the
+ * caller can treat the message as an ordinary inbound one.
+ *
+ * A form that fails server-side validation is re-sent with the
+ * customer's own answers as prefill plus inline errors, per Meta's
+ * recommended validation loop.
+ */
+export async function completeCommerceAddressFromForm(args: {
+  db: SupabaseClient
+  accountId: string
+  userId: string
+  conversationId: string
+  contactId: string
+  responseJson: unknown
+}): Promise<boolean> {
+  const pending = await loadAwaitingAddressOrder(
+    args.db,
+    args.accountId,
+    args.conversationId,
+  )
+  if (!pending) return false
+
+  const submission = parseAddressMessageReply(args.responseJson)
+  if (!submission) return false
+
+  if (!submission.beneficiary) {
+    await askForDeliveryAddress({
+      accountId: args.accountId,
+      userId: args.userId,
+      conversationId: args.conversationId,
+      contactId: args.contactId,
+      values: submission.values,
+      validationErrors: submission.validationErrors,
+    })
+    return true
+  }
+
+  const settings = await loadCommerceSettings(args.db, args.accountId)
+  if (!nativeCommerceEnabled(settings)) return false
+  const lines = (pending.line_items as MappedCartLine[]) ?? []
+  if (lines.length === 0) return false
+
+  await args.db
+    .from('whatsapp_commerce_orders')
+    .update({ beneficiary: submission.beneficiary, awaiting_address: false })
+    .eq('id', pending.id)
+
+  return sendCommerceBill({
+    db: args.db,
+    accountId: args.accountId,
+    userId: args.userId,
+    conversationId: args.conversationId,
+    contactId: args.contactId,
+    referenceId: pending.reference_id,
+    catalogId: settings.metaCatalogId!,
+    configurationName: settings.waPaymentConfigurationName!,
+    lines,
+    beneficiary: submission.beneficiary,
+  })
+}
+
+/**
+ * Recover when an address form we sent was never rendered — Meta reports
+ * error 1026 (receiver incapable) as a `failed` status, and the customer
+ * sees nothing at all. Re-asks with the plain-text prompt so checkout
+ * isn't silently stuck.
+ */
+export async function handleAddressFormDeliveryFailure(args: {
+  db: SupabaseClient
+  phoneNumberId: string
+  messageId: string
+}): Promise<void> {
+  const { data: config } = await args.db
+    .from('whatsapp_config')
+    .select('account_id, user_id')
+    .eq('phone_number_id', args.phoneNumberId)
+    .maybeSingle()
+  if (!config?.account_id || !config.user_id) return
+
+  const { data: message } = await args.db
+    .from('messages')
+    .select('conversation_id')
+    .eq('message_id', args.messageId)
+    .eq('interactive_payload->>kind', 'address_message')
+    .maybeSingle()
+  if (!message?.conversation_id) return
+
+  const conversationId = message.conversation_id as string
+  const pending = await loadAwaitingAddressOrder(
+    args.db,
+    config.account_id as string,
+    conversationId,
+  )
+  if (!pending) return
+
+  const { data: conversation } = await args.db
+    .from('conversations')
+    .select('contact_id')
+    .eq('id', conversationId)
+    .maybeSingle()
+  if (!conversation?.contact_id) return
+
+  await sendAddressTextPrompt({
+    accountId: config.account_id as string,
+    userId: config.user_id as string,
+    conversationId,
+    contactId: conversation.contact_id as string,
+  })
+}
+
 export async function tryCompleteCommerceAddress(args: {
   db: SupabaseClient
   accountId: string
@@ -118,18 +285,12 @@ export async function tryCompleteCommerceAddress(args: {
 
   const beneficiary = parseBeneficiaryFromText(args.text, args.contactName)
   if (!beneficiary) {
-    try {
-      await engineSendText({
-        accountId: args.accountId,
-        userId: args.userId,
-        conversationId: args.conversationId,
-        contactId: args.contactId,
-        text: ADDRESS_PROMPT,
-        aiGenerated: true,
-      })
-    } catch (err) {
-      console.error('[commerce] address re-prompt failed:', err)
-    }
+    await sendAddressTextPrompt({
+      accountId: args.accountId,
+      userId: args.userId,
+      conversationId: args.conversationId,
+      contactId: args.contactId,
+    })
     return true
   }
 
