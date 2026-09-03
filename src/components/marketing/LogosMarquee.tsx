@@ -36,7 +36,7 @@ export default function LogosMarquee() {
                 alt={logo.name}
                 width={120}
                 height={36}
-                style={{ height: "36px", width: "auto", objectFit: "contain" }}
+                style={{ width: "auto", height: "auto", objectFit: "contain", maxHeight: "36px" }}
               />
             </div>
           ))}
@@ -49,7 +49,7 @@ export default function LogosMarquee() {
                 alt={logo.name}
                 width={120}
                 height={36}
-                style={{ height: "36px", width: "auto", objectFit: "contain" }}
+                style={{ width: "auto", height: "auto", objectFit: "contain", maxHeight: "36px" }}
               />
             </div>
           ))}

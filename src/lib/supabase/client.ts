@@ -6,6 +6,21 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 // because another request stole it") and intermittent fetch failures.
 let browserClient: SupabaseClient | undefined
 
+export function isSupabaseConfigured(): boolean {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  if (!url || !key) return false;
+  if (
+    url.includes("your-project") ||
+    url.includes("placeholder") ||
+    key === "placeholder-anon-key" ||
+    key === "your-anon-key"
+  ) {
+    return false;
+  }
+  return true;
+}
+
 export function createClient() {
   if (browserClient) return browserClient
 

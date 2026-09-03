@@ -4,8 +4,8 @@ import { Suspense, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useTranslations } from "next-intl";
-import { createClient } from "@/lib/supabase/client";
-import { Eye, EyeOff, Mail } from "lucide-react";
+import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
+import { ArrowLeft, Eye, EyeOff, Mail } from "lucide-react";
 
 export default function LoginPage() {
   return (
@@ -32,6 +32,14 @@ function LoginPageInner() {
     e.preventDefault();
     setError(null);
     setLoading(true);
+
+    if (!isSupabaseConfigured()) {
+      setError(
+        "Supabase is not configured yet. Please add your NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY to .env.local."
+      );
+      setLoading(false);
+      return;
+    }
 
     try {
       const { error } = await supabase.auth.signInWithPassword({
@@ -83,6 +91,13 @@ function LoginPageInner() {
   };
 
   const handleGoogleSignIn = async () => {
+    if (!isSupabaseConfigured()) {
+      setError(
+        "Supabase is not configured yet. Please add your NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY to .env.local."
+      );
+      return;
+    }
+
     try {
       setError(null);
       setGoogleLoading(true);
@@ -99,25 +114,35 @@ function LoginPageInner() {
         setGoogleLoading(false);
       }
     } catch {
-      setError("Failed to initialize Google sign-in.");
+      setError("Failed to initialize Google sign-in. Please check your network and Supabase OAuth configuration.");
       setGoogleLoading(false);
     }
   };
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-[#fbfbfb] dark:bg-background px-4 py-8">
-      <div className="w-full max-w-[420px] rounded-2xl border border-slate-100 dark:border-border bg-white dark:bg-card p-8 sm:p-10 shadow-sm sm:shadow-md">
-        {/* Header */}
-        <div className="text-left">
-          <h1 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-foreground">
-            {inviteToken ? t("titleAccept") : "Log in"}
-          </h1>
-          <p className="mt-2 text-sm text-slate-500 dark:text-muted-foreground">
-            {inviteToken
-              ? t("descAccept")
-              : "Welcome back! Please enter your email."}
-          </p>
-        </div>
+      <div className="w-full max-w-[420px]">
+        {/* Back to Home Button */}
+        <Link
+          href="/"
+          className="mb-3.5 inline-flex items-center gap-1.5 text-xs sm:text-sm font-medium text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 transition-colors group cursor-pointer"
+        >
+          <ArrowLeft className="h-4 w-4 transition-transform group-hover:-translate-x-0.5" />
+          <span>Back to home</span>
+        </Link>
+
+        <div className="rounded-2xl border border-slate-100 dark:border-border bg-white dark:bg-card p-8 sm:p-10 shadow-sm sm:shadow-md">
+          {/* Header */}
+          <div className="text-left">
+            <h1 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-foreground">
+              {inviteToken ? t("titleAccept") : "Log in"}
+            </h1>
+            <p className="mt-2 text-sm text-slate-500 dark:text-muted-foreground">
+              {inviteToken
+                ? t("descAccept")
+                : "Welcome back! Please enter your email."}
+            </p>
+          </div>
 
         {/* Error Alert */}
         {error && (
@@ -251,5 +276,6 @@ function LoginPageInner() {
         </p>
       </div>
     </div>
+  </div>
   );
 }
