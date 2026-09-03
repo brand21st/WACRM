@@ -3,6 +3,7 @@ import { loadCommerceSettings } from '@/lib/shopify/commerce-config'
 import { isMissingDbRelation } from '@/lib/shopify/config-db'
 import {
   engineSendAddressMessage,
+  engineSendInteractiveButtons,
   engineSendOrderDetails,
   engineSendText,
 } from '@/lib/flows/meta-send'
@@ -23,6 +24,14 @@ import {
   addressFormValuesFromBeneficiary,
   parseAddressMessageReply,
 } from './address-form'
+import {
+  CONFIRM_BUTTON_TITLE,
+  EDIT_BUTTON_TITLE,
+  addressConfirmReplyId,
+  addressConfirmationBody,
+  addressEditReplyId,
+  parseAddressConfirmReply,
+} from './address-confirm'
 import { isCompleteBeneficiary } from './order-details'
 
 export async function handleInboundWhatsAppOrder(args: {
@@ -34,7 +43,7 @@ export async function handleInboundWhatsAppOrder(args: {
   contactPhone: string | null
   contactName: string | null
   message: { order?: unknown }
-}): Promise<'billed' | 'awaiting_address' | 'skipped'> {
+}): Promise<'awaiting_confirmation' | 'awaiting_address' | 'skipped'> {
   const parsed = parseInboundOrderMessage(args.message)
   if (!parsed) return 'skipped'
 
@@ -77,6 +86,10 @@ export async function handleInboundWhatsAppOrder(args: {
     beneficiary,
     paymentConfigId: settings.waPaymentConfigurationName,
     awaitingAddress: !beneficiary,
+    // An address we found ourselves (Shopify customer, merchant default)
+    // still gets confirmed — it may be stale, and the customer is about
+    // to pay against it.
+    awaitingConfirmation: Boolean(beneficiary),
   })
   if (!inserted) return 'skipped'
 
@@ -91,19 +104,57 @@ export async function handleInboundWhatsAppOrder(args: {
     return 'awaiting_address'
   }
 
-  const sent = await sendCommerceBill({
-    db: args.db,
+  await askToConfirmAddress({
     accountId: args.accountId,
     userId: args.userId,
     conversationId: args.conversationId,
     contactId: args.contactId,
     referenceId,
-    catalogId: settings.metaCatalogId!,
-    configurationName: settings.waPaymentConfigurationName!,
-    lines,
     beneficiary,
+    totalPaise: total,
+    itemCount: lines.length,
   })
-  return sent ? 'billed' : 'skipped'
+  return 'awaiting_confirmation'
+}
+
+/**
+ * Show the address back to the customer with Confirm / Change buttons.
+ * The payable order_details bill is sent only after they confirm, so a
+ * wrong address is caught before money is involved.
+ */
+async function askToConfirmAddress(args: {
+  accountId: string
+  userId: string
+  conversationId: string
+  contactId: string
+  referenceId: string
+  beneficiary: CommerceBeneficiary
+  totalPaise: number
+  itemCount: number
+}): Promise<void> {
+  try {
+    await engineSendInteractiveButtons({
+      accountId: args.accountId,
+      userId: args.userId,
+      conversationId: args.conversationId,
+      contactId: args.contactId,
+      bodyText: addressConfirmationBody({
+        beneficiary: args.beneficiary,
+        totalPaise: args.totalPaise,
+        itemCount: args.itemCount,
+      }),
+      buttons: [
+        {
+          id: addressConfirmReplyId(args.referenceId),
+          title: CONFIRM_BUTTON_TITLE,
+        },
+        { id: addressEditReplyId(args.referenceId), title: EDIT_BUTTON_TITLE },
+      ],
+      aiGenerated: true,
+    })
+  } catch (err) {
+    console.error('[commerce] address confirmation send failed:', err)
+  }
 }
 
 /**
@@ -198,28 +249,153 @@ export async function completeCommerceAddressFromForm(args: {
     return true
   }
 
-  const settings = await loadCommerceSettings(args.db, args.accountId)
-  if (!nativeCommerceEnabled(settings)) return false
-  const lines = (pending.line_items as MappedCartLine[]) ?? []
-  if (lines.length === 0) return false
-
-  await args.db
-    .from('whatsapp_commerce_orders')
-    .update({ beneficiary: submission.beneficiary, awaiting_address: false })
-    .eq('id', pending.id)
-
-  return sendCommerceBill({
+  return storeAddressAndConfirm({
     db: args.db,
     accountId: args.accountId,
     userId: args.userId,
     conversationId: args.conversationId,
     contactId: args.contactId,
-    referenceId: pending.reference_id,
+    order: pending,
+    beneficiary: submission.beneficiary,
+  })
+}
+
+/**
+ * Save a freshly collected address on the pending order and ask the
+ * customer to confirm it. Shared by the native-form and typed-text
+ * paths so both reach the bill through the same confirmation step.
+ */
+async function storeAddressAndConfirm(args: {
+  db: SupabaseClient
+  accountId: string
+  userId: string
+  conversationId: string
+  contactId: string
+  order: { id: string; reference_id: string; line_items: unknown }
+  beneficiary: CommerceBeneficiary
+}): Promise<boolean> {
+  const lines = (args.order.line_items as MappedCartLine[]) ?? []
+  if (lines.length === 0) return false
+
+  await args.db
+    .from('whatsapp_commerce_orders')
+    .update({
+      beneficiary: args.beneficiary,
+      awaiting_address: false,
+      awaiting_confirmation: true,
+    })
+    .eq('id', args.order.id)
+
+  await askToConfirmAddress({
+    accountId: args.accountId,
+    userId: args.userId,
+    conversationId: args.conversationId,
+    contactId: args.contactId,
+    referenceId: args.order.reference_id,
+    beneficiary: args.beneficiary,
+    totalPaise: lines.reduce(
+      (sum, line) => sum + line.amountPaise * line.quantity,
+      0,
+    ),
+    itemCount: lines.length,
+  })
+  return true
+}
+
+/**
+ * Handle a Confirm / Change tap on the address confirmation message.
+ * Returns false when the tap isn't ours, so ordinary interactive replies
+ * still reach flows and automations.
+ *
+ * Confirm claims `awaiting_confirmation` with a conditional update: two
+ * quick taps race for the same row and only the winner sends a bill.
+ */
+export async function handleAddressConfirmationReply(args: {
+  db: SupabaseClient
+  accountId: string
+  userId: string
+  conversationId: string
+  contactId: string
+  contactPhone: string | null
+  replyId: string | null
+}): Promise<boolean> {
+  const reply = parseAddressConfirmReply(args.replyId)
+  if (!reply) return false
+
+  const { data: order } = await args.db
+    .from('whatsapp_commerce_orders')
+    .select('id, reference_id, line_items, beneficiary, status, awaiting_confirmation')
+    .eq('account_id', args.accountId)
+    .eq('reference_id', reply.referenceId)
+    .maybeSingle()
+  if (!order) return false
+
+  if (reply.action === 'edit') {
+    await args.db
+      .from('whatsapp_commerce_orders')
+      .update({ awaiting_address: true, awaiting_confirmation: false })
+      .eq('id', order.id)
+      .eq('status', 'pending')
+    await askForDeliveryAddress({
+      accountId: args.accountId,
+      userId: args.userId,
+      conversationId: args.conversationId,
+      contactId: args.contactId,
+      values: addressFormValuesFromBeneficiary(
+        (order.beneficiary as CommerceBeneficiary) ?? null,
+        args.contactPhone,
+      ),
+    })
+    return true
+  }
+
+  const settings = await loadCommerceSettings(args.db, args.accountId)
+  if (!nativeCommerceEnabled(settings)) return false
+
+  const beneficiary = order.beneficiary as CommerceBeneficiary | null
+  if (!beneficiary || !isCompleteBeneficiary(beneficiary)) {
+    await args.db
+      .from('whatsapp_commerce_orders')
+      .update({ awaiting_address: true, awaiting_confirmation: false })
+      .eq('id', order.id)
+      .eq('status', 'pending')
+    await askForDeliveryAddress({
+      accountId: args.accountId,
+      userId: args.userId,
+      conversationId: args.conversationId,
+      contactId: args.contactId,
+      values: addressFormValuesFromBeneficiary(null, args.contactPhone),
+    })
+    return true
+  }
+
+  // Claim the confirmation. No row back means someone (or a second tap)
+  // already billed this order, so stay silent rather than double-bill.
+  const { data: claimed } = await args.db
+    .from('whatsapp_commerce_orders')
+    .update({ awaiting_confirmation: false })
+    .eq('id', order.id)
+    .eq('status', 'pending')
+    .eq('awaiting_confirmation', true)
+    .select('id')
+  if (!claimed || claimed.length === 0) return true
+
+  const lines = (order.line_items as MappedCartLine[]) ?? []
+  if (lines.length === 0) return true
+
+  await sendCommerceBill({
+    db: args.db,
+    accountId: args.accountId,
+    userId: args.userId,
+    conversationId: args.conversationId,
+    contactId: args.contactId,
+    referenceId: order.reference_id as string,
     catalogId: settings.metaCatalogId!,
     configurationName: settings.waPaymentConfigurationName!,
     lines,
-    beneficiary: submission.beneficiary,
+    beneficiary,
   })
+  return true
 }
 
 /**
@@ -294,26 +470,13 @@ export async function tryCompleteCommerceAddress(args: {
     return true
   }
 
-  const settings = await loadCommerceSettings(args.db, args.accountId)
-  if (!nativeCommerceEnabled(settings)) return false
-  const lines = (pending.line_items as MappedCartLine[]) ?? []
-  if (lines.length === 0) return false
-
-  await args.db
-    .from('whatsapp_commerce_orders')
-    .update({ beneficiary, awaiting_address: false })
-    .eq('id', pending.id)
-
-  return sendCommerceBill({
+  return storeAddressAndConfirm({
     db: args.db,
     accountId: args.accountId,
     userId: args.userId,
     conversationId: args.conversationId,
     contactId: args.contactId,
-    referenceId: pending.reference_id,
-    catalogId: settings.metaCatalogId!,
-    configurationName: settings.waPaymentConfigurationName!,
-    lines,
+    order: pending,
     beneficiary,
   })
 }
@@ -382,6 +545,7 @@ async function insertCommerceOrder(
     beneficiary: CommerceBeneficiary | null
     paymentConfigId: string | null
     awaitingAddress: boolean
+    awaitingConfirmation: boolean
   },
 ): Promise<boolean> {
   const { error } = await db.from('whatsapp_commerce_orders').insert({
@@ -397,6 +561,7 @@ async function insertCommerceOrder(
     beneficiary: row.beneficiary,
     payment_config_id: row.paymentConfigId,
     awaiting_address: row.awaitingAddress,
+    awaiting_confirmation: row.awaitingConfirmation,
   })
   if (error) {
     if (isMissingDbRelation(error, 'whatsapp_commerce_orders')) {

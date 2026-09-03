@@ -19,6 +19,7 @@ import { engineSendTypingIndicator } from '@/lib/flows/meta-send'
 import { loadShopifyConfig } from '@/lib/shopify/config'
 import {
   completeCommerceAddressFromForm,
+  handleAddressConfirmationReply,
   handleAddressFormDeliveryFailure,
   handleInboundWhatsAppOrder,
 } from '@/lib/commerce/checkout'
@@ -917,23 +918,38 @@ async function processMessage(
     })
   }
 
-  // Native address form submitted → finish the pending cart and bill it.
-  // Handled here rather than in the AI path because the answer is
-  // structured, so there's nothing for the model to interpret.
+  // Native address form submitted → store the address and ask the
+  // customer to confirm it. Handled here rather than in the AI path
+  // because the answer is structured, so there's nothing to interpret.
   const addressFormReply =
     message.type === 'interactive' &&
     message.interactive?.nfm_reply?.name === 'address_message'
       ? message.interactive.nfm_reply
       : null
-  let addressFormHandled = false
+  let commerceReplyHandled = false
   if (addressFormReply) {
-    addressFormHandled = await completeCommerceAddressFromForm({
+    commerceReplyHandled = await completeCommerceAddressFromForm({
       db: supabaseAdmin(),
       accountId,
       userId: configOwnerUserId,
       conversationId: conversation.id,
       contactId: contactRecord.id,
       responseJson: addressFormReply.response_json,
+    })
+  }
+
+  // Confirm / Change tap on the address confirmation message. Returns
+  // false for every other button, so normal menu taps still reach the
+  // flow runner and the interactive_reply trigger below.
+  if (!commerceReplyHandled && interactiveReplyId) {
+    commerceReplyHandled = await handleAddressConfirmationReply({
+      db: supabaseAdmin(),
+      accountId,
+      userId: configOwnerUserId,
+      conversationId: conversation.id,
+      contactId: contactRecord.id,
+      contactPhone: contactRecord.phone ?? senderPhone,
+      replyId: interactiveReplyId,
     })
   }
 
@@ -1096,7 +1112,7 @@ async function processMessage(
   let flowConsumed = false
   if (
     contentType !== 'audio' &&
-    !addressFormHandled &&
+    !commerceReplyHandled &&
     !(aiConfig?.fullAgentEnabled && !interactiveReplyId)
   ) {
     const flowResult = await dispatchInboundToFlows({
@@ -1140,7 +1156,7 @@ async function processMessage(
   // message — or when full-agent mode owns the thread.
   if (
     !flowConsumed &&
-    !addressFormHandled &&
+    !commerceReplyHandled &&
     contentType !== 'audio' &&
     !aiConfig?.fullAgentEnabled
   ) {
@@ -1194,7 +1210,7 @@ async function processMessage(
         : 'text'
   const shouldAiReply =
     contentType !== 'order' &&
-    !addressFormHandled &&
+    !commerceReplyHandled &&
     !queuedVoice &&
     aiConfig?.autoReplyEnabled &&
     inboundText.trim() &&
