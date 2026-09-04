@@ -37,7 +37,7 @@ export async function openaiSpeechToText(args: {
   form.append('model', STT_MODEL)
   form.append(
     'file',
-    new Blob([bytes], { type: mime }),
+    new Blob([Buffer.from(bytes)], { type: mime }),
     fileName,
   )
   const hint = args.languageHint?.trim()
