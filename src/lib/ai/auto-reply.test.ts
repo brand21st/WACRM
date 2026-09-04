@@ -661,6 +661,16 @@ describe('dispatchInboundToAiReply — handoff', () => {
     )
   })
 
+  it('still replies when the provider throws in full-agent mode', async () => {
+    h.loadAiConfig.mockResolvedValue(aiConfig({ fullAgentEnabled: true }))
+    h.generateReply.mockRejectedValue(new Error('provider down'))
+    await dispatchInboundToAiReply(ARGS)
+    expect(h.engineSendInteractiveButtons).toHaveBeenCalledWith(
+      expect.objectContaining({ bodyText: FULL_AGENT_FALLBACK_REPLY }),
+    )
+    expect(h.state.updatePayload).toBeNull()
+  })
+
   it('routes to the configured handoff agent on handoff', async () => {
     h.loadAiConfig.mockResolvedValue(aiConfig({ handoffAgentId: 'agent-7' }))
     h.generateReply.mockResolvedValue({ text: '', handoff: true })
@@ -2109,6 +2119,39 @@ describe('dispatchInboundToAiReply — cart offer', () => {
     expect(
       h.engineSendMedia.mock.calls.some((c) => c[0].voice === true),
     ).toBe(false)
+  })
+
+  it('still sends the text reply when product cards fail', async () => {
+    h.loadAiConfig.mockResolvedValue(aiConfig({ fullAgentEnabled: true }))
+    h.buildConversationContext.mockResolvedValue([
+      { role: 'user', content: 'show me red bags' },
+    ])
+    h.loadShopifyConfig.mockResolvedValue(shopifyRow)
+    h.engineSendCtaUrl.mockRejectedValue(new Error('meta down'))
+    h.executeShopifyTool.mockResolvedValue({
+      json: '{}',
+      cards: [
+        {
+          title: 'Red Bag',
+          imageUrl: 'https://cdn.example/bag.jpg',
+          productUrl: 'https://shop.example/products/red-bag',
+          cartUrl: 'https://shop.example/cart/99:1',
+          checkoutUrl: 'https://shop.example/cart/99:1?checkout',
+          inStock: true,
+          caption: 'Red Bag',
+        },
+      ],
+    })
+    h.generateReply.mockImplementation(async (args: { executeTool?: Function }) => {
+      if (args.executeTool) await args.executeTool('search_products', { query: 'red bags' })
+      return { text: 'This red bag matches.', handoff: false }
+    })
+
+    await dispatchInboundToAiReply(ARGS)
+
+    expect(h.engineSendInteractiveButtons).toHaveBeenCalledWith(
+      expect.objectContaining({ bodyText: 'This red bag matches.' }),
+    )
   })
 })
 

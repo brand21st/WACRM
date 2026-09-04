@@ -524,13 +524,14 @@ export async function dispatchInboundToAiReply(
     const replyText =
       confirmTap && cartOffer && (!(chatText ?? '').trim() || handoff)
         ? cartOfferFallbackText(cartOffer.items)
-        : chatText || text
-    const textForCustomer = stripReplyLinkUrls(
-      replyText,
-      productCards,
-      orderCards,
-      [cartOffer?.cartUrl, cartOffer?.checkoutUrl],
-    )
+        : chatText || voiceText || text
+    const textForCustomer =
+      stripReplyLinkUrls(
+        replyText,
+        productCards,
+        orderCards,
+        [cartOffer?.cartUrl, cartOffer?.checkoutUrl],
+      ).trim() || FULL_AGENT_FALLBACK_REPLY
 
     const catalogRequested =
       catalogHolder.value || isWhatsAppCatalogRequest(queryText)
@@ -584,7 +585,11 @@ export async function dispatchInboundToAiReply(
     }
 
     if (isProductRec) {
-      await sendProductCards(sendArgs, productCards, shopify)
+      try {
+        await sendProductCards(sendArgs, productCards, shopify)
+      } catch (err) {
+        console.error('[ai auto-reply] product cards failed:', err)
+      }
       const handedOff = await sendCustomerFacingText({
         db,
         config,
@@ -603,7 +608,11 @@ export async function dispatchInboundToAiReply(
       })
       if (handedOff) return
       if (shoppingVoice) await sendShoppingAudio()
-      await sendOrderCards(sendArgs, orderCards)
+      try {
+        await sendOrderCards(sendArgs, orderCards)
+      } catch (err) {
+        console.error('[ai auto-reply] order cards failed:', err)
+      }
       return
     }
 
@@ -818,68 +827,76 @@ export async function generateCustomerFacingReply(args: {
   tools?: LlmToolDef[]
   executeTool?: ExecuteLlmTool
 }): Promise<{ text: string; handoff: boolean }> {
-  const first = await generateReply({
-    config: args.config,
-    systemPrompt: args.systemPrompt,
-    messages: args.messages,
-    customerName: args.customerName,
-    replyLanguage: args.replyLanguage,
-    tools: args.tools,
-    executeTool: args.executeTool,
-  })
-  void logAiUsage(args.db, {
-    accountId: args.accountId,
-    conversationId: args.conversationId,
-    mode: 'auto_reply',
-    provider: args.config.provider,
-    model: args.config.model,
-    usage: first.usage,
-  })
-
-  if (!first.handoff && first.text) {
-    return { text: first.text, handoff: false }
-  }
-
-  if (!args.config.fullAgentEnabled) {
-    return { text: first.text, handoff: first.handoff || !first.text }
-  }
-
-  // Inbox toggle says the bot stays live. Retry without the handoff
-  // protocol so the customer always gets a spoken/text reply.
-  const retry = await generateReply({
-    config: args.config,
-    systemPrompt: buildSystemPrompt({
-      userPrompt: args.config.systemPrompt,
-      mode: 'draft',
-      knowledge: args.knowledge,
-      shopify: args.shopify,
-      nativeCommerce: args.nativeCommerce,
-      whatsappCatalog: args.whatsappCatalog,
-      photoMatches: args.photoMatches,
+  try {
+    const first = await generateReply({
+      config: args.config,
+      systemPrompt: args.systemPrompt,
+      messages: args.messages,
       customerName: args.customerName,
-      firstInbound: args.firstInbound,
-      shopName: args.shopName,
-      customerMemory: args.customerMemory,
       replyLanguage: args.replyLanguage,
-    }),
-    messages: args.messages,
-    customerName: args.customerName,
-    replyLanguage: args.replyLanguage,
-    tools: args.tools,
-    executeTool: args.executeTool,
-  })
-  void logAiUsage(args.db, {
-    accountId: args.accountId,
-    conversationId: args.conversationId,
-    mode: 'auto_reply',
-    provider: args.config.provider,
-    model: args.config.model,
-    usage: retry.usage,
-  })
+      tools: args.tools,
+      executeTool: args.executeTool,
+    })
+    void logAiUsage(args.db, {
+      accountId: args.accountId,
+      conversationId: args.conversationId,
+      mode: 'auto_reply',
+      provider: args.config.provider,
+      model: args.config.model,
+      usage: first.usage,
+    })
 
-  return {
-    text: retry.text || first.text || FULL_AGENT_FALLBACK_REPLY,
-    handoff: false,
+    if (!first.handoff && first.text) {
+      return { text: first.text, handoff: false }
+    }
+
+    if (!args.config.fullAgentEnabled) {
+      return { text: first.text, handoff: first.handoff || !first.text }
+    }
+
+    // Inbox toggle says the bot stays live. Retry without the handoff
+    // protocol so the customer always gets a spoken/text reply.
+    const retry = await generateReply({
+      config: args.config,
+      systemPrompt: buildSystemPrompt({
+        userPrompt: args.config.systemPrompt,
+        mode: 'draft',
+        knowledge: args.knowledge,
+        shopify: args.shopify,
+        nativeCommerce: args.nativeCommerce,
+        whatsappCatalog: args.whatsappCatalog,
+        photoMatches: args.photoMatches,
+        customerName: args.customerName,
+        firstInbound: args.firstInbound,
+        shopName: args.shopName,
+        customerMemory: args.customerMemory,
+        replyLanguage: args.replyLanguage,
+      }),
+      messages: args.messages,
+      customerName: args.customerName,
+      replyLanguage: args.replyLanguage,
+      tools: args.tools,
+      executeTool: args.executeTool,
+    })
+    void logAiUsage(args.db, {
+      accountId: args.accountId,
+      conversationId: args.conversationId,
+      mode: 'auto_reply',
+      provider: args.config.provider,
+      model: args.config.model,
+      usage: retry.usage,
+    })
+
+    return {
+      text: retry.text || first.text || FULL_AGENT_FALLBACK_REPLY,
+      handoff: false,
+    }
+  } catch (err) {
+    console.error('[ai auto-reply] generate failed:', err)
+    if (args.config.fullAgentEnabled) {
+      return { text: FULL_AGENT_FALLBACK_REPLY, handoff: false }
+    }
+    return { text: '', handoff: true }
   }
 }
 
