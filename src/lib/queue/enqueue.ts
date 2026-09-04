@@ -8,22 +8,10 @@ import type {
 import { DEFAULT_JOB_OPTIONS, QUEUE_NAMES } from '@/lib/queue/names'
 import { getBullmqConnection } from '@/lib/queue/redis'
 
-/**
- * BullMQ v6 derives `add`'s name and data types from a conditional on
- * the first type argument. That conditional never resolves while the
- * payload is still a naked type parameter (as in `addJob` below), so
- * every argument is pinned here instead of left to default.
- */
-type JobQueue<T> = Queue<T, unknown, string, T, unknown, string>
-
 type QueueMap = {
-  aiChatReply: JobQueue<AiChatReplyJob>
-  aiVoiceInbound: JobQueue<AiVoiceInboundJob>
-  callRecording: JobQueue<CallRecordingJob>
-}
-
-function createQueue<T>(name: string, opts: QueueOptions): JobQueue<T> {
-  return new Queue<T, unknown, string, T, unknown, string>(name, opts)
+  aiChatReply: Queue
+  aiVoiceInbound: Queue
+  callRecording: Queue
 }
 
 let queues: QueueMap | null = null
@@ -33,22 +21,23 @@ export function isDuplicateJobError(err: unknown): boolean {
   return /already exists/i.test(msg)
 }
 
-function getQueues(): QueueMap | null {
+function queueOptions(): QueueOptions | null {
   const connection = getBullmqConnection()
   if (!connection) return null
-  if (!queues) {
-    const opts = { connection, defaultJobOptions: DEFAULT_JOB_OPTIONS }
-    queues = {
-      aiChatReply: createQueue<AiChatReplyJob>(QUEUE_NAMES.aiChatReply, opts),
-      aiVoiceInbound: createQueue<AiVoiceInboundJob>(
-        QUEUE_NAMES.aiVoiceInbound,
-        opts,
-      ),
-      callRecording: createQueue<CallRecordingJob>(
-        QUEUE_NAMES.callRecording,
-        opts,
-      ),
-    }
+  return {
+    connection,
+    defaultJobOptions: DEFAULT_JOB_OPTIONS,
+  }
+}
+
+function getQueues(): QueueMap | null {
+  if (queues) return queues
+  const opts = queueOptions()
+  if (!opts) return null
+  queues = {
+    aiChatReply: new Queue(QUEUE_NAMES.aiChatReply, opts),
+    aiVoiceInbound: new Queue(QUEUE_NAMES.aiVoiceInbound, opts),
+    callRecording: new Queue(QUEUE_NAMES.callRecording, opts),
   }
   return queues
 }
@@ -58,10 +47,10 @@ export function resetQueuesForTests(): void {
   queues = null
 }
 
-async function addJob<T>(
-  queue: JobQueue<T> | undefined,
+async function addJob(
+  queue: Queue | undefined,
   name: string,
-  data: T,
+  data: object,
   jobId: string,
 ): Promise<boolean> {
   if (!queue) return false

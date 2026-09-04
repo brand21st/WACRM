@@ -1,3 +1,5 @@
+import type { DefaultJobOptions } from 'bullmq'
+
 export const QUEUE_NAMES = {
   aiChatReply: 'ai-chat-reply',
   aiVoiceInbound: 'ai-voice-inbound',
@@ -6,9 +8,9 @@ export const QUEUE_NAMES = {
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES]
 
-export const DEFAULT_JOB_OPTIONS = {
+export const DEFAULT_JOB_OPTIONS: DefaultJobOptions = {
   attempts: 5,
-  backoff: { type: 'exponential' as const, delay: 15_000 },
+  backoff: { type: 'exponential', delay: 15_000 },
   removeOnComplete: { count: 1000 },
   removeOnFail: { count: 5000 },
 }
