@@ -21,6 +21,7 @@ import {
   completeCommerceAddressFromForm,
   handleAddressConfirmationReply,
   handleAddressFormDeliveryFailure,
+  handleDiscountCodeReply,
   handleInboundWhatsAppOrder,
 } from '@/lib/commerce/checkout'
 import {
@@ -949,6 +950,16 @@ async function processMessage(
       conversationId: conversation.id,
       contactId: contactRecord.id,
       contactPhone: contactRecord.phone ?? senderPhone,
+      replyId: interactiveReplyId,
+    })
+  }
+  if (!commerceReplyHandled && interactiveReplyId) {
+    commerceReplyHandled = await handleDiscountCodeReply({
+      db: supabaseAdmin(),
+      accountId,
+      userId: configOwnerUserId,
+      conversationId: conversation.id,
+      contactId: contactRecord.id,
       replyId: interactiveReplyId,
     })
   }

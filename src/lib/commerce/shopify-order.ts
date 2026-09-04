@@ -2,6 +2,7 @@ import { shopifyGraphql, ShopifyError } from '@/lib/shopify/client'
 import type { ShopifyStoreConfig } from '@/lib/shopify/types'
 import { numericShopifyId } from '@/lib/shopify/retailer-id'
 import type { CommerceBeneficiary, MappedCartLine } from './types'
+import type { AppliedCommerceDiscount } from './shopify-discount'
 
 export const ORDER_CREATE_MUTATION = `
 mutation WhatsAppCommerceOrderCreate($order: OrderCreateOrderInput!, $options: OrderCreateOptionsInput) {
@@ -21,6 +22,7 @@ export interface CreatePaidShopifyOrderArgs {
   beneficiary: CommerceBeneficiary | null
   lines: MappedCartLine[]
   totalPaise: number
+  discount?: AppliedCommerceDiscount | null
 }
 
 export interface CreatedShopifyOrder {
@@ -86,6 +88,7 @@ export async function createPaidShopifyOrder(
           quantity: line.quantity,
         })),
         shippingAddress: shipping,
+        discountCode: orderCreateDiscountInput(args.discount),
       },
       options: {
         sendReceipt: false,
@@ -109,6 +112,31 @@ export async function createPaidShopifyOrder(
     throw new ShopifyError('Shopify orderCreate returned no order', 502)
   }
   return { id, name }
+}
+
+export function orderCreateDiscountInput(
+  discount: AppliedCommerceDiscount | null | undefined,
+): Record<string, unknown> | undefined {
+  if (!discount || discount.amountPaise <= 0 || !discount.code.trim()) return undefined
+  if (discount.kind === 'percentage' && discount.percent != null && discount.percent > 0) {
+    return {
+      itemPercentageDiscountCode: {
+        code: discount.code,
+        percentage: discount.percent,
+      },
+    }
+  }
+  return {
+    itemFixedDiscountCode: {
+      code: discount.code,
+      amountSet: {
+        shopMoney: {
+          amount: shopifyMoneyFromPaise(discount.amountPaise),
+          currencyCode: 'INR',
+        },
+      },
+    },
+  }
 }
 
 function firstName(name: string): string {

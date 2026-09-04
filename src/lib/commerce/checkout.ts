@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { loadCommerceSettings } from '@/lib/shopify/commerce-config'
+import { loadShopifyConfig } from '@/lib/shopify/config'
 import { isMissingDbRelation } from '@/lib/shopify/config-db'
 import {
   engineSendAddressMessage,
@@ -38,6 +39,20 @@ import {
   addressEditReplyId,
   parseAddressConfirmReply,
 } from './address-confirm'
+import {
+  DISCOUNT_INVALID_PROMPT,
+  DISCOUNT_PROMPT,
+  SKIP_DISCOUNT_BUTTON_TITLE,
+  discountSkipReplyId,
+  isDiscountSkipText,
+  isPlausibleDiscountCode,
+  parseDiscountSkipReply,
+  sanitizeDiscountCode,
+} from './discount-code'
+import {
+  lookupShopifyDiscountCode,
+  type AppliedCommerceDiscount,
+} from './shopify-discount'
 import { isCompleteBeneficiary } from './order-details'
 
 export async function handleInboundWhatsAppOrder(args: {
@@ -352,7 +367,8 @@ async function storeAddressAndConfirm(args: {
  * still reach flows and automations.
  *
  * Confirm claims `awaiting_confirmation` with a conditional update: two
- * quick taps race for the same row and only the winner sends a bill.
+ * quick taps race for the same row and only the winner proceeds to the
+ * discount prompt (or the bill, if that column is not migrated yet).
  */
 export async function handleAddressConfirmationReply(args: {
   db: SupabaseClient
@@ -377,7 +393,11 @@ export async function handleAddressConfirmationReply(args: {
   if (reply.action === 'edit') {
     await args.db
       .from('whatsapp_commerce_orders')
-      .update({ awaiting_address: true, awaiting_confirmation: false })
+      .update({
+        awaiting_address: true,
+        awaiting_confirmation: false,
+        awaiting_discount: false,
+      })
       .eq('id', order.id)
       .eq('status', 'pending')
     await askForDeliveryAddress({
@@ -401,7 +421,11 @@ export async function handleAddressConfirmationReply(args: {
   if (!beneficiary || !isCompleteBeneficiary(beneficiary)) {
     await args.db
       .from('whatsapp_commerce_orders')
-      .update({ awaiting_address: true, awaiting_confirmation: false })
+      .update({
+        awaiting_address: true,
+        awaiting_confirmation: false,
+        awaiting_discount: false,
+      })
       .eq('id', order.id)
       .eq('status', 'pending')
     await askForDeliveryAddress({
@@ -436,19 +460,168 @@ export async function handleAddressConfirmationReply(args: {
     beneficiary,
   })
 
-  await sendCommerceBill({
-    db: args.db,
+  const asked = await markAwaitingDiscount(args.db, order.id as string)
+  if (!asked) {
+    await sendCommerceBill({
+      db: args.db,
+      accountId: args.accountId,
+      userId: args.userId,
+      conversationId: args.conversationId,
+      contactId: args.contactId,
+      referenceId: order.reference_id as string,
+      catalogId: settings.metaCatalogId!,
+      configurationName: settings.waPaymentConfigurationName!,
+      lines,
+      beneficiary,
+    })
+    return true
+  }
+
+  await askForDiscountCode({
     accountId: args.accountId,
     userId: args.userId,
     conversationId: args.conversationId,
     contactId: args.contactId,
     referenceId: order.reference_id as string,
-    catalogId: settings.metaCatalogId!,
-    configurationName: settings.waPaymentConfigurationName!,
-    lines,
-    beneficiary,
   })
   return true
+}
+
+/**
+ * Skip tap on the discount prompt. Returns false for every other
+ * button so address confirm / menus still reach their handlers.
+ */
+export async function handleDiscountCodeReply(args: {
+  db: SupabaseClient
+  accountId: string
+  userId: string
+  conversationId: string
+  contactId: string
+  replyId: string | null
+}): Promise<boolean> {
+  const skip = parseDiscountSkipReply(args.replyId)
+  if (!skip) return false
+  return billPendingDiscountOrder({
+    db: args.db,
+    accountId: args.accountId,
+    userId: args.userId,
+    conversationId: args.conversationId,
+    contactId: args.contactId,
+    referenceId: skip.referenceId,
+    discount: null,
+  })
+}
+
+/**
+ * Customer typed a Shopify code (or Skip) after address confirm.
+ * Returns false when this conversation is not waiting on a code.
+ */
+export async function tryCompleteCommerceDiscount(args: {
+  db: SupabaseClient
+  accountId: string
+  userId: string
+  conversationId: string
+  contactId: string
+  text: string
+}): Promise<boolean> {
+  const pending = await loadAwaitingDiscountOrder(
+    args.db,
+    args.accountId,
+    args.conversationId,
+  )
+  if (!pending) return false
+
+  if (isDiscountSkipText(args.text)) {
+    return billPendingDiscountOrder({
+      db: args.db,
+      accountId: args.accountId,
+      userId: args.userId,
+      conversationId: args.conversationId,
+      contactId: args.contactId,
+      referenceId: pending.reference_id,
+      discount: null,
+    })
+  }
+
+  const code = sanitizeDiscountCode(args.text)
+  if (!isPlausibleDiscountCode(code)) {
+    await askForDiscountCode({
+      accountId: args.accountId,
+      userId: args.userId,
+      conversationId: args.conversationId,
+      contactId: args.contactId,
+      referenceId: pending.reference_id,
+      bodyText: DISCOUNT_INVALID_PROMPT,
+    })
+    return true
+  }
+
+  const shopify = await loadShopifyConfig(args.db, args.accountId, {
+    requireActive: false,
+  })
+  if (!shopify) {
+    await insertInboxNote(
+      args.db,
+      args.conversationId,
+      `Discount code ${code} skipped — Shopify is not connected.`,
+    )
+    return billPendingDiscountOrder({
+      db: args.db,
+      accountId: args.accountId,
+      userId: args.userId,
+      conversationId: args.conversationId,
+      contactId: args.contactId,
+      referenceId: pending.reference_id,
+      discount: null,
+    })
+  }
+
+  const lines = (pending.line_items as MappedCartLine[]) ?? []
+  const lookedUp = await lookupShopifyDiscountCode({
+    config: shopify,
+    code,
+    lines,
+  })
+  if (!lookedUp.ok) {
+    if (lookedUp.reason === 'unavailable') {
+      await insertInboxNote(
+        args.db,
+        args.conversationId,
+        `Could not verify Shopify discount ${code}. Reconnect Shopify (discounts scope) to enable codes. Billing the full amount.`,
+      )
+      return billPendingDiscountOrder({
+        db: args.db,
+        accountId: args.accountId,
+        userId: args.userId,
+        conversationId: args.conversationId,
+        contactId: args.contactId,
+        referenceId: pending.reference_id,
+        discount: null,
+      })
+    }
+    await askForDiscountCode({
+      accountId: args.accountId,
+      userId: args.userId,
+      conversationId: args.conversationId,
+      contactId: args.contactId,
+      referenceId: pending.reference_id,
+      bodyText:
+        lookedUp.reason === 'unsupported'
+          ? 'That code cannot be used on WhatsApp checkout (Buy X Get Y, free shipping, or collection-only). Send another, or tap Skip.'
+          : DISCOUNT_INVALID_PROMPT,
+    })
+    return true
+  }
+
+  return billPendingDiscountOrder({
+    db: args.db,
+    accountId: args.accountId,
+    userId: args.userId,
+    conversationId: args.conversationId,
+    contactId: args.contactId,
+    referenceId: pending.reference_id,
+    discount: lookedUp.discount,
+  })
 }
 
 /**
@@ -545,6 +718,8 @@ async function sendCommerceBill(args: {
   configurationName: string
   lines: MappedCartLine[]
   beneficiary: CommerceBeneficiary
+  discountPaise?: number
+  discountCode?: string
 }): Promise<boolean> {
   if (!isCompleteBeneficiary(args.beneficiary)) return false
   try {
@@ -561,6 +736,8 @@ async function sendCommerceBill(args: {
         amountPaise: line.amountPaise,
       })),
       beneficiary: args.beneficiary,
+      discountPaise: args.discountPaise,
+      discountCode: args.discountCode,
     })
     await engineSendOrderDetails({
       accountId: args.accountId,
@@ -625,6 +802,158 @@ async function insertCommerceOrder(
     return false
   }
   return true
+}
+
+async function markAwaitingDiscount(
+  db: SupabaseClient,
+  orderId: string,
+): Promise<boolean> {
+  const { error } = await db
+    .from('whatsapp_commerce_orders')
+    .update({ awaiting_discount: true })
+    .eq('id', orderId)
+    .eq('status', 'pending')
+  if (!error) return true
+  if (isMissingDbRelation(error, 'awaiting_discount')) return false
+  console.warn('[commerce] mark awaiting discount failed:', error)
+  return false
+}
+
+async function askForDiscountCode(args: {
+  accountId: string
+  userId: string
+  conversationId: string
+  contactId: string
+  referenceId: string
+  bodyText?: string
+}): Promise<void> {
+  try {
+    await engineSendInteractiveButtons({
+      accountId: args.accountId,
+      userId: args.userId,
+      conversationId: args.conversationId,
+      contactId: args.contactId,
+      bodyText: args.bodyText ?? DISCOUNT_PROMPT,
+      buttons: [
+        {
+          id: discountSkipReplyId(args.referenceId),
+          title: SKIP_DISCOUNT_BUTTON_TITLE,
+        },
+      ],
+      aiGenerated: true,
+    })
+  } catch (err) {
+    console.error('[commerce] discount prompt send failed:', err)
+    try {
+      await engineSendText({
+        accountId: args.accountId,
+        userId: args.userId,
+        conversationId: args.conversationId,
+        contactId: args.contactId,
+        text: args.bodyText ?? DISCOUNT_PROMPT,
+        aiGenerated: true,
+      })
+    } catch (textErr) {
+      console.error('[commerce] discount text prompt failed:', textErr)
+    }
+  }
+}
+
+async function billPendingDiscountOrder(args: {
+  db: SupabaseClient
+  accountId: string
+  userId: string
+  conversationId: string
+  contactId: string
+  referenceId: string
+  discount: AppliedCommerceDiscount | null
+}): Promise<boolean> {
+  const { data: order } = await args.db
+    .from('whatsapp_commerce_orders')
+    .select('id, line_items, beneficiary, awaiting_discount')
+    .eq('account_id', args.accountId)
+    .eq('reference_id', args.referenceId)
+    .eq('status', 'pending')
+    .maybeSingle()
+  if (!order) return false
+
+  const settings = await loadCommerceSettings(args.db, args.accountId)
+  if (!nativeCommerceEnabled(settings)) return false
+  const beneficiary = order.beneficiary as CommerceBeneficiary | null
+  if (!beneficiary || !isCompleteBeneficiary(beneficiary)) return false
+  const lines = (order.line_items as MappedCartLine[]) ?? []
+  if (lines.length === 0) return false
+
+  const claimed = await claimAwaitingDiscount(args.db, order.id as string, args.discount)
+  if (!claimed) return true
+
+  return sendCommerceBill({
+    db: args.db,
+    accountId: args.accountId,
+    userId: args.userId,
+    conversationId: args.conversationId,
+    contactId: args.contactId,
+    referenceId: args.referenceId,
+    catalogId: settings.metaCatalogId!,
+    configurationName: settings.waPaymentConfigurationName!,
+    lines,
+    beneficiary,
+    discountPaise: args.discount?.amountPaise,
+    discountCode: args.discount?.code,
+  })
+}
+
+async function claimAwaitingDiscount(
+  db: SupabaseClient,
+  orderId: string,
+  discount: AppliedCommerceDiscount | null,
+): Promise<boolean> {
+  const { data, error } = await db
+    .from('whatsapp_commerce_orders')
+    .update({
+      awaiting_discount: false,
+      discount_code: discount?.code ?? null,
+      discount_value: discount?.amountPaise ?? 0,
+      discount_percent: discount?.percent ?? null,
+    })
+    .eq('id', orderId)
+    .eq('status', 'pending')
+    .eq('awaiting_discount', true)
+    .select('id')
+  if (error) {
+    if (isMissingDbRelation(error, 'awaiting_discount')) return true
+    console.warn('[commerce] claim discount failed:', error)
+    return false
+  }
+  return Boolean(data && data.length > 0)
+}
+
+async function loadAwaitingDiscountOrder(
+  db: SupabaseClient,
+  accountId: string,
+  conversationId: string,
+) {
+  const { data, error } = await db
+    .from('whatsapp_commerce_orders')
+    .select('id, reference_id, line_items')
+    .eq('account_id', accountId)
+    .eq('conversation_id', conversationId)
+    .eq('awaiting_discount', true)
+    .eq('status', 'pending')
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  if (error) {
+    if (
+      isMissingDbRelation(error, 'whatsapp_commerce_orders') ||
+      isMissingDbRelation(error, 'awaiting_discount')
+    ) {
+      return null
+    }
+    console.warn('[commerce] load awaiting discount failed:', error)
+    return null
+  }
+  return data
 }
 
 async function loadAwaitingAddressOrder(

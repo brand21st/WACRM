@@ -49,7 +49,7 @@ import {
 } from '@/lib/shopify'
 import { loadCommerceSettings } from '@/lib/shopify/commerce-config'
 import { nativeCommerceEnabled } from '@/lib/commerce/types'
-import { tryCompleteCommerceAddress } from '@/lib/commerce/checkout'
+import { tryCompleteCommerceAddress, tryCompleteCommerceDiscount } from '@/lib/commerce/checkout'
 import type { CartOffer, ShopifyProductCard, ShopifyStoreConfig } from '@/lib/shopify'
 import { rehostPublicImage } from '@/lib/storage/generated-media'
 import type { ExecuteLlmTool, LlmToolDef } from './providers/shared'
@@ -252,6 +252,15 @@ export async function dispatchInboundToAiReply(
       .maybeSingle()
 
     if (nativeCommerce && queryText.trim()) {
+      const handledDiscount = await tryCompleteCommerceDiscount({
+        db,
+        accountId,
+        userId: configOwnerUserId,
+        conversationId,
+        contactId,
+        text: queryText,
+      })
+      if (handledDiscount) return
       const handledAddress = await tryCompleteCommerceAddress({
         db,
         accountId,

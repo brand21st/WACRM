@@ -94,6 +94,7 @@ vi.mock('@/lib/shopify/commerce-config', () => ({
 }))
 vi.mock('@/lib/commerce/checkout', () => ({
   tryCompleteCommerceAddress: vi.fn(async () => false),
+  tryCompleteCommerceDiscount: vi.fn(async () => false),
 }))
 vi.mock('./speech', () => ({
   canSpeak: (config: { ttsEnabled: boolean; voiceProvider: string; elevenlabsApiKey: string | null; sarvamApiKey: string | null }) =>

@@ -13,6 +13,7 @@ import { canTransitionOrderStatus } from './order-status'
 import { sanitizeReferenceId, sanitizeWebhookText } from './sanitize'
 import { insertInboxNote } from './checkout'
 import type { CommerceBeneficiary, MappedCartLine } from './types'
+import type { AppliedCommerceDiscount } from './shopify-discount'
 
 export interface WhatsAppPaymentStatus {
   id?: string
@@ -172,6 +173,7 @@ export async function handleWhatsAppPaymentStatus(args: {
       beneficiary: (order.beneficiary as CommerceBeneficiary) ?? null,
       lines,
       totalPaise: Number(order.total_value) || 0,
+      discount: commerceDiscountFromOrder(order),
     })
     await args.db
       .from('whatsapp_commerce_orders')
@@ -200,7 +202,7 @@ async function loadCommerceOrder(
   const { data, error } = await db
     .from('whatsapp_commerce_orders')
     .select(
-      'id, status, conversation_id, contact_id, line_items, beneficiary, total_value, shopify_order_id',
+      'id, status, conversation_id, contact_id, line_items, beneficiary, total_value, shopify_order_id, discount_code, discount_value, discount_percent',
     )
     .eq('account_id', accountId)
     .eq('reference_id', referenceId)
@@ -211,4 +213,22 @@ async function loadCommerceOrder(
     return null
   }
   return data
+}
+
+function commerceDiscountFromOrder(order: {
+  discount_code?: unknown
+  discount_value?: unknown
+  discount_percent?: unknown
+}): AppliedCommerceDiscount | null {
+  const code = typeof order.discount_code === 'string' ? order.discount_code.trim() : ''
+  const amountPaise = Math.max(0, Math.round(Number(order.discount_value) || 0))
+  if (!code || amountPaise <= 0) return null
+  const percentRaw = Number(order.discount_percent)
+  const percent = Number.isFinite(percentRaw) && percentRaw > 0 ? percentRaw : null
+  return {
+    code,
+    kind: percent != null ? 'percentage' : 'fixed',
+    percent,
+    amountPaise,
+  }
 }

@@ -3,7 +3,7 @@ import { buildOrderDetailsInteractive, parseOrderDetailsParameters } from './ord
 import { newCommerceReferenceId, isValidReferenceId, assertAmountIdentity } from './money'
 import { canTransitionOrderStatus, isCancelAfterPay } from './order-status'
 import { parseInboundOrderMessage } from './inbound-order'
-import { variantGid, shopifyMoneyFromPaise, WHATSAPP_COMMERCE_TAG } from './shopify-order'
+import { variantGid, shopifyMoneyFromPaise, WHATSAPP_COMMERCE_TAG, orderCreateDiscountInput } from './shopify-order'
 import { isPaymentStatus } from './payment'
 import { verifyRazorpayWebhookSignature } from './razorpay'
 import { SHOPIFY_PARTNER_SCOPES } from '@/lib/shopify/scopes'
@@ -56,6 +56,32 @@ describe('order_details builder', () => {
     expect(newCommerceReferenceId().length).toBeLessThanOrEqual(35)
   })
 
+  it('puts a Shopify code on the bill as order.discount', () => {
+    const built = buildOrderDetailsInteractive({
+      referenceId: 'wac_abc123',
+      catalogId: '111',
+      configurationName: 'razorpay_prod',
+      accountId: 'acct-1',
+      bodyText: 'Review and pay',
+      items: [
+        { retailer_id: 'BAG-RED', name: 'Red Bag', quantity: 2, amountPaise: 4900 },
+      ],
+      discountPaise: 980,
+      discountCode: 'SAVE10',
+      beneficiary,
+    })
+    const params = parseOrderDetailsParameters(
+      (built.interactive.action as { parameters: string }).parameters,
+    )!
+    expect((params.total_amount as { value: number }).value).toBe(8820)
+    const order = params.order as Record<string, unknown>
+    expect(order.discount).toEqual({
+      value: 980,
+      offset: 100,
+      discount_program_name: 'SAVE10',
+    })
+  })
+
   it('rejects amount mismatch', () => {
     expect(() =>
       assertAmountIdentity({
@@ -106,6 +132,28 @@ describe('shopify order mapping', () => {
     expect(WHATSAPP_COMMERCE_TAG).toBe('whatsapp-commerce')
     expect(SHOPIFY_PARTNER_SCOPES).toContain('write_orders')
     expect(SHOPIFY_PARTNER_SCOPES).toContain('write_customers')
+    expect(SHOPIFY_PARTNER_SCOPES).toContain('read_discounts')
+    expect(orderCreateDiscountInput({
+      code: 'SAVE10',
+      kind: 'percentage',
+      percent: 10,
+      amountPaise: 980,
+    })).toEqual({
+      itemPercentageDiscountCode: { code: 'SAVE10', percentage: 10 },
+    })
+    expect(
+      orderCreateDiscountInput({
+        code: 'FLAT100',
+        kind: 'fixed',
+        percent: null,
+        amountPaise: 10000,
+      }),
+    ).toEqual({
+      itemFixedDiscountCode: {
+        code: 'FLAT100',
+        amountSet: { shopMoney: { amount: '100.00', currencyCode: 'INR' } },
+      },
+    })
   })
 })
 

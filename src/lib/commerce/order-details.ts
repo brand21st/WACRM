@@ -21,6 +21,8 @@ export interface BuildOrderDetailsArgs {
   taxPaise?: number
   shippingPaise?: number
   discountPaise?: number
+  /** Shown on the WhatsApp bill as the discount program name. */
+  discountCode?: string
   beneficiary: CommerceBeneficiary
   expirationSeconds?: number
 }
@@ -103,7 +105,13 @@ export function buildOrderDetailsInteractive(args: BuildOrderDetailsArgs): {
 
   const order = parameters.order as Record<string, unknown>
   if (shipping > 0) order.shipping = inrAmount(shipping)
-  if (discount > 0) order.discount = inrAmount(discount)
+  if (discount > 0) {
+    const label = args.discountCode?.trim().slice(0, 60)
+    order.discount = {
+      ...inrAmount(discount),
+      ...(label ? { discount_program_name: label } : {}),
+    }
+  }
   if (args.expirationSeconds && args.expirationSeconds >= 300) {
     order.expiration = {
       timestamp: String(Math.floor(Date.now() / 1000) + args.expirationSeconds),
