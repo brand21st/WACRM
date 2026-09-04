@@ -18,6 +18,8 @@ import {
 import { speakableFirstName } from '@/lib/ai/customer-name'
 import { bindShopifyTools } from '@/lib/ai/auto-reply'
 import { loadShopifyConfig, retrieveShopifyStoreContent } from '@/lib/shopify'
+import { loadCommerceSettings } from '@/lib/shopify/commerce-config'
+import { nativeCommerceEnabled } from '@/lib/commerce/types'
 import type { ShopifyProductCard } from '@/lib/shopify'
 import type { LlmToolDef } from '@/lib/ai/providers/shared'
 import { liveCallRealtimeModelId } from '@/lib/ai/realtime'
@@ -252,13 +254,27 @@ export async function buildLiveAiRealtimeContext(args: {
     .eq('account_id', args.accountId)
     .maybeSingle()
 
+  const commerce = await loadCommerceSettings(db, args.accountId).catch(() => null)
+  const metaCatalogId = (
+    commerce?.metaCatalogId ?? shopify?.metaCatalogId
+  )?.trim()
+  const nativeCommerce = nativeCommerceEnabled({
+    metaCatalogId,
+    waPaymentConfigurationName: commerce?.waPaymentConfigurationName,
+  })
+  const whatsappCatalog = Boolean(metaCatalogId)
   const productCards: ShopifyProductCard[] = []
   const shopifyTools = bindShopifyTools(
     db,
     shopify,
     contactRow?.phone ?? null,
     productCards,
-    { imageTurn: false },
+    {
+      imageTurn: false,
+      nativeCommerce,
+      retailerIdSource: commerce?.retailerIdSource,
+      whatsappCatalog,
+    },
   )
 
   const customerName = speakableFirstName(contactRow?.name)
@@ -273,6 +289,8 @@ export async function buildLiveAiRealtimeContext(args: {
     mode: 'auto_reply',
     knowledge,
     shopify: Boolean(shopify),
+    nativeCommerce,
+    whatsappCatalog,
     customerName,
     firstInbound,
     shopName: shopify?.shopName,

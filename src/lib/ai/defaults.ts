@@ -77,10 +77,15 @@ export function buildSystemPrompt(args: {
   /** When true, the model has live Shopify catalog/order tools. */
   shopify?: boolean
   /**
-   * Native WhatsApp catalog + Payments are configured. Do not send
-   * Shopify cart/checkout permalinks; the customer uses in-chat cart.
+   * Native WhatsApp Payments are configured. After the customer sends
+   * a WhatsApp cart from the catalog, a Review and Pay bill is sent.
    */
   nativeCommerce?: boolean
+  /**
+   * A WhatsApp commerce catalog id is configured. The model may call
+   * send_whatsapp_catalog when the customer asks to browse the catalog.
+   */
+  whatsappCatalog?: boolean
   /**
    * Precomputed Vision catalog matches for an inbound product photo.
    * `undefined` = not a photo turn. Empty array = search ran, no hits.
@@ -109,6 +114,7 @@ export function buildSystemPrompt(args: {
     knowledge,
     shopify,
     nativeCommerce,
+    whatsappCatalog,
     photoMatches,
     customerName,
     firstInbound,
@@ -176,12 +182,13 @@ export function buildSystemPrompt(args: {
         'For business questions (About, Contact, FAQ, shipping, delivery time, returns, privacy, terms, hours), call search_store_info with a query like "shipping" or "delivery" and use the knowledge excerpts below — they come from the live Shopify website. ' +
         'Tools and excerpts may be in English; the customer-facing answer must still be in the customer’s language — translate the facts, do not paste English FAQ labels. ' +
         'Never invent catalog items, SKUs, prices, stock, policies, or order numbers. ' +
-        (nativeCommerce
-          ? 'Do not paste checkout, cart, or Buy now URLs. Product cards are native WhatsApp catalog items — tell the customer to tap Add to cart, then Send order. After they send the cart, a Review and Pay bill is sent in chat. Do not send Shopify checkout links. '
-          : 'Do not paste checkout, cart, or Buy now URLs in the message text — a Checkout NOW button and View cart button are sent separately. ') +
+        'Do not paste checkout, cart, or Buy now URLs in the message text — a Checkout NOW button and View cart button are sent separately. ' +
+        (whatsappCatalog
+          ? 'If the customer asks for the catalog, catalogue, or to browse the store catalog, call send_whatsapp_catalog and do not search individual products on that turn. '
+          : '') +
         'Product cards sent in chat already list in-stock variants (size, color) and overall stock. If the customer asked for a size, color, or other option, name the matching variants from tool results in the spoken reply. Do not recite every SKU in the spoken text. ' +
         (nativeCommerce
-          ? 'When the customer asks for their cart or is ready to buy, call offer_cart to recap items, then tell them to Add to cart and Send order in WhatsApp — do not paste URLs. If offer_cart returns no items, search the catalog first. '
+          ? 'When the customer asks for their cart or is ready to buy from the WhatsApp catalog, call offer_cart to recap items, then tell them to Add to cart and Send order in WhatsApp — do not paste URLs. After they send a WhatsApp cart from the catalog, a Review and Pay bill is sent in chat. If offer_cart returns no items, search products first. '
           : 'When the customer asks for their cart, a checkout link, “send me the link”, or is ready to buy, call offer_cart and recap what they asked plus the items — do not paste the URLs. If offer_cart returns no items, search the catalog first. ') +
         photoBlock +
         'Orders and tracking are only for this WhatsApp number — never mention another customer’s order. ' +

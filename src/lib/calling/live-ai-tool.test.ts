@@ -11,6 +11,7 @@ const h = vi.hoisted(() => ({
   retrieveKnowledge: vi.fn(),
   bindShopifyTools: vi.fn(),
   sendProductCards: vi.fn(),
+  sendWhatsAppCatalogMessage: vi.fn(),
   persistCallTurnMessage: vi.fn(),
   loadLiveAiCustomerMemory: vi.fn(),
   loadContactMemory: vi.fn(),
@@ -50,6 +51,7 @@ vi.mock('@/lib/ai/knowledge', () => ({ retrieveKnowledge: h.retrieveKnowledge })
 vi.mock('@/lib/ai/auto-reply', () => ({
   bindShopifyTools: h.bindShopifyTools,
   sendProductCards: h.sendProductCards,
+  sendWhatsAppCatalogMessage: h.sendWhatsAppCatalogMessage,
 }))
 vi.mock('@/lib/calling/persist-call-turn', () => ({
   persistCallTurnMessage: h.persistCallTurnMessage,

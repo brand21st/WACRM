@@ -5,7 +5,11 @@ import { loadShopifyConfig } from '@/lib/shopify'
 import { loadCommerceSettings } from '@/lib/shopify/commerce-config'
 import { nativeCommerceEnabled } from '@/lib/commerce/types'
 import { persistCallTurnMessage } from '@/lib/calling/persist-call-turn'
-import { bindShopifyTools, sendProductCards } from '@/lib/ai/auto-reply'
+import {
+  bindShopifyTools,
+  sendProductCards,
+  sendWhatsAppCatalogMessage,
+} from '@/lib/ai/auto-reply'
 import { loadLiveAiCall } from '@/lib/calling/live-ai-realtime'
 import {
   SEARCH_CUSTOMER_MEMORY_TOOL,
@@ -190,7 +194,11 @@ export async function executeLiveAiTool(args: {
     .maybeSingle()
 
   const productCards: ShopifyProductCard[] = []
+  const catalogHolder: { value: boolean } = { value: false }
   const commerce = await loadCommerceSettings(db, args.accountId).catch(() => null)
+  const metaCatalogId = (
+    commerce?.metaCatalogId ?? shopify.metaCatalogId
+  )?.trim()
   const bound = bindShopifyTools(
     db,
     shopify,
@@ -199,10 +207,12 @@ export async function executeLiveAiTool(args: {
     {
       imageTurn: false,
       nativeCommerce: nativeCommerceEnabled({
-        metaCatalogId: commerce?.metaCatalogId ?? shopify.metaCatalogId,
+        metaCatalogId,
         waPaymentConfigurationName: commerce?.waPaymentConfigurationName,
       }),
       retailerIdSource: commerce?.retailerIdSource,
+      whatsappCatalog: Boolean(metaCatalogId),
+      sendCatalog: catalogHolder,
     },
   )
   if (!bound.executeTool) {
@@ -213,17 +223,18 @@ export async function executeLiveAiTool(args: {
   }
 
   const output = await bound.executeTool(args.name, args.arguments)
-  if (productCards.length > 0 && call.conversation_id && call.contact_id) {
-    await sendProductCards(
-      {
-        accountId: args.accountId,
-        userId: args.userId,
-        conversationId: call.conversation_id,
-        contactId: call.contact_id,
-      },
-      productCards,
-      shopify,
-    )
+  if (call.conversation_id && call.contact_id) {
+    const sendArgs = {
+      accountId: args.accountId,
+      userId: args.userId,
+      conversationId: call.conversation_id,
+      contactId: call.contact_id,
+    }
+    if (catalogHolder.value && metaCatalogId) {
+      await sendWhatsAppCatalogMessage(sendArgs, 'Browse our catalog')
+    } else if (productCards.length > 0) {
+      await sendProductCards(sendArgs, productCards, shopify)
+    }
   }
   return { output, handoff: false }
 }

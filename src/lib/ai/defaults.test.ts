@@ -116,7 +116,27 @@ describe('buildSystemPrompt', () => {
     })
     expect(prompt).toMatch(/Add to cart/)
     expect(prompt).toMatch(/Send order/)
-    expect(prompt).not.toMatch(/Checkout NOW button and View cart button are sent separately/)
+    expect(prompt).toMatch(/Checkout NOW button and View cart button are sent separately/)
+    expect(prompt).toMatch(/Review and Pay/)
+    expect(prompt).not.toMatch(/Product cards are native WhatsApp catalog items/)
+  })
+
+  it('tells the model to send the WhatsApp catalog only when asked', () => {
+    const withCatalog = buildSystemPrompt({
+      userPrompt: null,
+      mode: 'auto_reply',
+      shopify: true,
+      whatsappCatalog: true,
+    })
+    expect(withCatalog).toMatch(/send_whatsapp_catalog/)
+    expect(withCatalog).toMatch(/do not search individual products on that turn/)
+
+    const withoutCatalog = buildSystemPrompt({
+      userPrompt: null,
+      mode: 'auto_reply',
+      shopify: true,
+    })
+    expect(withoutCatalog).not.toMatch(/send_whatsapp_catalog/)
   })
 
   it('requires a named shop welcome on the first Shopify inbound', () => {

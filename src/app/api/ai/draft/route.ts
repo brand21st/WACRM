@@ -22,7 +22,7 @@ import { logAiUsage } from '@/lib/ai/usage'
 import { supabaseAdmin } from '@/lib/ai/admin-client'
 import { AiError } from '@/lib/ai/types'
 import { loadShopifyConfig } from '@/lib/shopify/config'
-import { SHOPIFY_LLM_TOOLS, executeShopifyTool } from '@/lib/shopify/tools'
+import { shopifyLlmTools, executeShopifyTool } from '@/lib/shopify/tools'
 import type { ShopifyProductCard } from '@/lib/shopify'
 
 /**
@@ -157,6 +157,7 @@ export async function POST(request: Request) {
       mode: 'draft',
       knowledge,
       shopify: Boolean(shopify),
+      whatsappCatalog: Boolean(shopify?.metaCatalogId?.trim()),
       customerName,
       customerMemory: formatCustomerMemoryBlock(contactMemory) || null,
       replyLanguage: resolvedLanguage.lock,
@@ -171,7 +172,9 @@ export async function POST(request: Request) {
       replyLanguage: resolvedLanguage.lock,
       ...(shopify
         ? {
-            tools: SHOPIFY_LLM_TOOLS,
+            tools: shopifyLlmTools({
+              whatsappCatalog: Boolean(shopify.metaCatalogId?.trim()),
+            }),
             executeTool: async (name, args) => {
               const result = await executeShopifyTool(
                 {

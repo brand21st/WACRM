@@ -27,6 +27,7 @@ const h = vi.hoisted(() => ({
   engineSendCtaUrl: vi.fn(),
   engineSendProduct: vi.fn(),
   engineSendProductList: vi.fn(),
+  engineSendCatalogMessage: vi.fn(),
   loadCommerceSettings: vi.fn(),
   engineSendMedia: vi.fn(),
   engineSendTypingIndicator: vi.fn(),
@@ -58,18 +59,28 @@ vi.mock('@/lib/shopify', () => ({
   buildCartOffer: h.buildCartOffer,
   resolveCartOfferItems: h.resolveCartOfferItems,
   cartOfferFallbackText: h.cartOfferFallbackText,
-  SHOPIFY_LLM_TOOLS: [
-    {
-      name: 'search_products',
-      description: 'search',
-      parameters: { type: 'object', properties: { query: { type: 'string' } } },
-    },
-    {
-      name: 'offer_cart',
-      description: 'cart',
-      parameters: { type: 'object', properties: {} },
-    },
-  ],
+  shopifyLlmTools: (opts?: { whatsappCatalog?: boolean }) => {
+    const tools = [
+      {
+        name: 'search_products',
+        description: 'search',
+        parameters: { type: 'object', properties: { query: { type: 'string' } } },
+      },
+      {
+        name: 'offer_cart',
+        description: 'cart',
+        parameters: { type: 'object', properties: {} },
+      },
+    ]
+    if (opts?.whatsappCatalog) {
+      tools.push({
+        name: 'send_whatsapp_catalog',
+        description: 'catalog',
+        parameters: { type: 'object', properties: {} },
+      })
+    }
+    return tools
+  },
 }))
 vi.mock('./context', () => ({ buildConversationContext: h.buildConversationContext }))
 vi.mock('./chat-memory', () => ({
@@ -86,6 +97,7 @@ vi.mock('@/lib/flows/meta-send', () => ({
   engineSendCtaUrl: h.engineSendCtaUrl,
   engineSendProduct: h.engineSendProduct,
   engineSendProductList: h.engineSendProductList,
+  engineSendCatalogMessage: h.engineSendCatalogMessage,
   engineSendMedia: h.engineSendMedia,
   engineSendTypingIndicator: h.engineSendTypingIndicator,
 }))
@@ -359,6 +371,7 @@ beforeEach(() => {
   h.engineSendCtaUrl.mockReset().mockResolvedValue({ whatsapp_message_id: 'm-cta' })
   h.engineSendProduct.mockReset().mockResolvedValue({ whatsapp_message_id: 'm-prod' })
   h.engineSendProductList.mockReset().mockResolvedValue({ whatsapp_message_id: 'm-list' })
+  h.engineSendCatalogMessage.mockReset().mockResolvedValue({ whatsapp_message_id: 'm-cat' })
   h.engineSendMedia.mockResolvedValue({ whatsapp_message_id: 'm-audio' })
   h.engineSendTypingIndicator.mockResolvedValue(undefined)
   h.synthesizeSpeech.mockResolvedValue({
@@ -1747,8 +1760,11 @@ describe('dispatchInboundToAiReply — cart offer', () => {
     )
   })
 
-  it('sends native catalog cards instead of checkout CTAs when catalog id is set', async () => {
+  it('sends Shopify checkout cards when catalog id is set and the customer asks for products', async () => {
     h.loadAiConfig.mockResolvedValue(aiConfig({ fullAgentEnabled: true }))
+    h.buildConversationContext.mockResolvedValue([
+      { role: 'user', content: 'show me red bags' },
+    ])
     h.loadShopifyConfig.mockResolvedValue({
       ...shopifyRow,
       metaCatalogId: '1234567890',
@@ -1787,13 +1803,70 @@ describe('dispatchInboundToAiReply — cart offer', () => {
 
     await dispatchInboundToAiReply(ARGS)
 
-    expect(h.engineSendProduct).toHaveBeenCalledWith(
+    expect(h.engineSendCtaUrl).toHaveBeenCalledWith(
       expect.objectContaining({
-        catalogId: '1234567890',
-        productRetailerId: 'BAG-RED',
+        url: 'https://shop.example/cart/99:1?checkout',
+        displayText: 'Checkout NOW',
+      }),
+    )
+    expect(h.engineSendProduct).not.toHaveBeenCalled()
+    expect(h.engineSendProductList).not.toHaveBeenCalled()
+    expect(h.engineSendCatalogMessage).not.toHaveBeenCalled()
+  })
+
+  it('sends the WhatsApp catalog and no product cards when the customer asks for catalog', async () => {
+    h.loadAiConfig.mockResolvedValue(aiConfig({ fullAgentEnabled: true }))
+    h.buildConversationContext.mockResolvedValue([
+      { role: 'user', content: 'show catalog' },
+    ])
+    h.loadShopifyConfig.mockResolvedValue({
+      ...shopifyRow,
+      metaCatalogId: '1234567890',
+    })
+    h.loadCommerceSettings.mockResolvedValue({
+      metaCatalogId: '1234567890',
+      metaCatalogAutoSync: true,
+      lastMetaCatalogSyncAt: null,
+      metaCatalogItemCount: 1,
+      retailerIdSource: 'sku',
+      waPaymentConfigurationName: 'razorpay_prod',
+      razorpayKeyId: null,
+      hasRazorpaySecret: false,
+      hasRazorpayWebhookSecret: false,
+      shipBeneficiary: null,
+    })
+    h.executeShopifyTool.mockResolvedValue({
+      json: JSON.stringify({ sent: true }),
+      cards: [
+        {
+          title: 'Should not send',
+          imageUrl: 'https://cdn.example/bag.jpg',
+          productUrl: 'https://shop.example/products/red-bag',
+          cartUrl: 'https://shop.example/cart/99:1',
+          checkoutUrl: 'https://shop.example/cart/99:1?checkout',
+          inStock: true,
+          caption: 'Should not send',
+          retailerId: 'BAG-RED',
+        },
+      ],
+      sendCatalog: true,
+    })
+    h.generateReply.mockImplementation(async (args: { executeTool?: Function }) => {
+      if (args.executeTool) await args.executeTool('send_whatsapp_catalog', {})
+      return { text: 'Browse our catalog.', handoff: false }
+    })
+
+    await dispatchInboundToAiReply(ARGS)
+
+    expect(h.engineSendCatalogMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        bodyText: 'Browse our catalog.',
+        aiGenerated: true,
       }),
     )
     expect(h.engineSendCtaUrl).not.toHaveBeenCalled()
+    expect(h.engineSendProduct).not.toHaveBeenCalled()
+    expect(h.engineSendProductList).not.toHaveBeenCalled()
   })
 })
 

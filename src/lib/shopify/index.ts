@@ -24,7 +24,14 @@ export { handleShopifyNotificationWebhook, drainShopifyNotificationJobs } from '
 export { rankProductsByDescription, tokensFromDescription } from './rank'
 export { matchProductsFromPhoto } from './match-photo'
 export { confirmCatalogMatchesFromPhoto, pickConfirmedHits, listingImagesForConfirm } from './confirm-photo'
-export { SHOPIFY_LLM_TOOLS, executeShopifyTool, toCard, productInStock } from './tools'
+export {
+  SHOPIFY_LLM_TOOLS,
+  SEND_WHATSAPP_CATALOG_TOOL,
+  shopifyLlmTools,
+  executeShopifyTool,
+  toCard,
+  productInStock,
+} from './tools'
 export {
   MAX_CART_ITEMS,
   itemsFromProductCards,

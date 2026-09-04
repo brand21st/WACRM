@@ -18,6 +18,7 @@ const h = vi.hoisted(() => ({
   generateCustomerFacingReply: vi.fn(),
   bindShopifyTools: vi.fn(),
   sendProductCards: vi.fn(),
+  sendWhatsAppCatalogMessage: vi.fn(),
   transcribeSpeech: vi.fn(),
   synthesizeSpeech: vi.fn(),
   persistCallTurnMessage: vi.fn(),
@@ -98,6 +99,7 @@ vi.mock('@/lib/ai/auto-reply', () => ({
   generateCustomerFacingReply: h.generateCustomerFacingReply,
   bindShopifyTools: h.bindShopifyTools,
   sendProductCards: h.sendProductCards,
+  sendWhatsAppCatalogMessage: h.sendWhatsAppCatalogMessage,
 }))
 vi.mock('@/lib/ai/speech', () => ({
   canTranscribe: () => true,

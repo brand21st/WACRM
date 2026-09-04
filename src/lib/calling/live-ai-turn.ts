@@ -25,7 +25,9 @@ import {
   bindShopifyTools,
   generateCustomerFacingReply,
   sendProductCards,
+  sendWhatsAppCatalogMessage,
 } from '@/lib/ai/auto-reply'
+import { isWhatsAppCatalogRequest } from '@/lib/ai/catalog-intent'
 import {
   loadShopifyConfig,
   retrieveShopifyStoreContent,
@@ -204,12 +206,23 @@ export async function runLiveAiTurn(args: {
     .maybeSingle()
 
   const productCards: ShopifyProductCard[] = []
+  const catalogHolder: { value: boolean } = { value: false }
+  const metaCatalogId = (
+    commerce?.metaCatalogId ?? shopify?.metaCatalogId
+  )?.trim()
+  const whatsappCatalog = Boolean(metaCatalogId)
   const shopifyTools = bindShopifyTools(
     db,
     shopify,
     contactRow?.phone ?? null,
     productCards,
-    { imageTurn: false, nativeCommerce, retailerIdSource: commerce?.retailerIdSource },
+    {
+      imageTurn: false,
+      nativeCommerce,
+      retailerIdSource: commerce?.retailerIdSource,
+      whatsappCatalog,
+      sendCatalog: catalogHolder,
+    },
   )
 
   const customerName = speakableFirstName(contactRow?.name)
@@ -258,6 +271,7 @@ export async function runLiveAiTurn(args: {
     knowledge,
     shopify: Boolean(shopify),
     nativeCommerce,
+    whatsappCatalog,
     customerName,
     firstInbound,
     shopName: shopify?.shopName,
@@ -280,6 +294,7 @@ export async function runLiveAiTurn(args: {
     knowledge,
     shopify: Boolean(shopify),
     nativeCommerce,
+    whatsappCatalog,
     customerName,
     firstInbound,
     shopName: shopify?.shopName,
@@ -308,17 +323,19 @@ export async function runLiveAiTurn(args: {
     text: reply,
   })
 
-  if (!handoff && productCards.length > 0) {
-    await sendProductCards(
-      {
-        accountId: args.accountId,
-        userId: args.userId,
-        conversationId: call.conversation_id,
-        contactId: call.contact_id,
-      },
-      productCards,
-      shopify,
-    )
+  const sendArgs = {
+    accountId: args.accountId,
+    userId: args.userId,
+    conversationId: call.conversation_id,
+    contactId: call.contact_id,
+  }
+  const catalogRequested =
+    catalogHolder.value ||
+    isWhatsAppCatalogRequest(transcript || latestUserMessage(modelMessages))
+  if (!handoff && catalogRequested && metaCatalogId) {
+    await sendWhatsAppCatalogMessage(sendArgs, reply)
+  } else if (!handoff && productCards.length > 0) {
+    await sendProductCards(sendArgs, productCards, shopify)
   }
 
   const languageHint =

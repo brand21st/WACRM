@@ -14,7 +14,7 @@ import { shoppingOrSupportPrompt } from '@/lib/ai/describe-inbound-image'
 import { mapGqlProduct } from './map-product'
 import { rankProductsByDescription, tokensFromDescription } from './rank'
 import { shopifyGraphql } from './client'
-import { executeShopifyTool, toCard } from './tools'
+import { executeShopifyTool, shopifyLlmTools, toCard } from './tools'
 import * as matchPhoto from './match-photo'
 import { searchProductsLive, listNewArrivals, searchCatalogSnapshot } from './catalog'
 import type { ShopifyProductHit, ShopifyStoreConfig } from './types'
@@ -752,6 +752,44 @@ describe('executeShopifyTool', () => {
     expect(body.items[0].title).toBe('Red Bag')
     expect(result.cartOffer?.cartUrl).toBe('https://shop.example/cart/99:1')
     expect(result.cards).toEqual([])
+  })
+
+  it('flags send_whatsapp_catalog when a Meta catalog id is configured', async () => {
+    const result = await executeShopifyTool(
+      {
+        db: {} as SupabaseClient,
+        config: { ...STORE, metaCatalogId: '1234567890' },
+        contactPhone: null,
+      },
+      'send_whatsapp_catalog',
+      {},
+    )
+    const body = JSON.parse(result.json)
+    expect(body.sent).toBe(true)
+    expect(result.sendCatalog).toBe(true)
+    expect(result.cards).toEqual([])
+  })
+
+  it('does not send a catalog when no Meta catalog id is configured', async () => {
+    const result = await executeShopifyTool(
+      { db: {} as SupabaseClient, config: STORE, contactPhone: null },
+      'send_whatsapp_catalog',
+      {},
+    )
+    const body = JSON.parse(result.json)
+    expect(body.sent).toBe(false)
+    expect(result.sendCatalog).toBeUndefined()
+  })
+
+  it('includes send_whatsapp_catalog only when the WhatsApp catalog is on', () => {
+    expect(shopifyLlmTools().some((t) => t.name === 'send_whatsapp_catalog')).toBe(
+      false,
+    )
+    expect(
+      shopifyLlmTools({ whatsappCatalog: true }).some(
+        (t) => t.name === 'send_whatsapp_catalog',
+      ),
+    ).toBe(true)
   })
 
   it('returns a note when offer_cart has no shown products', async () => {

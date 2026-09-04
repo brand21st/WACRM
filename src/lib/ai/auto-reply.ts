@@ -19,7 +19,7 @@ import { speakableFirstName } from './customer-name'
 import { buildHandoffSummary } from './handoff'
 import { logAiUsage } from './usage'
 import { latestUserMessage } from './query'
-import { engineSendText, engineSendMedia, engineSendTypingIndicator, engineSendInteractiveButtons, engineSendCtaUrl, engineSendProduct, engineSendProductList } from '@/lib/flows/meta-send'
+import { engineSendText, engineSendMedia, engineSendTypingIndicator, engineSendInteractiveButtons, engineSendCtaUrl, engineSendCatalogMessage } from '@/lib/flows/meta-send'
 import { checkRateLimit, RATE_LIMITS } from '@/lib/rate-limit'
 import { resolveReplyChannels, type InboundModality } from './voice'
 import { canSpeak as ttsReady, synthesizeSpeech } from './speech'
@@ -37,7 +37,7 @@ import { realtimeTurn } from './realtime'
 import { pcm16ToOggOpus } from '@/lib/audio/pcm-to-opus'
 import {
   loadShopifyConfig,
-  SHOPIFY_LLM_TOOLS,
+  shopifyLlmTools,
   executeShopifyTool,
   retrieveShopifyStoreContent,
   matchProductsFromPhoto,
@@ -66,6 +66,7 @@ import {
   lastMessageHasAction,
   WACRM_CHAT_BUTTON_IDS,
 } from './chat-buttons'
+import { isWhatsAppCatalogRequest } from './catalog-intent'
 
 interface DispatchArgs {
   /** Tenancy key — drives config, contact, and whatsapp_config lookups. */
@@ -289,6 +290,11 @@ export async function dispatchInboundToAiReply(
 
     const productCards: ShopifyProductCard[] = []
     const cartOfferHolder: { value: CartOffer | null } = { value: null }
+    const catalogHolder: { value: boolean } = { value: false }
+    const metaCatalogId = (
+      commerce?.metaCatalogId ?? shopify?.metaCatalogId
+    )?.trim()
+    const whatsappCatalog = Boolean(metaCatalogId)
     const imageTurn = inboundContentType === 'image'
     const shopifyTools = bindShopifyTools(
       db,
@@ -305,6 +311,8 @@ export async function dispatchInboundToAiReply(
         cartOffer: cartOfferHolder,
         nativeCommerce,
         retailerIdSource: commerce?.retailerIdSource,
+        whatsappCatalog,
+        sendCatalog: catalogHolder,
       },
     )
 
@@ -338,6 +346,7 @@ export async function dispatchInboundToAiReply(
       knowledge,
       shopify: Boolean(shopify),
       nativeCommerce,
+      whatsappCatalog,
       photoMatches,
       customerName,
       firstInbound: isFirstInbound,
@@ -450,6 +459,7 @@ export async function dispatchInboundToAiReply(
       knowledge,
       shopify: Boolean(shopify),
       nativeCommerce,
+      whatsappCatalog,
       photoMatches,
       customerName,
       firstInbound: isFirstInbound,
@@ -566,6 +576,13 @@ export async function dispatchInboundToAiReply(
       chatButtonMode: cartOffer ? (confirmTap ? 'none' : 'cart') : 'nav',
     })
     if (handedOff) return
+
+    const catalogRequested =
+      catalogHolder.value || isWhatsAppCatalogRequest(queryText)
+    if (catalogRequested && metaCatalogId) {
+      await sendWhatsAppCatalogMessage(sendArgs, textForCustomer)
+      return
+    }
 
     if (cartOffer) {
       await sendCartOffer(sendArgs, cartOffer)
@@ -735,6 +752,7 @@ export async function generateCustomerFacingReply(args: {
   knowledge: string[]
   shopify?: boolean
   nativeCommerce?: boolean
+  whatsappCatalog?: boolean
   photoMatches?: Awaited<ReturnType<typeof matchProductsFromPhoto>>
   customerName?: string | null
   firstInbound?: boolean
@@ -780,6 +798,7 @@ export async function generateCustomerFacingReply(args: {
       knowledge: args.knowledge,
       shopify: args.shopify,
       nativeCommerce: args.nativeCommerce,
+      whatsappCatalog: args.whatsappCatalog,
       photoMatches: args.photoMatches,
       customerName: args.customerName,
       firstInbound: args.firstInbound,
@@ -823,11 +842,16 @@ export function bindShopifyTools(
     cartOffer?: { value: CartOffer | null }
     nativeCommerce?: boolean
     retailerIdSource?: import('@/lib/shopify/retailer-id').RetailerIdSource
+    whatsappCatalog?: boolean
+    sendCatalog?: { value: boolean }
   } = { imageTurn: false },
 ): { tools?: LlmToolDef[]; executeTool?: ExecuteLlmTool } {
   if (!shopify) return {}
+  const whatsappCatalog = Boolean(
+    opts.whatsappCatalog ?? shopify.metaCatalogId?.trim(),
+  )
   return {
-    tools: SHOPIFY_LLM_TOOLS,
+    tools: shopifyLlmTools({ whatsappCatalog }),
     executeTool: async (name, args) => {
       const result = await executeShopifyTool(
         {
@@ -851,9 +875,12 @@ export function bindShopifyTools(
       const skipCards =
         opts.imageTurn &&
         (name === 'search_products' || name === 'list_new_arrivals')
-      if (!skipCards) productCards.push(...result.cards)
+      if (!skipCards && !result.sendCatalog) productCards.push(...result.cards)
       if (result.cartOffer && opts.cartOffer) {
         opts.cartOffer.value = result.cartOffer
+      }
+      if (result.sendCatalog && opts.sendCatalog) {
+        opts.sendCatalog.value = true
       }
       return result.json
     },
@@ -883,45 +910,26 @@ async function hydrateCardImages(
 
 const MAX_PRODUCT_CARDS = 3
 
-async function sendNativeCatalogCards(
-  sendArgs: SendArgs,
-  cards: ShopifyProductCard[],
-  catalogId: string,
-): Promise<boolean> {
-  const unique: ShopifyProductCard[] = []
-  const seen = new Set<string>()
-  for (const card of cards) {
-    const retailerId = card.retailerId?.trim()
-    if (!retailerId || seen.has(retailerId)) continue
-    seen.add(retailerId)
-    unique.push(card)
-    if (unique.length >= MAX_PRODUCT_CARDS) break
-  }
-  if (unique.length === 0) return false
+const CATALOG_MESSAGE_FALLBACK = 'Browse our catalog'
+
+export async function sendWhatsAppCatalogMessage(
+  sendArgs: {
+    accountId: string
+    userId: string
+    conversationId: string
+    contactId: string
+  },
+  bodyText: string,
+): Promise<void> {
+  const body = (bodyText.trim() || CATALOG_MESSAGE_FALLBACK).slice(0, 1024)
   try {
-    if (unique.length === 1) {
-      const card = unique[0]
-      await engineSendProduct({
-        ...sendArgs,
-        catalogId,
-        productRetailerId: card.retailerId!,
-        bodyText: (card.caption || card.title).slice(0, 1024),
-        aiGenerated: true,
-      })
-      return true
-    }
-    await engineSendProductList({
+    await engineSendCatalogMessage({
       ...sendArgs,
-      catalogId,
-      headerText: 'Products',
-      bodyText: unique.map((c) => c.title).join('\n').slice(0, 1024) || 'Take a look',
-      productRetailerIds: unique.map((c) => c.retailerId!),
+      bodyText: body,
       aiGenerated: true,
     })
-    return true
   } catch (err) {
-    console.error('[ai auto-reply] native catalog send failed:', err)
-    return false
+    console.error('[ai auto-reply] catalog message send failed:', err)
   }
 }
 
@@ -935,11 +943,6 @@ export async function sendProductCards(
   cards: ShopifyProductCard[],
   shopify?: ShopifyStoreConfig | null,
 ): Promise<void> {
-  const catalogId = shopify?.metaCatalogId?.trim()
-  if (catalogId) {
-    const sentNative = await sendNativeCatalogCards(sendArgs, cards, catalogId)
-    if (sentNative) return
-  }
   const seen = new Set<string>()
   let sent = 0
   for (const card of cards) {

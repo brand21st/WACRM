@@ -8,7 +8,7 @@ import { buildSystemPrompt } from '@/lib/ai/defaults'
 import { latestUserMessage } from '@/lib/ai/query'
 import { AiError, type ChatMessage } from '@/lib/ai/types'
 import { loadShopifyConfig } from '@/lib/shopify/config'
-import { SHOPIFY_LLM_TOOLS, executeShopifyTool } from '@/lib/shopify/tools'
+import { shopifyLlmTools, executeShopifyTool } from '@/lib/shopify/tools'
 import type { ShopifyProductCard } from '@/lib/shopify'
 import { canTranscribe, canSpeak, transcribeSpeech, synthesizeSpeech } from '@/lib/ai/speech'
 import {
@@ -133,6 +133,7 @@ export async function POST(request: Request) {
       mode: 'auto_reply',
       knowledge,
       shopify: Boolean(shopify),
+      whatsappCatalog: Boolean(shopify?.metaCatalogId?.trim()),
     })
 
     const productCards: ShopifyProductCard[] = []
@@ -142,7 +143,9 @@ export async function POST(request: Request) {
       messages,
       ...(shopify
         ? {
-            tools: SHOPIFY_LLM_TOOLS,
+            tools: shopifyLlmTools({
+              whatsappCatalog: Boolean(shopify.metaCatalogId?.trim()),
+            }),
             executeTool: async (name, args) => {
               const result = await executeShopifyTool(
                 {

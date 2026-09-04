@@ -132,6 +132,25 @@ export const SHOPIFY_LLM_TOOLS: LlmToolDef[] = [
   },
 ]
 
+export const SEND_WHATSAPP_CATALOG_TOOL: LlmToolDef = {
+  name: 'send_whatsapp_catalog',
+  description:
+    'Send the full WhatsApp commerce catalog (View catalog). Call only when the customer asks for the catalog, catalogue, or to browse the store catalog. Do not call for named products, new arrivals, or photo match.',
+  parameters: {
+    type: 'object',
+    properties: {},
+  },
+}
+
+export function shopifyLlmTools(opts?: {
+  whatsappCatalog?: boolean
+}): LlmToolDef[] {
+  if (opts?.whatsappCatalog) {
+    return [...SHOPIFY_LLM_TOOLS, SEND_WHATSAPP_CATALOG_TOOL]
+  }
+  return SHOPIFY_LLM_TOOLS
+}
+
 export interface ShopifyToolContext {
   db: SupabaseClient
   config: ShopifyStoreConfig
@@ -147,6 +166,7 @@ export interface ShopifyToolResult {
   json: string
   cards: ShopifyProductCard[]
   cartOffer?: CartOffer | null
+  sendCatalog?: boolean
 }
 
 export async function executeShopifyTool(
@@ -242,7 +262,7 @@ export async function executeShopifyTool(
               })),
               native_checkout: true,
               note:
-                'WhatsApp native checkout is on. Do not send cart or checkout URLs. Tell the customer to tap Add to cart on the product cards, then Send order. A Review and Pay bill is sent after they send the cart.',
+                'WhatsApp native checkout is on. Do not send cart or checkout URLs. If the customer opened the WhatsApp catalog, tell them to Add to cart there, then Send order. A Review and Pay bill is sent after they send the cart. Product cards in chat use Shopify Checkout NOW and are sent separately.',
             }),
             cards: [],
             cartOffer: null,
@@ -272,6 +292,25 @@ export async function executeShopifyTool(
           }),
           cards: [],
           cartOffer: offer,
+        }
+      }
+      case 'send_whatsapp_catalog': {
+        if (!ctx.config.metaCatalogId?.trim()) {
+          return {
+            json: JSON.stringify({
+              sent: false,
+              note: 'No WhatsApp catalog is configured. Search products instead and do not invent a catalog.',
+            }),
+            cards: [],
+          }
+        }
+        return {
+          json: JSON.stringify({
+            sent: true,
+            note: 'The WhatsApp commerce catalog will be sent separately. Do not search or list individual products on this turn. Tell the customer they can browse the catalog in chat.',
+          }),
+          cards: [],
+          sendCatalog: true,
         }
       }
       default:
