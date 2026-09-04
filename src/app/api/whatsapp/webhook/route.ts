@@ -39,6 +39,7 @@ import {
   enqueueAiChatReply,
   enqueueAiVoiceInbound,
 } from '@/lib/queue/enqueue'
+import type { AiChatReplyJob } from '@/lib/queue/jobs'
 import { dispatchWebhookEvent } from '@/lib/webhooks/deliver'
 import { mapPool } from '@/lib/concurrency'
 import {
@@ -1205,13 +1206,15 @@ async function processMessage(
       contentType === 'audio')
   if (shouldAiReply && insertedRows?.[0]?.id) {
     if (inboundModality === 'text' || inboundModality === 'image') {
-      const chatJob = {
+      const inboundContentType: AiChatReplyJob['inboundContentType'] =
+        inboundModality === 'image' ? 'image' : 'text'
+      const chatJob: AiChatReplyJob = {
         accountId,
         conversationId: conversation.id,
         contactId: contactRecord.id,
         configOwnerUserId,
-        messageId: insertedRows[0].id,
-        inboundContentType: inboundModality,
+        messageId: String(insertedRows[0].id),
+        inboundContentType,
         inboundMetaMessageId: message.id,
         inboundMediaUrl: contentType === 'image' ? mediaUrl : undefined,
         inboundMediaId:
