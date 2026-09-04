@@ -14,8 +14,10 @@ import { shoppingOrSupportPrompt } from '@/lib/ai/describe-inbound-image'
 import { mapGqlProduct } from './map-product'
 import {
   matchProductsToAsk,
+  parseBudget,
   productSearchQuery,
   rankProductsByDescription,
+  rankShoppingProducts,
   tokensFromDescription,
 } from './rank'
 import { shopifyGraphql } from './client'
@@ -490,6 +492,31 @@ describe('matchProductsToAsk', () => {
 
   it('builds a search query from spoken filler words', () => {
     expect(productSearchQuery('send me the red bag')).toBe('red bag')
+    expect(productSearchQuery('black shirt under 1500')).toBe('black shirt')
+  })
+
+  it('parses a stated budget', () => {
+    expect(parseBudget('I need a black shirt under ₹1500')).toEqual({ max: 1500 })
+    expect(parseBudget('budget 2000 ആണ്')).toEqual({ max: 2000 })
+    expect(parseBudget('1500-2000')).toEqual({ min: 1500, max: 2000 })
+  })
+
+  it('returns close alternatives when nothing is an exact match', () => {
+    const navy = fixtureProduct({
+      id: 'gid://shopify/Product/8',
+      handle: 'navy-formal-shirt',
+      title: 'Navy Formal Shirt',
+      priceMin: '1699',
+    })
+    const shoes = fixtureProduct({
+      id: 'gid://shopify/Product/9',
+      handle: 'blue-sneakers',
+      title: 'Blue Sneakers',
+      variants: [],
+    })
+    const ranked = rankShoppingProducts('black shirt under 1500', [navy, shoes], 3)
+    expect(ranked.exact).toBe(false)
+    expect(ranked.hits.map((p) => p.title)).toEqual(['Navy Formal Shirt'])
   })
 })
 
@@ -1234,6 +1261,67 @@ describe('executeShopifyTool', () => {
     )
     expect(result.cards).toHaveLength(1)
     expect(result.cards[0].title).toBe('Red Bag')
+  })
+
+  it('filters search hits by budget and notes close alternatives', async () => {
+    vi.spyOn(client, 'shopifyGraphql').mockResolvedValue({
+      products: {
+        nodes: [
+          {
+            id: 'gid://shopify/Product/1',
+            handle: 'navy-formal-shirt',
+            title: 'Navy Formal Shirt',
+            description: 'Shirt',
+            featuredImage: { url: 'https://cdn.example/navy.jpg' },
+            variants: {
+              nodes: [
+                {
+                  id: 'gid://shopify/ProductVariant/1',
+                  legacyResourceId: '11',
+                  title: 'Default',
+                  sku: 'SHIRT-NVY',
+                  availableForSale: true,
+                  price: '1499.00',
+                  selectedOptions: [],
+                },
+              ],
+            },
+          },
+          {
+            id: 'gid://shopify/Product/2',
+            handle: 'black-silk-shirt',
+            title: 'Black Silk Shirt',
+            description: 'Shirt',
+            featuredImage: { url: 'https://cdn.example/silk.jpg' },
+            variants: {
+              nodes: [
+                {
+                  id: 'gid://shopify/ProductVariant/2',
+                  legacyResourceId: '22',
+                  title: 'Default',
+                  sku: 'SHIRT-BLK',
+                  availableForSale: true,
+                  price: '2499.00',
+                  selectedOptions: [],
+                },
+              ],
+            },
+          },
+        ],
+      },
+    })
+    const result = await executeShopifyTool(
+      {
+        db: {} as SupabaseClient,
+        config: STORE,
+        contactPhone: null,
+        customerText: 'black shirt under 1500',
+      },
+      'search_products',
+      { query: 'black shirt', max_price: 1500 },
+    )
+    expect(result.cards.map((c) => c.title)).toEqual(['Navy Formal Shirt'])
+    expect(JSON.parse(result.json).note).toMatch(/closest catalog options/)
   })
 
   it('includes send_whatsapp_catalog only when the WhatsApp catalog is on', () => {

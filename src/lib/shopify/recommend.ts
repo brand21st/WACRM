@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { listBestSelling, searchProducts, searchProductsLive } from './catalog'
+import { productUnitPrice } from './rank'
 import { storefrontOrigin } from './domain'
 import { numericIdFromGid } from './map-product'
 import type { ShopifyProductCard, ShopifyProductHit, ShopifyStoreConfig } from './types'
@@ -16,6 +17,12 @@ export type CustomerProductInterest = {
   preferences?: string[]
   intent?: string | null
   query?: string | null
+}
+
+export type RecommendRole = 'recommend' | 'upsell' | 'cross_sell'
+
+export function parseRecommendRole(value: unknown): RecommendRole {
+  return value === 'upsell' || value === 'cross_sell' ? value : 'recommend'
 }
 
 export function collectInterestTerms(interest: CustomerProductInterest): string[] {
@@ -117,21 +124,26 @@ export async function listRecommendedProducts(
     limit?: number
     shownCards?: ShopifyProductCard[]
     fetchImpl?: typeof fetch
+    role?: RecommendRole
   },
 ): Promise<ShopifyProductHit[]> {
+  const role = opts?.role ?? 'recommend'
   const limit = Math.min(
     BROWSE_RECOMMEND_LIMIT,
-    Math.max(1, opts?.limit ?? BROWSE_RECOMMEND_LIMIT),
+    Math.max(1, opts?.limit ?? (role === 'recommend' ? BROWSE_RECOMMEND_LIMIT : role === 'upsell' ? 1 : 2)),
   )
   const queryTerm = interest.query?.replace(/\s+/g, ' ').trim() || ''
   const memoryTerms = collectInterestTerms({ ...interest, query: null })
-  const shownTitles = queryTerm
-    ? []
-    : (opts?.shownCards ?? [])
-        .map((card) => card.title?.trim())
-        .filter((title): title is string => Boolean(title))
-  const seedTerms = queryTerm ? [queryTerm] : [...memoryTerms]
-  if (!queryTerm) {
+  const shownTitles = (opts?.shownCards ?? [])
+    .map((card) => card.title?.trim())
+    .filter((title): title is string => Boolean(title))
+  const seedFromShown = role === 'upsell' || role === 'cross_sell'
+  const seedTerms = seedFromShown && shownTitles.length > 0
+    ? [...shownTitles]
+    : queryTerm
+      ? [queryTerm]
+      : [...memoryTerms]
+  if (!queryTerm && !seedFromShown) {
     for (const title of shownTitles) {
       if (seedTerms.length >= MAX_SEED_TERMS) break
       if (!seedTerms.some((t) => t.toLowerCase() === title.toLowerCase())) {
@@ -167,7 +179,7 @@ export async function listRecommendedProducts(
   }
   addUnique(recommended, await hydrateHandles(config, recHandles, limit), limit, seedIds)
 
-  if (recommended.length < limit) {
+  if (recommended.length < limit && role !== 'cross_sell') {
     const fillTerms = queryTerm ? [queryTerm, ...memoryTerms] : seedTerms
     for (const term of fillTerms) {
       if (recommended.length >= limit) break
@@ -184,7 +196,21 @@ export async function listRecommendedProducts(
     }
   }
 
+  if (role === 'upsell') {
+    const seedPrice = productUnitPrice(seeds[0] ?? recommended[0])
+    const stepUp = recommended
+      .filter((hit) => {
+        const price = productUnitPrice(hit)
+        if (price == null || seedPrice == null) return false
+        if (price <= seedPrice) return false
+        return price <= seedPrice * 1.5 || price - seedPrice <= 800
+      })
+      .sort((a, b) => (productUnitPrice(a) ?? 0) - (productUnitPrice(b) ?? 0))
+    return stepUp.slice(0, limit)
+  }
+
   if (recommended.length === 0) {
+    if (role === 'cross_sell') return []
     return listBestSelling(db, config, limit)
   }
   return recommended.slice(0, limit)

@@ -233,4 +233,89 @@ describe('executeShopifyTool recommend_products', () => {
       globalThis.fetch = originalFetch
     }
   })
+
+  it('upsells a modestly higher related product from the shown card', async () => {
+    const seed = hit('17', 'Red Bag', 'red-bag')
+    const premium = {
+      ...hit('18', 'Premium Red Bag', 'premium-red-bag'),
+      priceMin: '69.00',
+      priceMax: '69.00',
+    }
+    h.searchProducts.mockResolvedValue([seed])
+    h.searchProductsLive.mockResolvedValue([premium])
+    const fetchImpl = vi.fn(async () =>
+      Response.json({
+        products: [{ handle: 'premium-red-bag', title: 'Premium Red Bag' }],
+      }),
+    )
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = fetchImpl as unknown as typeof fetch
+    try {
+      const result = await executeShopifyTool(
+        {
+          db: {} as SupabaseClient,
+          config: STORE,
+          contactPhone: null,
+          productCards: [
+            {
+              title: 'Red Bag',
+              imageUrl: null,
+              productUrl: 'https://shop.example/products/red-bag',
+              cartUrl: null,
+              checkoutUrl: 'https://shop.example/cart/17:1?checkout',
+              inStock: true,
+              caption: 'Red Bag',
+            },
+          ],
+        },
+        'recommend_products',
+        { role: 'upsell' },
+      )
+      expect(h.searchProducts.mock.calls[0][2]).toBe('Red Bag')
+      expect(result.cards).toHaveLength(1)
+      expect(result.cards[0].title).toBe('Premium Red Bag')
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
+  it('cross-sells related products without requiring the same name', async () => {
+    h.searchProducts.mockResolvedValue([hit('17', 'Red Dress', 'red-dress')])
+    h.searchProductsLive.mockResolvedValue([
+      hit('18', 'Gold Earrings', 'gold-earrings'),
+    ])
+    const fetchImpl = vi.fn(async () =>
+      Response.json({
+        products: [{ handle: 'gold-earrings', title: 'Gold Earrings' }],
+      }),
+    )
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = fetchImpl as unknown as typeof fetch
+    try {
+      const result = await executeShopifyTool(
+        {
+          db: {} as SupabaseClient,
+          config: STORE,
+          contactPhone: null,
+          customerText: 'I want this dress',
+          productCards: [
+            {
+              title: 'Red Dress',
+              imageUrl: null,
+              productUrl: 'https://shop.example/products/red-dress',
+              cartUrl: null,
+              checkoutUrl: 'https://shop.example/cart/17:1?checkout',
+              inStock: true,
+              caption: 'Red Dress',
+            },
+          ],
+        },
+        'recommend_products',
+        { role: 'cross_sell' },
+      )
+      expect(result.cards.map((c) => c.title)).toEqual(['Gold Earrings'])
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
 })

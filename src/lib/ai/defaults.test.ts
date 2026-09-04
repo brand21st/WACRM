@@ -108,14 +108,19 @@ describe('buildSystemPrompt', () => {
     expect(prompt).toMatch(/list_best_selling/)
     expect(prompt).toMatch(/recommend_products/)
     expect(prompt).toMatch(/best selling|trending/)
+    expect(prompt).toMatch(/shopping and sales assistant/)
     expect(prompt).toMatch(/search_products with those words/)
-    expect(prompt).toMatch(/Only send cards that match what they named/)
+    expect(prompt).toMatch(/1 best match plus 1–2 relevant alternatives|1 best match plus 1-2 relevant alternatives/)
     expect(prompt).toMatch(/text, voice, or a WhatsApp AI call/)
-    expect(prompt).toMatch(/Set limit to how many they asked for/)
-    expect(prompt).toMatch(/Do not send extra unrelated cards/)
+    expect(prompt).toMatch(/role upsell/)
+    expect(prompt).toMatch(/role cross_sell/)
+    expect(prompt).toMatch(/Do not upsell every turn/)
+    expect(prompt).toMatch(/VOICE_MESSAGE/)
+    expect(prompt).toMatch(/Never invent bundles, coupons, or discounts/)
+    expect(prompt).toMatch(/closest catalog options/)
     expect(prompt).toMatch(/this ask first, then remembered products and preferences/)
     expect(prompt).toMatch(
-      /Do not call list_new_arrivals, list_best_selling, or recommend_products for a specific product ask/,
+      /Do not call list_new_arrivals, list_best_selling, or recommend_products for a specific product search/,
     )
     expect(prompt).toMatch(/Do not call search_products for those browse phrases/)
     expect(prompt).not.toMatch(/Do not mention Shopify/)

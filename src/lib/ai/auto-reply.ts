@@ -24,6 +24,7 @@ import { checkRateLimit, RATE_LIMITS } from '@/lib/rate-limit'
 import { resolveReplyChannels, type InboundModality } from './voice'
 import { canSpeak as ttsReady, synthesizeSpeech } from './speech'
 import { prepareIndicSpeechText, stripUrlsForSpeech } from './speech-text'
+import { splitShoppingReply } from './shopping-voice'
 import {
   CHECKOUT_BUTTON_LABEL,
   VIEW_CART_BUTTON_LABEL,
@@ -519,17 +520,40 @@ export async function dispatchInboundToAiReply(
 
     if (!(await claimReplySlot(db, conversationId, config))) return
 
+    const { chatText, voiceText } = splitShoppingReply(text ?? '')
+    const replyText =
+      confirmTap && cartOffer && (!(chatText ?? '').trim() || handoff)
+        ? cartOfferFallbackText(cartOffer.items)
+        : chatText || text
+    const textForCustomer = stripReplyLinkUrls(
+      replyText,
+      productCards,
+      orderCards,
+      [cartOffer?.cartUrl, cartOffer?.checkoutUrl],
+    )
+
+    const catalogRequested =
+      catalogHolder.value || isWhatsAppCatalogRequest(queryText)
+    const isProductRec =
+      Boolean(shopify) &&
+      productCards.length > 0 &&
+      !catalogRequested &&
+      !cartOffer
+    const shoppingVoice =
+      isProductRec && ttsReady(config) && config.voiceReplyMode !== 'text'
+
     const languageHint =
       replyLanguage?.code ??
       detectSpokenIndicTarget(latestUserMessage(messages))?.elevenlabs
+    const spokenSource = voiceText || (shoppingVoice ? textForCustomer : replyText)
     const spokenText = prepareIndicSpeechText(
-      stripUrlsForSpeech(text),
+      stripUrlsForSpeech(spokenSource),
       languageHint,
     )
     const canSpeak = ttsReady(config) && Boolean(spokenText)
 
-    let audioSent = false
-    if (wantsAudio && canSpeak) {
+    const sendShoppingAudio = async () => {
+      if (!canSpeak) return false
       try {
         const spoken = await synthesizeSpeech({
           config,
@@ -548,26 +572,45 @@ export async function dispatchInboundToAiReply(
           kind: 'audio',
           link: stored.publicUrl,
           mediaType: stored.mimeType,
-          contentText: text,
+          contentText: textForCustomer,
           aiGenerated: true,
           voice: true,
         })
-        audioSent = true
+        return true
       } catch (err) {
         console.error('[ai auto-reply] TTS/audio send failed:', err)
+        return false
       }
     }
 
-    const replyText =
-      confirmTap && cartOffer && (!(text ?? '').trim() || handoff)
-        ? cartOfferFallbackText(cartOffer.items)
-        : text
-    const textForCustomer = stripReplyLinkUrls(
-      replyText,
-      productCards,
-      orderCards,
-      [cartOffer?.cartUrl, cartOffer?.checkoutUrl],
-    )
+    if (isProductRec) {
+      await sendProductCards(sendArgs, productCards, shopify)
+      const handedOff = await sendCustomerFacingText({
+        db,
+        config,
+        conv,
+        conversationId,
+        sendArgs,
+        text: textForCustomer,
+        messages,
+        shopify: Boolean(shopify),
+        wantsText: true,
+        wantsAudio: shoppingVoice || wantsAudio,
+        audioSent: false,
+        productCards,
+        orderCards,
+        chatButtonMode: 'nav',
+      })
+      if (handedOff) return
+      if (shoppingVoice) await sendShoppingAudio()
+      await sendOrderCards(sendArgs, orderCards)
+      return
+    }
+
+    let audioSent = false
+    if (wantsAudio && canSpeak) {
+      audioSent = await sendShoppingAudio()
+    }
 
     const handedOff = await sendCustomerFacingText({
       db,
@@ -587,8 +630,6 @@ export async function dispatchInboundToAiReply(
     })
     if (handedOff) return
 
-    const catalogRequested =
-      catalogHolder.value || isWhatsAppCatalogRequest(queryText)
     if (catalogRequested && metaCatalogId) {
       await sendWhatsAppCatalogMessage(sendArgs, textForCustomer)
       await sendOrderCards(sendArgs, orderCards)

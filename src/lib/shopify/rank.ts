@@ -87,6 +87,12 @@ const ASK_STOP = new Set([
   'gonna',
   'thanks',
   'thank',
+  'under',
+  'below',
+  'within',
+  'budget',
+  'budgetil',
+  'upto',
 ])
 
 export function tokensFromDescription(description: string): string[] {
@@ -106,7 +112,73 @@ export function productAskTokens(text: string): string[] {
 }
 
 export function productSearchQuery(text: string): string {
-  return productAskTokens(text).join(' ')
+  return productAskTokens(stripBudgetPhrases(text)).join(' ')
+}
+
+export type PriceBudget = { min?: number; max?: number }
+
+export function parseBudget(text: string | null | undefined): PriceBudget | null {
+  const raw = (text ?? '').replace(/,/g, '')
+  if (!raw.trim()) return null
+  const range = raw.match(
+    /(?:rs\.?|₹|inr)?\s*(\d{2,7})\s*(?:-|to|–)\s*(?:rs\.?|₹|inr)?\s*(\d{2,7})/i,
+  )
+  if (range) {
+    const min = Number(range[1])
+    const max = Number(range[2])
+    if (Number.isFinite(min) && Number.isFinite(max) && max >= min) {
+      return { min, max }
+    }
+  }
+  const under = raw.match(
+    /\b(?:under|below|within|max(?:imum)?|upto|up to|budget(?:il)?)\s*(?:is|aanu|=|:)?\s*(?:rs\.?|₹|inr)?\s*(\d{2,7})\b/i,
+  )
+  if (under) {
+    const max = Number(under[1])
+    if (Number.isFinite(max)) return { max }
+  }
+  return null
+}
+
+export function parsePriceArg(value: unknown): number | undefined {
+  if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
+    return value
+  }
+  if (typeof value === 'string' && value.trim()) {
+    const n = Number(value.replace(/[,₹]/g, ''))
+    if (Number.isFinite(n) && n > 0) return n
+  }
+  return undefined
+}
+
+export function productUnitPrice(product: ShopifyProductHit): number | null {
+  const n = Number(product.priceMin)
+  return Number.isFinite(n) ? n : null
+}
+
+export function filterByBudget(
+  products: ShopifyProductHit[],
+  budget: PriceBudget | null | undefined,
+): ShopifyProductHit[] {
+  if (!budget || (budget.min == null && budget.max == null)) return products
+  return products.filter((p) => {
+    const price = productUnitPrice(p)
+    if (price == null) return false
+    if (budget.min != null && price < budget.min) return false
+    if (budget.max != null && price > budget.max) return false
+    return true
+  })
+}
+
+function stripBudgetPhrases(text: string): string {
+  return text
+    .replace(/,/g, '')
+    .replace(
+      /\b(?:under|below|within|max(?:imum)?|upto|up to|budget(?:il)?)\s*(?:is|aanu|=|:)?\s*(?:rs\.?|₹|inr)?\s*\d{2,7}\b/gi,
+      ' ',
+    )
+    .replace(/(?:rs\.?|₹|inr)\s*\d{2,7}/gi, ' ')
+    .replace(/\b\d{2,7}\s*(?:-|to|–)\s*\d{2,7}\b/gi, ' ')
 }
 
 function tokenVariants(token: string): string[] {
@@ -142,20 +214,18 @@ function productMatchHay(product: ShopifyProductHit): {
  * Keep catalog hits that match what the customer named (title, handle, SKU,
  * or variant). Drops unrelated search noise. Does not invent products.
  */
-export function matchProductsToAsk(
-  query: string,
-  products: ShopifyProductHit[],
-  limit: number,
-): ShopifyProductHit[] {
-  if (products.length === 0) return []
-  const tokens = productAskTokens(query)
-  if (tokens.length === 0) return products.slice(0, limit)
+export type ShoppingMatch = {
+  hits: ShopifyProductHit[]
+  exact: boolean
+}
 
+function scoreAskHits(query: string, products: ShopifyProductHit[]) {
+  const tokens = productAskTokens(query)
   const phrase = tokens.join(' ')
-  const scored = products.map((p) => {
+  return products.map((p) => {
     const fields = productMatchHay(p)
     let score = 0
-    let allHit = true
+    let allHit = tokens.length > 0
     for (const token of tokens) {
       if (hayHasToken(fields.title, token)) score += 3
       else if (hayHasToken(fields.handle, token) || hayHasToken(fields.sku, token)) {
@@ -164,18 +234,52 @@ export function matchProductsToAsk(
       else allHit = false
     }
     const phraseHit =
-      hayHasToken(fields.title, phrase) ||
-      fields.title.includes(phrase) ||
-      fields.handle.includes(phrase) ||
-      fields.sku.includes(phrase)
+      Boolean(phrase) &&
+      (hayHasToken(fields.title, phrase) ||
+        fields.title.includes(phrase) ||
+        fields.handle.includes(phrase) ||
+        fields.sku.includes(phrase))
     if (phraseHit) score += 10
     return { p, score, allHit, phraseHit }
   })
+}
 
-  const keep = scored
+export function rankShoppingProducts(
+  query: string,
+  products: ShopifyProductHit[],
+  limit: number,
+): ShoppingMatch {
+  if (products.length === 0) return { hits: [], exact: false }
+  const tokens = productAskTokens(query)
+  if (tokens.length === 0) {
+    return { hits: products.slice(0, limit), exact: true }
+  }
+  const scored = scoreAskHits(query, products).sort((a, b) => b.score - a.score)
+  const exact = scored.filter((s) => s.score > 0 && (s.phraseHit || s.allHit))
+  if (exact.length > 0) {
+    return { hits: exact.slice(0, limit).map((s) => s.p), exact: true }
+  }
+  const close = scored.filter((s) => s.score > 0).slice(0, limit)
+  return { hits: close.map((s) => s.p), exact: false }
+}
+
+export function matchProductsToAsk(
+  query: string,
+  products: ShopifyProductHit[],
+  limit: number,
+  opts?: { allowCloseAlternatives?: boolean },
+): ShopifyProductHit[] {
+  if (opts?.allowCloseAlternatives) {
+    return rankShoppingProducts(query, products, limit).hits
+  }
+  if (products.length === 0) return []
+  const tokens = productAskTokens(query)
+  if (tokens.length === 0) return products.slice(0, limit)
+  return scoreAskHits(query, products)
     .filter((s) => s.score > 0 && (s.phraseHit || s.allHit))
     .sort((a, b) => b.score - a.score)
-  return keep.slice(0, limit).map((s) => s.p)
+    .slice(0, limit)
+    .map((s) => s.p)
 }
 
 export function scoreProductAgainstDescription(

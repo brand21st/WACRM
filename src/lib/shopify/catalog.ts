@@ -18,7 +18,13 @@ import {
 import type { ShopifyProductHit, ShopifyStoreConfig, ShopifyVariantHit } from './types'
 import type { ShopifyCatalogVariant } from '@/types'
 import { catalogIsFresh } from './config'
-import { matchProductsToAsk } from './rank'
+import {
+  filterByBudget,
+  matchProductsToAsk,
+  rankShoppingProducts,
+  type PriceBudget,
+  type ShoppingMatch,
+} from './rank'
 import { cartPermalink, checkoutPermalink, productPageUrl } from './permalinks'
 import { SHOPIFY_CATALOG_WEBHOOK_TOPICS } from './webhook-topics'
 import { isMissingDbColumn } from './config-db'
@@ -217,38 +223,74 @@ export async function getProductLive(
   return bySku[0] ?? byHandle[0] ?? null
 }
 
+export type SearchProductsOpts = {
+  allowCloseAlternatives?: boolean
+  budget?: PriceBudget | null
+}
+
 export async function searchProducts(
   db: SupabaseClient,
   config: ShopifyStoreConfig,
   query: string,
   limit = 5,
+  opts?: SearchProductsOpts,
 ): Promise<ShopifyProductHit[]> {
+  const ranked = await searchShoppingCatalog(db, config, query, limit, opts)
+  return ranked.hits
+}
+
+function rankFetched(
+  query: string,
+  raw: ShopifyProductHit[],
+  limit: number,
+  opts?: SearchProductsOpts,
+): ShoppingMatch {
+  const filtered = filterByBudget(raw, opts?.budget)
+  if (opts?.allowCloseAlternatives) {
+    return rankShoppingProducts(query, filtered, limit)
+  }
+  return {
+    hits: matchProductsToAsk(query, filtered, limit),
+    exact: true,
+  }
+}
+
+export async function searchShoppingCatalog(
+  db: SupabaseClient,
+  config: ShopifyStoreConfig,
+  query: string,
+  limit = 5,
+  opts?: SearchProductsOpts,
+): Promise<ShoppingMatch> {
   const fetchLimit = Math.min(10, Math.max(limit * 3, limit))
-  let hits: ShopifyProductHit[] = []
+  let ranked: ShoppingMatch = { hits: [], exact: false }
   if (catalogIsFresh(config)) {
-    hits = matchProductsToAsk(
+    ranked = rankFetched(
       query,
       await searchCatalogSnapshot(db, config.accountId, query, fetchLimit),
       limit,
+      opts,
     )
   }
-  if (hits.length === 0) {
+  if (ranked.hits.length === 0) {
     try {
-      hits = matchProductsToAsk(
+      ranked = rankFetched(
         query,
         await searchProductsLive(config, query, { first: fetchLimit }),
         limit,
+        opts,
       )
     } catch (err) {
       console.warn('[shopify] live product search failed, trying snapshot:', err)
-      hits = matchProductsToAsk(
+      ranked = rankFetched(
         query,
         await searchCatalogSnapshot(db, config.accountId, query, fetchLimit),
         limit,
+        opts,
       )
     }
   }
-  return hits
+  return ranked
 }
 
 export async function listNewArrivals(

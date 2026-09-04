@@ -2011,5 +2011,104 @@ describe('dispatchInboundToAiReply — cart offer', () => {
       }),
     )
   })
+
+  it('sends cards then summary then voice on a shopping turn', async () => {
+    h.loadAiConfig.mockResolvedValue(
+      aiConfig({
+        fullAgentEnabled: true,
+        elevenlabsApiKey: 'xi-test',
+        voiceReplyMode: 'both',
+      }),
+    )
+    h.buildConversationContext.mockResolvedValue([
+      { role: 'user', content: 'show me red bags' },
+    ])
+    h.loadShopifyConfig.mockResolvedValue(shopifyRow)
+    h.executeShopifyTool.mockResolvedValue({
+      json: '{}',
+      cards: [
+        {
+          title: 'Red Bag',
+          imageUrl: 'https://cdn.example/bag.jpg',
+          productUrl: 'https://shop.example/products/red-bag',
+          cartUrl: 'https://shop.example/cart/99:1',
+          checkoutUrl: 'https://shop.example/cart/99:1?checkout',
+          inStock: true,
+          caption: 'Red Bag',
+        },
+      ],
+    })
+    h.generateReply.mockImplementation(async (args: { executeTool?: Function }) => {
+      if (args.executeTool) await args.executeTool('search_products', { query: 'red bags' })
+      return {
+        text: 'First one is the best match.\n\nVOICE_MESSAGE:\nFirst bag is my pick. Forty nine dollars.',
+        handoff: false,
+      }
+    })
+
+    await dispatchInboundToAiReply(ARGS)
+
+    const ctaOrder = h.engineSendCtaUrl.mock.invocationCallOrder[0]
+    const textOrder = h.engineSendInteractiveButtons.mock.invocationCallOrder[0]
+    const voiceOrder = h.engineSendMedia.mock.invocationCallOrder.find((_, i) => {
+      const call = h.engineSendMedia.mock.calls[i]
+      return call?.[0]?.kind === 'audio' || call?.[0]?.voice === true
+    })
+    expect(ctaOrder).toBeLessThan(textOrder)
+    expect(h.engineSendInteractiveButtons).toHaveBeenCalledWith(
+      expect.objectContaining({
+        bodyText: 'First one is the best match.',
+      }),
+    )
+    expect(h.synthesizeSpeech).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: expect.stringMatching(/First bag is my pick/),
+      }),
+    )
+    expect(h.engineSendMedia).toHaveBeenCalledWith(
+      expect.objectContaining({ voice: true }),
+    )
+    expect(voiceOrder).toBeGreaterThan(textOrder)
+  })
+
+  it('does not send a shopping voice note when reply mode is text', async () => {
+    h.loadAiConfig.mockResolvedValue(
+      aiConfig({
+        fullAgentEnabled: true,
+        elevenlabsApiKey: 'xi-test',
+        voiceReplyMode: 'text',
+      }),
+    )
+    h.buildConversationContext.mockResolvedValue([
+      { role: 'user', content: 'show me red bags' },
+    ])
+    h.loadShopifyConfig.mockResolvedValue(shopifyRow)
+    h.executeShopifyTool.mockResolvedValue({
+      json: '{}',
+      cards: [
+        {
+          title: 'Red Bag',
+          imageUrl: 'https://cdn.example/bag.jpg',
+          productUrl: 'https://shop.example/products/red-bag',
+          cartUrl: 'https://shop.example/cart/99:1',
+          checkoutUrl: 'https://shop.example/cart/99:1?checkout',
+          inStock: true,
+          caption: 'Red Bag',
+        },
+      ],
+    })
+    h.generateReply.mockImplementation(async (args: { executeTool?: Function }) => {
+      if (args.executeTool) await args.executeTool('search_products', { query: 'red bags' })
+      return { text: 'This red bag matches.', handoff: false }
+    })
+
+    await dispatchInboundToAiReply(ARGS)
+
+    expect(h.engineSendCtaUrl).toHaveBeenCalled()
+    expect(h.synthesizeSpeech).not.toHaveBeenCalled()
+    expect(
+      h.engineSendMedia.mock.calls.some((c) => c[0].voice === true),
+    ).toBe(false)
+  })
 })
 

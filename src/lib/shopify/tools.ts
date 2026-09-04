@@ -6,16 +6,24 @@ import {
   listBestSelling,
   listNewArrivals,
   searchProducts,
+  searchShoppingCatalog,
 } from './catalog'
 import {
   listRecommendedProducts,
+  parseRecommendRole,
   type CustomerProductInterest,
 } from './recommend'
 import {
   DEFAULT_SEARCH_CARDS,
   resolveProductCardLimit,
 } from '@/lib/ai/product-card-limit'
-import { matchProductsToAsk, productAskTokens, productSearchQuery } from './rank'
+import {
+  matchProductsToAsk,
+  parseBudget,
+  parsePriceArg,
+  productAskTokens,
+  productSearchQuery,
+} from './rank'
 import {
   matchProductsFromPhoto,
   type MatchProductsFromPhotoOpts,
@@ -43,18 +51,26 @@ export const SHOPIFY_LLM_TOOLS: LlmToolDef[] = [
   {
     name: 'search_products',
     description:
-      'Search the Shopify catalog for the exact product the customer named. Copy their words into query. Only matching catalog items are returned — never invent or substitute other products.',
+      'Search the Shopify catalog for what the customer asked: product, category, color, occasion, or keywords. Set max_price when they gave a budget. Returns the best match plus close alternatives. Never invent products.',
     parameters: {
       type: 'object',
       properties: {
         query: {
           type: 'string',
-          description: 'Search text copied from what they asked, e.g. "red leather bag" or a SKU',
+          description: 'Search text copied from what they asked, e.g. "black shirt" or a SKU',
+        },
+        max_price: {
+          type: 'number',
+          description: 'Maximum price when they stated a budget, e.g. 1500',
+        },
+        min_price: {
+          type: 'number',
+          description: 'Minimum price when they stated a range',
         },
         limit: {
           type: 'integer',
           description:
-            'How many cards to send (1–10). Omit to match how many they asked for.',
+            'How many cards to send (1–10). Default 3 (best plus 1–2 alternatives).',
         },
       },
       required: ['query'],
@@ -107,13 +123,18 @@ export const SHOPIFY_LLM_TOOLS: LlmToolDef[] = [
   {
     name: 'recommend_products',
     description:
-      'Recommend Shopify products related to this turn. Pass query as the words they just used (primary seed). Remembered products and preferences only fill after that. Use when they ask for recommendations, suggestions, “for me”, “what should I buy”, or similar. Do not use for a named product search.',
+      'Recommend related Shopify products. role=recommend for “for me” picks. role=upsell for a genuine higher-value version of the shown product. role=cross_sell for 1 complementary add-on. Do not use for a named product search. Never invent discounts.',
     parameters: {
       type: 'object',
       properties: {
         query: {
           type: 'string',
           description: 'Optional extra hint from this message, e.g. "wedding" or a color',
+        },
+        role: {
+          type: 'string',
+          enum: ['recommend', 'upsell', 'cross_sell'],
+          description: 'recommend (default), upsell, or cross_sell',
         },
         limit: {
           type: 'integer',
@@ -243,10 +264,29 @@ export async function executeShopifyTool(
         const limit = resolveProductCardLimit(args.limit, ctx.customerText)
         const raw = str(args.query) || (ctx.customerText ?? '').trim()
         const query = productSearchQuery(raw) || raw
+        const fromArgs = {
+          min: parsePriceArg(args.min_price),
+          max: parsePriceArg(args.max_price),
+        }
+        const parsed = parseBudget(ctx.customerText) ?? parseBudget(raw)
+        const budget = {
+          min: fromArgs.min ?? parsed?.min,
+          max: fromArgs.max ?? parsed?.max,
+        }
+        const ranked = await searchShoppingCatalog(
+          ctx.db,
+          ctx.config,
+          query,
+          limit,
+          { allowCloseAlternatives: true, budget },
+        )
         return productsResult(
-          await searchProducts(ctx.db, ctx.config, query, limit),
+          ranked.hits,
           ctx.retailerIdSource,
           limit,
+          ranked.exact
+            ? undefined
+            : 'No exact match. These are the closest catalog options. Explain what changed. Do not invent items.',
         )
       }
       case 'get_product': {
@@ -270,7 +310,13 @@ export async function executeShopifyTool(
         )
       }
       case 'recommend_products': {
-        const limit = resolveProductCardLimit(args.limit, ctx.customerText)
+        const role = parseRecommendRole(args.role)
+        const limit =
+          role === 'upsell'
+            ? 1
+            : role === 'cross_sell'
+              ? Math.min(2, resolveProductCardLimit(args.limit, ctx.customerText))
+              : resolveProductCardLimit(args.limit, ctx.customerText)
         const query = str(args.query) || ctx.customerInterest?.query || ''
         const ask = (ctx.customerText ?? '').trim() || query
         let hits = await listRecommendedProducts(
@@ -280,10 +326,12 @@ export async function executeShopifyTool(
             ...(ctx.customerInterest ?? {}),
             query: query || ctx.customerInterest?.query,
           },
-          { limit, shownCards: ctx.productCards },
+          { limit, shownCards: ctx.productCards, role },
         )
-        if (productAskTokens(ask).length > 0) {
-          const matched = matchProductsToAsk(ask, hits, limit)
+        if (role === 'recommend' && productAskTokens(ask).length > 0) {
+          const matched = matchProductsToAsk(ask, hits, limit, {
+            allowCloseAlternatives: true,
+          })
           hits =
             matched.length > 0
               ? matched
@@ -292,6 +340,7 @@ export async function executeShopifyTool(
                   ctx.config,
                   productSearchQuery(ask) || query,
                   limit,
+                  { allowCloseAlternatives: true },
                 )
         }
         return productsResult(hits, ctx.retailerIdSource, limit)
@@ -427,6 +476,7 @@ function productsResult(
   hits: ShopifyProductHit[],
   source?: RetailerIdSource,
   maxCards = DEFAULT_SEARCH_CARDS,
+  note?: string,
 ): ShopifyToolResult {
   if (hits.length === 0) {
     return {
@@ -438,7 +488,10 @@ function productsResult(
     }
   }
   return {
-    json: JSON.stringify({ products: hits.map(summarizeProduct) }),
+    json: JSON.stringify({
+      products: hits.map(summarizeProduct),
+      ...(note ? { note } : {}),
+    }),
     cards: hits.slice(0, maxCards).map((hit) => toCard(hit, source)),
   }
 }
