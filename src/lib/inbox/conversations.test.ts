@@ -148,7 +148,7 @@ describe("normalizeConversation", () => {
 });
 
 describe("sortInboxConversations", () => {
-  it("puts an empty new chat above a 19-unread thread", () => {
+  it("puts a newer last_message_at above an older unread thread", () => {
     const unread = makeConversation(null, {
       id: "unread",
       unread_count: 19,
@@ -156,37 +156,35 @@ describe("sortInboxConversations", () => {
       last_message_at: "2026-09-04T12:00:00.000Z",
       created_at: "2026-09-01T00:00:00.000Z",
     });
-    const empty = makeConversation(null, {
-      id: "new",
-      created_at: "2026-09-04T10:00:00.000Z",
-    });
-    expect(sortInboxConversations([unread, empty]).map((c) => c.id)).toEqual([
-      "new",
-      "unread",
-    ]);
-  });
-
-  it("puts unread above a read thread with a newer timestamp", () => {
-    const read = makeConversation(null, {
-      id: "read",
+    const later = makeConversation(null, {
+      id: "later",
       last_message_text: "Thanks",
       last_message_at: "2026-09-04T18:00:00.000Z",
       created_at: "2026-09-01T00:00:00.000Z",
     });
-    const unread = makeConversation(null, {
-      id: "unread",
-      unread_count: 2,
-      last_message_text: "Hello",
-      last_message_at: "2026-09-04T10:00:00.000Z",
-      created_at: "2026-09-01T00:00:00.000Z",
-    });
-    expect(sortInboxConversations([read, unread]).map((c) => c.id)).toEqual([
+    expect(sortInboxConversations([unread, later]).map((c) => c.id)).toEqual([
+      "later",
       "unread",
-      "read",
     ]);
   });
 
-  it("orders two new chats by created_at newest first", () => {
+  it("puts a just-messaged thread above an empty chat with an older created_at", () => {
+    const empty = makeConversation(null, {
+      id: "empty",
+      created_at: "2026-09-04T08:00:00.000Z",
+    });
+    const justMessaged = makeConversation(null, {
+      id: "just-messaged",
+      last_message_text: "Hi",
+      last_message_at: "2026-09-04T12:00:00.000Z",
+      created_at: "2026-09-04T11:00:00.000Z",
+    });
+    expect(
+      sortInboxConversations([empty, justMessaged]).map((c) => c.id),
+    ).toEqual(["just-messaged", "empty"]);
+  });
+
+  it("orders two empty chats by created_at newest first", () => {
     const older = makeConversation(null, {
       id: "older",
       created_at: "2026-09-03T00:00:00.000Z",
@@ -201,19 +199,22 @@ describe("sortInboxConversations", () => {
     ]);
   });
 
-  it("moves a new chat out of the new group once it gains last_message_at", () => {
-    const stillNew = makeConversation(null, {
-      id: "still-new",
-      created_at: "2026-09-04T08:00:00.000Z",
+  it("orders two read threads by last_message_at newest first", () => {
+    const older = makeConversation(null, {
+      id: "older",
+      last_message_text: "Old",
+      last_message_at: "2026-09-04T10:00:00.000Z",
+      created_at: "2026-09-01T00:00:00.000Z",
     });
-    const justMessaged = makeConversation(null, {
-      id: "just-messaged",
-      last_message_text: "Hi",
-      last_message_at: "2026-09-04T12:00:00.000Z",
-      created_at: "2026-09-04T11:00:00.000Z",
+    const newer = makeConversation(null, {
+      id: "newer",
+      last_message_text: "New",
+      last_message_at: "2026-09-04T18:00:00.000Z",
+      created_at: "2026-09-01T00:00:00.000Z",
     });
-    expect(
-      sortInboxConversations([justMessaged, stillNew]).map((c) => c.id),
-    ).toEqual(["still-new", "just-messaged"]);
+    expect(sortInboxConversations([older, newer]).map((c) => c.id)).toEqual([
+      "newer",
+      "older",
+    ]);
   });
 });
