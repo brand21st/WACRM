@@ -436,6 +436,18 @@ describe('inbound webhook: first-inbound AI flag', () => {
       expect.objectContaining({ isFirstInbound: true, inboundContentType: 'text' }),
     )
   })
+
+  it('runs the fully automated agent inline so a missing worker cannot drop the turn', async () => {
+    h.loadAiConfig.mockResolvedValue({
+      autoReplyEnabled: true,
+      fullAgentEnabled: true,
+    })
+    await runWebhook()
+    expect(h.enqueueAiChatReply).not.toHaveBeenCalled()
+    expect(h.dispatchInboundToAiReply).toHaveBeenCalledWith(
+      expect.objectContaining({ inboundContentType: 'text' }),
+    )
+  })
 })
 
 describe('inbound webhook: atomic unread bump (#369)', () => {

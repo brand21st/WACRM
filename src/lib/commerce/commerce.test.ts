@@ -3,6 +3,9 @@ import { buildOrderDetailsInteractive, parseOrderDetailsParameters } from './ord
 import { newCommerceReferenceId, isValidReferenceId, assertAmountIdentity } from './money'
 import { canTransitionOrderStatus, isCancelAfterPay } from './order-status'
 import { parseInboundOrderMessage } from './inbound-order'
+import { parseBeneficiaryFromText } from './beneficiary'
+import { isEmailSkipText, parseOptionalEmail } from './checkout-email'
+import { isDiscountSkipText, isPlausibleDiscountCode } from './discount-code'
 import { variantGid, shopifyMoneyFromPaise, WHATSAPP_COMMERCE_TAG, orderCreateDiscountInput } from './shopify-order'
 import { isPaymentStatus } from './payment'
 import { verifyRazorpayWebhookSignature } from './razorpay'
@@ -154,6 +157,18 @@ describe('shopify order mapping', () => {
         amountSet: { shopMoney: { amount: '100.00', currencyCode: 'INR' } },
       },
     })
+  })
+})
+
+describe('checkout collectors leave greetings for the AI agent', () => {
+  it('does not treat Hi / Ok as an email, discount code, or address', () => {
+    for (const text of ['Hi', 'Ok', 'ok']) {
+      expect(parseOptionalEmail(text)).toBeNull()
+      expect(isEmailSkipText(text)).toBe(false)
+      expect(isPlausibleDiscountCode(text)).toBe(false)
+      expect(isDiscountSkipText(text)).toBe(false)
+      expect(parseBeneficiaryFromText(text, 'Ada')).toBeNull()
+    }
   })
 })
 

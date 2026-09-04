@@ -57,7 +57,6 @@ import {
   sanitizeDiscountCode,
 } from './discount-code'
 import {
-  EMAIL_INVALID_PROMPT,
   EMAIL_PROMPT,
   SKIP_EMAIL_BUTTON_TITLE,
   emailSkipReplyId,
@@ -658,15 +657,8 @@ export async function tryCompleteCommerceEmail(args: {
 
   const email = parseOptionalEmail(args.text)
   if (!email) {
-    await askForReceiptEmail({
-      accountId: args.accountId,
-      userId: args.userId,
-      conversationId: args.conversationId,
-      contactId: args.contactId,
-      referenceId: pending.reference_id,
-      bodyText: EMAIL_INVALID_PROMPT,
-    })
-    return true
+    // "Hi" / "Ok" after a leftover checkout must reach the AI agent.
+    return false
   }
 
   return completeReceiptEmail({
@@ -862,10 +854,9 @@ async function loadAwaitingEmailOrder(
 ) {
   const { data, error } = await db
     .from('whatsapp_commerce_orders')
-    .select('id, reference_id')
+    .select('id, reference_id, awaiting_email')
     .eq('account_id', accountId)
     .eq('conversation_id', conversationId)
-    .eq('awaiting_email', true)
     .eq('status', 'pending')
     .order('created_at', { ascending: false })
     .limit(1)
@@ -880,6 +871,7 @@ async function loadAwaitingEmailOrder(
     console.warn('[commerce] load awaiting email failed:', error)
     return null
   }
+  if (!data || data.awaiting_email !== true) return null
   return data
 }
 
@@ -981,15 +973,7 @@ export async function tryCompleteCommerceDiscount(args: {
 
   const code = sanitizeDiscountCode(args.text)
   if (!isPlausibleDiscountCode(code)) {
-    await askForDiscountCode({
-      accountId: args.accountId,
-      userId: args.userId,
-      conversationId: args.conversationId,
-      contactId: args.contactId,
-      referenceId: pending.reference_id,
-      bodyText: DISCOUNT_INVALID_PROMPT,
-    })
-    return true
+    return false
   }
 
   const shopify = await loadShopifyConfig(args.db, args.accountId, {
@@ -1123,13 +1107,7 @@ export async function tryCompleteCommerceAddress(args: {
 
   const beneficiary = parseBeneficiaryFromText(args.text, args.contactName)
   if (!beneficiary) {
-    await sendAddressTextPrompt({
-      accountId: args.accountId,
-      userId: args.userId,
-      conversationId: args.conversationId,
-      contactId: args.contactId,
-    })
-    return true
+    return false
   }
 
   return storeAddressAndConfirm({
@@ -1237,7 +1215,53 @@ async function insertCommerceOrder(
     console.error('[commerce] insert order failed:', error)
     return false
   }
+  await supersedeStalePendingCheckouts(db, {
+    accountId: row.accountId,
+    conversationId: row.conversationId,
+    keepReferenceId: row.referenceId,
+  })
   return true
+}
+
+/** A new cart in the same thread cancels older unpaid checkouts so their
+ *  awaiting_* collectors cannot swallow later chat (e.g. "Hi"). */
+async function supersedeStalePendingCheckouts(
+  db: SupabaseClient,
+  args: {
+    accountId: string
+    conversationId: string
+    keepReferenceId: string
+  },
+): Promise<void> {
+  const { error } = await db
+    .from('whatsapp_commerce_orders')
+    .update({
+      status: 'canceled',
+      awaiting_address: false,
+      awaiting_confirmation: false,
+      awaiting_email: false,
+      awaiting_discount: false,
+    })
+    .eq('account_id', args.accountId)
+    .eq('conversation_id', args.conversationId)
+    .eq('status', 'pending')
+    .neq('reference_id', args.keepReferenceId)
+  if (!error) return
+  if (isMissingDbRelation(error, 'whatsapp_commerce_orders')) return
+  const { error: retryErr } = await db
+    .from('whatsapp_commerce_orders')
+    .update({
+      status: 'canceled',
+      awaiting_address: false,
+      awaiting_confirmation: false,
+    })
+    .eq('account_id', args.accountId)
+    .eq('conversation_id', args.conversationId)
+    .eq('status', 'pending')
+    .neq('reference_id', args.keepReferenceId)
+  if (retryErr) {
+    console.warn('[commerce] supersede stale checkouts failed:', retryErr)
+  }
 }
 
 async function markAwaitingDiscount(
@@ -1371,10 +1395,9 @@ async function loadAwaitingDiscountOrder(
 ) {
   const { data, error } = await db
     .from('whatsapp_commerce_orders')
-    .select('id, reference_id, line_items')
+    .select('id, reference_id, line_items, awaiting_discount')
     .eq('account_id', accountId)
     .eq('conversation_id', conversationId)
-    .eq('awaiting_discount', true)
     .eq('status', 'pending')
     .order('created_at', { ascending: false })
     .limit(1)
@@ -1389,6 +1412,7 @@ async function loadAwaitingDiscountOrder(
     console.warn('[commerce] load awaiting discount failed:', error)
     return null
   }
+  if (!data || data.awaiting_discount !== true) return null
   return data
 }
 
@@ -1399,10 +1423,9 @@ async function loadAwaitingAddressOrder(
 ) {
   const { data, error } = await db
     .from('whatsapp_commerce_orders')
-    .select('id, reference_id, line_items')
+    .select('id, reference_id, line_items, awaiting_address')
     .eq('account_id', accountId)
     .eq('conversation_id', conversationId)
-    .eq('awaiting_address', true)
     .eq('status', 'pending')
     .order('created_at', { ascending: false })
     .limit(1)
@@ -1412,6 +1435,7 @@ async function loadAwaitingAddressOrder(
     console.warn('[commerce] load awaiting address failed:', error)
     return null
   }
+  if (!data || data.awaiting_address !== true) return null
   return data
 }
 

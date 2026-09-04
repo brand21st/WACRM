@@ -114,6 +114,7 @@ export async function POST(request: Request) {
     let maxPer = Number(body.auto_reply_max_per_conversation)
     if (!Number.isFinite(maxPer)) maxPer = 3
     maxPer = Math.min(20, Math.max(1, Math.floor(maxPer)))
+    const maxPerProvided = 'auto_reply_max_per_conversation' in body
 
     // Handoff routing target for auto-reply. A non-empty string must be a
     // member of this account (else the conversation would be assigned to a
@@ -176,12 +177,17 @@ export async function POST(request: Request) {
     const shared: Record<string, unknown> = {
       provider,
       model,
-      system_prompt: systemPrompt,
-      is_active: isActive,
-      auto_reply_enabled: autoReplyEnabled,
-      auto_reply_unlimited: autoReplyUnlimited,
-      auto_reply_max_per_conversation: maxPer,
     }
+    // Inbox full-agent toggle sends a partial body. Only persist fields
+    // the caller actually provided so a flip cannot wipe the prompt,
+    // reply cap, or master switch.
+    if ('system_prompt' in body) shared.system_prompt = systemPrompt
+    if ('is_active' in body) shared.is_active = isActive
+    if ('auto_reply_enabled' in body) shared.auto_reply_enabled = autoReplyEnabled
+    if ('auto_reply_unlimited' in body) {
+      shared.auto_reply_unlimited = autoReplyUnlimited
+    }
+    if (maxPerProvided) shared.auto_reply_max_per_conversation = maxPer
     // Only touch the handoff target when the form actually sent the field,
     // so a partial save (e.g. flipping a toggle) doesn't wipe it.
     if (handoffProvided) shared.handoff_agent_id = handoffAgentId

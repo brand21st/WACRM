@@ -1247,7 +1247,11 @@ async function processMessage(
         inboundMediaId: message.image?.id ?? null,
         inboundAccessToken: accessToken,
       })
-      const queuedChat = await enqueueAiChatReply(chatJob)
+      // Full-agent owns the turn in this `after()` block. Enqueue-only
+      // drops the reply when Redis is up but the worker is not.
+      const queuedChat = aiConfig.fullAgentEnabled
+        ? false
+        : await enqueueAiChatReply(chatJob)
       if (!queuedChat) {
         const visionConfig = aiConfig
         if (contentType === 'image' && visionConfig) {
