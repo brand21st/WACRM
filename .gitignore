@@ -72,6 +72,9 @@ testsprite_tests/tmp/config.json
 supabase/.temp/
 .tmp-coolify-query.py
 
+# Local Compose experiments (Coolify must never load this)
+docker-compose.override.yml
+
 # BullMQ worker bundle / PM2
 /dist
 .pm2

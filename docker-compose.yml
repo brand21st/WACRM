@@ -1,10 +1,25 @@
-name: wacrm
+# Production / Coolify Compose.
+#
+# Coolify injects UI env into ${VAR} interpolation — do not require
+# .env.local here (that file is gitignored and is not on the server).
+# Coolify also sets the project name — do not add a top-level `name:`.
+#
+# Assign the public domain to the **nginx** service (container port 80).
+# Do not publish host ports; Coolify Traefik routes internally.
+#
+# Local laptop:
+#   docker compose --env-file .env.local -f docker-compose.yml \
+#     -f docker-compose.local.yml up --build
 
 services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
-    command: redis-server --appendonly yes
+    command: >
+      redis-server
+      --appendonly yes
+      --appendfsync everysec
+      --maxmemory-policy noeviction
     volumes:
       - redis-data:/data
     healthcheck:
@@ -12,30 +27,47 @@ services:
       interval: 10s
       timeout: 3s
       retries: 5
+      start_period: 5s
+    # Internal only. Never publish 6379.
 
   app:
     build:
       context: .
-      # NEXT_PUBLIC_* vars are inlined at build time — forward them
-      # from .env.local as build args. Changing any of them requires
-      # a rebuild (docker compose up --build).
       args:
         NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
         NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY}
         NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-}
         NEXT_PUBLIC_APP_LOCALE: ${NEXT_PUBLIC_APP_LOCALE:-en}
-    # Runtime (server-only) secrets come from .env.local; they are
-    # never baked into the image.
-    env_file:
-      - .env.local
-    # The server always listens on 3000 inside the container. Pinned
-    # here because `environment` wins over `env_file`, so a stray PORT
-    # in .env.local can't desync the app from the mapping and the
-    # healthcheck below.
+        NEXT_PUBLIC_RAZORPAY_KEY_ID: ${NEXT_PUBLIC_RAZORPAY_KEY_ID:-}
     environment:
-      PORT: 3000
-      REDIS_URL: redis://redis:6379
+      NODE_ENV: production
+      PORT: '3000'
+      HOSTNAME: 0.0.0.0
       PM2_HOME: /tmp/.pm2
+      # Pinned to the sidecar. Do not set REDIS_URL in Coolify.
+      REDIS_URL: redis://redis:6379
+      NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY}
+      NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-}
+      NEXT_PUBLIC_APP_LOCALE: ${NEXT_PUBLIC_APP_LOCALE:-en}
+      NEXT_PUBLIC_RAZORPAY_KEY_ID: ${NEXT_PUBLIC_RAZORPAY_KEY_ID:-}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      META_APP_SECRET: ${META_APP_SECRET}
+      META_APP_ID: ${META_APP_ID:-}
+      WHATSAPP_WEBHOOK_VERIFY_TOKEN: ${WHATSAPP_WEBHOOK_VERIFY_TOKEN:-}
+      AUTOMATION_CRON_SECRET: ${AUTOMATION_CRON_SECRET:-}
+      ALLOWED_INVITE_HOSTS: ${ALLOWED_INVITE_HOSTS:-}
+      RAZORPAY_KEY_ID: ${RAZORPAY_KEY_ID:-}
+      RAZORPAY_KEY_SECRET: ${RAZORPAY_KEY_SECRET:-}
+      RAZORPAY_WEBHOOK_SECRET: ${RAZORPAY_WEBHOOK_SECRET:-}
+      AI_REQUEST_TIMEOUT_MS: ${AI_REQUEST_TIMEOUT_MS:-}
+      AI_CONTEXT_MESSAGE_LIMIT: ${AI_CONTEXT_MESSAGE_LIMIT:-}
+      AI_REALTIME_MODEL: ${AI_REALTIME_MODEL:-}
+      AI_LIVE_CALL_REALTIME_MODEL: ${AI_LIVE_CALL_REALTIME_MODEL:-}
+      ELEVENLABS_TIMEOUT_MS: ${ELEVENLABS_TIMEOUT_MS:-}
+      SARVAM_TIMEOUT_MS: ${SARVAM_TIMEOUT_MS:-}
+      WHATSAPP_TEMPLATES_DRY_RUN: ${WHATSAPP_TEMPLATES_DRY_RUN:-}
     expose:
       - '3000'
     depends_on:
@@ -48,18 +80,18 @@ services:
           'CMD',
           'node',
           '-e',
-          "fetch('http://localhost:3000').then((r)=>process.exit(r.ok||r.status<500?0:1)).catch(()=>process.exit(1))",
+          "fetch('http://127.0.0.1:3000/api/health').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
         ]
       interval: 30s
       timeout: 5s
-      retries: 3
-      start_period: 25s
+      retries: 5
+      start_period: 90s
 
   nginx:
     image: nginx:1.27-alpine
     restart: unless-stopped
-    ports:
-      - '${HOST_PORT:-3000}:80'
+    expose:
+      - '80'
     volumes:
       - ./deploy/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./deploy/nginx/conf.d:/etc/nginx/conf.d:ro
@@ -70,11 +102,12 @@ services:
       test:
         [
           'CMD-SHELL',
-          'wget -q -O /dev/null http://127.0.0.1/ || exit 1',
+          'wget -q -O /dev/null http://127.0.0.1/api/health || exit 1',
         ]
       interval: 30s
       timeout: 5s
       retries: 3
+      start_period: 5s
 
 volumes:
   redis-data:

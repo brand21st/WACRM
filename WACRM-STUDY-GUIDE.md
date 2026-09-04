@@ -468,7 +468,7 @@ Published as [`wacrm-mcp`](https://www.npmjs.com/package/wacrm-mcp) — thin wra
 cp .env.local.example .env.local
 # fill in values
 
-docker compose --env-file .env.local up --build -d
+docker compose --env-file .env.local -f docker-compose.yml -f docker-compose.local.yml up --build -d
 # → http://localhost:3000
 ```
 
@@ -476,7 +476,7 @@ docker compose --env-file .env.local up --build -d
 |------|--------|
 | `HOST_PORT` | Change published port (not `PORT`) |
 | `NEXT_PUBLIC_*` | Build-time — rebuild after changes |
-| Other secrets | Runtime via `env_file` |
+| Other secrets | Runtime via Coolify UI / `.env.local` overlay |
 | Migrations | **Not** run by container — apply via Supabase CLI/SQL Editor |
 | Media storage | Inbound attachments copied to `chat-media` bucket (Meta deletes after ~30 days) |
 | Cron | External scheduler required for Wait steps + Flows |
@@ -608,7 +608,7 @@ curl -s -H "x-cron-secret: SECRET" https://crm.example.com/api/automations/cron
 curl -s -H "x-cron-secret: SECRET" https://crm.example.com/api/whatsapp/broadcast/cron
 
 # Docker
-docker compose --env-file .env.local up --build -d
+docker compose --env-file .env.local -f docker-compose.yml -f docker-compose.local.yml up --build -d
 ```
 
 ---

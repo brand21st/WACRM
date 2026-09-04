@@ -13,9 +13,10 @@ RUN npm ci
 #
 # NEXT_PUBLIC_* values are inlined into the client bundle at build
 # time, so they must be provided as build args (docker-compose.yml
-# forwards them from .env.local). Server-only secrets (service role
-# key, ENCRYPTION_KEY, META_APP_SECRET, ...) are read at runtime and
-# must NOT be baked into the image.
+# forwards them from Coolify UI env or `--env-file .env.local`).
+# Server-only secrets (service role key, ENCRYPTION_KEY,
+# META_APP_SECRET, ...) are read at runtime and must NOT be baked
+# into the image.
 # ---------------------------------------------------------------
 FROM node:20-alpine AS builder
 WORKDIR /app
@@ -26,10 +27,12 @@ ARG NEXT_PUBLIC_SUPABASE_URL
 ARG NEXT_PUBLIC_SUPABASE_ANON_KEY
 ARG NEXT_PUBLIC_SITE_URL
 ARG NEXT_PUBLIC_APP_LOCALE=en
+ARG NEXT_PUBLIC_RAZORPAY_KEY_ID
 ENV NEXT_PUBLIC_SUPABASE_URL=$NEXT_PUBLIC_SUPABASE_URL \
     NEXT_PUBLIC_SUPABASE_ANON_KEY=$NEXT_PUBLIC_SUPABASE_ANON_KEY \
     NEXT_PUBLIC_SITE_URL=$NEXT_PUBLIC_SITE_URL \
     NEXT_PUBLIC_APP_LOCALE=$NEXT_PUBLIC_APP_LOCALE \
+    NEXT_PUBLIC_RAZORPAY_KEY_ID=$NEXT_PUBLIC_RAZORPAY_KEY_ID \
     NEXT_TELEMETRY_DISABLED=1
 
 RUN npm run build && npm run build:worker

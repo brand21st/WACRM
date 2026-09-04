@@ -12,6 +12,7 @@ import {
 // Routes Meta/Shopify/cron hit without a browser session. Skip the
 // Supabase getUser() round-trip — it can hang or slow webhook acks.
 const PUBLIC_API_PREFIXES = [
+  '/api/health',
   '/api/whatsapp/webhook',
   '/api/shopify/webhook',
   '/api/whatsapp/broadcast/cron',

@@ -91,7 +91,7 @@ Open <http://localhost:3000>. You'll be redirected to `/login` (or
 `/dashboard` if already signed in).
 
 Prefer containers? See [docs/docker.md](./docs/docker.md) for the
-Dockerfile + Docker Compose setup.
+Dockerfile + Docker Compose setup. Coolify: [docs/coolify.md](./docs/coolify.md).
 
 ## 🚀 Deploy on Hostinger (recommended)
 

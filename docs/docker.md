@@ -10,7 +10,9 @@ included.
 Traffic path: `Internet → Nginx :80 → app :3000` (PM2 runs `wacrm`
 and `wacrm-worker`). Redis is internal only.
 
-## Quick start
+Coolify production steps are in [docs/coolify.md](./coolify.md).
+
+## Quick start (laptop)
 
 1. Copy the env template and fill it in:
 
@@ -18,12 +20,13 @@ and `wacrm-worker`). Redis is internal only.
    cp .env.local.example .env.local
    ```
 
-2. Build and start (the `--env-file` flag is required — Compose only
-   reads `.env` by default for `${VAR}` substitution, and this project
-   keeps its config in `.env.local`):
+2. Build and start with **both** compose files. Production
+   `docker-compose.yml` does not bind a host port and does not read
+   `.env.local` (Coolify injects env from its UI). The local overlay
+   adds those:
 
    ```bash
-   docker compose --env-file .env.local up --build -d
+   docker compose --env-file .env.local -f docker-compose.yml -f docker-compose.local.yml up --build -d
    ```
 
 3. The app is served on [http://localhost:3000](http://localhost:3000)
@@ -55,12 +58,11 @@ Locally without Docker: `npm run dev` in one terminal and
 - `NEXT_PUBLIC_*` variables are **inlined into the client bundle at
   build time**. They are passed as Docker build args by
   `docker-compose.yml`. If you change any of them, rebuild:
-  `docker compose --env-file .env.local up --build -d`.
+  `docker compose --env-file .env.local -f docker-compose.yml -f docker-compose.local.yml up --build -d`.
 - Everything else (`SUPABASE_SERVICE_ROLE_KEY`, `ENCRYPTION_KEY`,
-  `META_APP_SECRET`, `REDIS_URL`, …) is read at **runtime** from
-  `.env.local` via `env_file` and is never baked into the image —
-  safe to change with just a container restart. Compose overwrites
-  `REDIS_URL` to the sidecar.
+  `META_APP_SECRET`, …) is read at **runtime** from the environment
+  and is never baked into the image — safe to change with a container
+  restart. Compose overwrites `REDIS_URL` to the sidecar.
 
 ## Plain Docker (no Compose)
 
@@ -72,7 +74,8 @@ docker build \
   --build-arg NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key \
   -t wacrm .
 
-docker run -d --name wacrm-redis redis:7-alpine redis-server --appendonly yes
+docker run -d --name wacrm-redis redis:7-alpine \
+  redis-server --appendonly yes --maxmemory-policy noeviction
 
 docker run -d --env-file .env.local \
   -e PORT=3000 \
@@ -86,8 +89,9 @@ Without Nginx in front, the container publishes Next.js directly on
 
 ## Coolify
 
-Point the Coolify domain / SSL proxy at the **nginx** service (port
-80), not at `app:3000`. The stack is `nginx` + `app` + `redis`.
+Use the **Docker Compose** build pack and attach TLS to **nginx:80**.
+Do not require `.env.local` on the server. Full checklist:
+[docs/coolify.md](./coolify.md).
 
 ## Notes
 
@@ -118,3 +122,4 @@ Point the Coolify domain / SSL proxy at the **nginx** service (port
 - Nginx config lives in `deploy/nginx/`. The webhook location disables
   proxy buffering so Meta's POST is not held in Nginx while Node
   persists the message. Do not rate-limit `/api/whatsapp/webhook`.
+  Compose healthchecks use `GET /api/health` (no auth).
