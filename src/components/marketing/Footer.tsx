@@ -58,6 +58,7 @@ export default function Footer() {
           <div className="footer-col">
             <h4>Product</h4>
             <ul className="footer-links">
+              <li><Link href="/pricing">Pricing Plans</Link></li>
               <li><a href="#broadcast">WhatsApp Broadcast</a></li>
               <li><a href="#live-chat">Multi-Agent Live Chat</a></li>
               <li><a href="#automation">Chatbot &amp; Automation</a></li>

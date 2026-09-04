@@ -80,9 +80,9 @@ export default function Header({ onMenuToggle }: HeaderProps) {
               </li>
 
               <li className="nav-item">
-                <a href="#pricing" className="nav-link">
+                <Link href="/pricing" className="nav-link">
                   Pricing
-                </a>
+                </Link>
               </li>
 
               {/* Product */}
@@ -364,7 +364,7 @@ export default function Header({ onMenuToggle }: HeaderProps) {
 
         <ul className="drawer-links">
           <li><a href="#features" onClick={() => toggleDrawer(false)}>Features</a></li>
-          <li><a href="#pricing" onClick={() => toggleDrawer(false)}>Pricing</a></li>
+          <li><Link href="/pricing" onClick={() => toggleDrawer(false)}>Pricing</Link></li>
           <li>
             <button
               type="button"
