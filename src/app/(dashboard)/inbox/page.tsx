@@ -7,6 +7,7 @@ import { createClient } from "@/lib/supabase/client";
 import {
   CONVERSATION_SELECT,
   normalizeConversation,
+  sortInboxConversations,
 } from "@/lib/inbox/conversations";
 import type { Conversation, Message, Contact, ConversationStatus } from "@/types";
 import { useRealtime } from "@/hooks/use-realtime";
@@ -160,13 +161,15 @@ function InboxPageInner() {
           // last_message_text / unread_count to fresher values than
           // the row we just read). Only backfill `contact`, which the
           // realtime payloads never carry.
-          return prev.map((c) =>
-            c.id === fetched.id
-              ? { ...c, contact: c.contact ?? fetched.contact }
-              : c,
+          return sortInboxConversations(
+            prev.map((c) =>
+              c.id === fetched.id
+                ? { ...c, contact: c.contact ?? fetched.contact }
+                : c,
+            ),
           );
         }
-        return [fetched, ...prev];
+        return sortInboxConversations([fetched, ...prev]);
       });
     } finally {
       hydratingConvIdsRef.current.delete(convId);
@@ -242,18 +245,20 @@ function InboxPageInner() {
         // always read false here.
         if (knownConvIdsRef.current.has(newMsg.conversation_id)) {
           setConversations((prev) =>
-            prev.map((c) =>
-              c.id === newMsg.conversation_id
-                ? {
-                    ...c,
-                    last_message_text: newMsg.content_text ?? "",
-                    last_message_at: newMsg.created_at,
-                    unread_count:
-                      activeConversation?.id === newMsg.conversation_id
-                        ? 0
-                        : c.unread_count + 1,
-                  }
-                : c,
+            sortInboxConversations(
+              prev.map((c) =>
+                c.id === newMsg.conversation_id
+                  ? {
+                      ...c,
+                      last_message_text: newMsg.content_text ?? "",
+                      last_message_at: newMsg.created_at,
+                      unread_count:
+                        activeConversation?.id === newMsg.conversation_id
+                          ? 0
+                          : c.unread_count + 1,
+                    }
+                  : c,
+              ),
             ),
           );
         } else {
@@ -294,7 +299,7 @@ function InboxPageInner() {
         if (!knownConvIdsRef.current.has(conv.id)) {
           setConversations((prev) => {
             if (prev.some((c) => c.id === conv.id)) return prev;
-            return [conv, ...prev];
+            return sortInboxConversations([conv, ...prev]);
           });
           hydrateConversation(conv.id);
         }
@@ -309,14 +314,16 @@ function InboxPageInner() {
           // UPDATE to round-trip. Non-active convs take the value as-is.
           const isActive = activeConversation?.id === conv.id;
           setConversations((prev) =>
-            prev.map((c) =>
-              c.id === conv.id
-                ? {
-                    ...c,
-                    ...conv,
-                    unread_count: isActive ? 0 : conv.unread_count,
-                  }
-                : c,
+            sortInboxConversations(
+              prev.map((c) =>
+                c.id === conv.id
+                  ? {
+                      ...c,
+                      ...conv,
+                      unread_count: isActive ? 0 : conv.unread_count,
+                    }
+                  : c,
+              ),
             ),
           );
         } else {
@@ -403,7 +410,7 @@ function InboxPageInner() {
 
   const handleConversationsLoaded = useCallback(
     (loaded: Conversation[]) => {
-      setConversations(loaded);
+      setConversations(sortInboxConversations(loaded));
       // Resolve a pending deep-link here rather than in an effect — this
       // is an event handler, so the setState calls below are allowed by
       // react-hooks/set-state-in-effect. Runs once per ?c=<id> URL value
@@ -436,8 +443,10 @@ function InboxPageInner() {
           // the MessageThread reset effect still fires the server UPDATE.
           if (match.unread_count > 0) {
             setConversations((prev) =>
-              prev.map((c) =>
-                c.id === match.id ? { ...c, unread_count: 0 } : c,
+              sortInboxConversations(
+                prev.map((c) =>
+                  c.id === match.id ? { ...c, unread_count: 0 } : c,
+                ),
               ),
             );
           }
@@ -467,10 +476,12 @@ function InboxPageInner() {
       // click instead of waiting for the round-trip — and it persists
       // even if the realtime UPDATE is dropped.
       setConversations((prev) =>
-        prev.map((c) =>
-          c.id === conv.id && c.unread_count > 0
-            ? { ...c, unread_count: 0 }
-            : c,
+        sortInboxConversations(
+          prev.map((c) =>
+            c.id === conv.id && c.unread_count > 0
+              ? { ...c, unread_count: 0 }
+              : c,
+          ),
         ),
       );
       // Record the selection on the deep-link ref BEFORE we change the

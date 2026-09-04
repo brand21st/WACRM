@@ -69,3 +69,39 @@ export function matchesContactFilters(
 
   return true;
 }
+
+/**
+ * Inbox list rank: brand-new empty threads first, then unread
+ * (priority), then the rest. Recency is newest-first within each
+ * group — `created_at` for empty threads, `last_message_at` (falling
+ * back to `created_at`) for everyone else.
+ */
+function isNewInboxChat(conversation: Conversation): boolean {
+  return !conversation.last_message_at && !conversation.last_message_text;
+}
+
+function inboxSortGroup(conversation: Conversation): 0 | 1 | 2 {
+  if (isNewInboxChat(conversation)) return 0;
+  if (conversation.unread_count > 0) return 1;
+  return 2;
+}
+
+function inboxRecencyMs(conversation: Conversation, group: 0 | 1 | 2): number {
+  const iso =
+    group === 0
+      ? conversation.created_at
+      : conversation.last_message_at || conversation.created_at;
+  const t = Date.parse(iso);
+  return Number.isNaN(t) ? 0 : t;
+}
+
+export function sortInboxConversations(
+  conversations: Conversation[],
+): Conversation[] {
+  return [...conversations].sort((a, b) => {
+    const groupA = inboxSortGroup(a);
+    const groupB = inboxSortGroup(b);
+    if (groupA !== groupB) return groupA - groupB;
+    return inboxRecencyMs(b, groupB) - inboxRecencyMs(a, groupA);
+  });
+}

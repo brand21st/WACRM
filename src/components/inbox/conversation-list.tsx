@@ -6,6 +6,7 @@ import {
   CONVERSATION_SELECT,
   matchesContactFilters,
   normalizeConversations,
+  sortInboxConversations,
 } from "@/lib/inbox/conversations";
 import { cn } from "@/lib/utils";
 import type { Conversation, ConversationStatus, Tag } from "@/types";
@@ -100,7 +101,8 @@ export function ConversationList({
       const { data, error } = await supabase
         .from("conversations")
         .select(CONVERSATION_SELECT)
-        .order("last_message_at", { ascending: false });
+        .order("last_message_at", { ascending: false })
+        .order("created_at", { ascending: false });
 
       if (cancelled) return;
 
@@ -189,7 +191,7 @@ export function ConversationList({
       });
     }
 
-    return result;
+    return sortInboxConversations(result);
   }, [conversations, filter, search, selectedTagIds, selectedCompany]);
 
   const toggleTag = useCallback((id: string) => {
