@@ -50,6 +50,16 @@ import {
   sanitizeDiscountCode,
 } from './discount-code'
 import {
+  EMAIL_INVALID_PROMPT,
+  EMAIL_PROMPT,
+  SKIP_EMAIL_BUTTON_TITLE,
+  emailSkipReplyId,
+  isEmailSkipText,
+  parseEmailSkipReply,
+  parseOptionalEmail,
+} from './checkout-email'
+import { lookupShopifyCustomerEmail } from './shopify-customer'
+import {
   lookupShopifyDiscountCode,
   type AppliedCommerceDiscount,
 } from './shopify-discount'
@@ -397,6 +407,7 @@ export async function handleAddressConfirmationReply(args: {
         awaiting_address: true,
         awaiting_confirmation: false,
         awaiting_discount: false,
+        awaiting_email: false,
       })
       .eq('id', order.id)
       .eq('status', 'pending')
@@ -425,6 +436,7 @@ export async function handleAddressConfirmationReply(args: {
         awaiting_address: true,
         awaiting_confirmation: false,
         awaiting_discount: false,
+        awaiting_email: false,
       })
       .eq('id', order.id)
       .eq('status', 'pending')
@@ -460,21 +472,224 @@ export async function handleAddressConfirmationReply(args: {
     beneficiary,
   })
 
-  const asked = await markAwaitingDiscount(args.db, order.id as string)
-  if (!asked) {
-    await sendCommerceBill({
+  return continueCheckoutAfterAddress({
+    db: args.db,
+    accountId: args.accountId,
+    userId: args.userId,
+    conversationId: args.conversationId,
+    contactId: args.contactId,
+    contactPhone: args.contactPhone,
+    referenceId: order.reference_id as string,
+    orderId: order.id as string,
+    lines,
+    beneficiary,
+  })
+}
+
+/**
+ * Skip tap on the optional receipt-email prompt.
+ */
+export async function handleReceiptEmailReply(args: {
+  db: SupabaseClient
+  accountId: string
+  userId: string
+  conversationId: string
+  contactId: string
+  contactPhone: string | null
+  replyId: string | null
+}): Promise<boolean> {
+  const skip = parseEmailSkipReply(args.replyId)
+  if (!skip) return false
+  return completeReceiptEmail({
+    db: args.db,
+    accountId: args.accountId,
+    userId: args.userId,
+    conversationId: args.conversationId,
+    contactId: args.contactId,
+    contactPhone: args.contactPhone,
+    referenceId: skip.referenceId,
+    email: null,
+  })
+}
+
+export async function tryCompleteCommerceEmail(args: {
+  db: SupabaseClient
+  accountId: string
+  userId: string
+  conversationId: string
+  contactId: string
+  contactPhone: string | null
+  text: string
+}): Promise<boolean> {
+  const pending = await loadAwaitingEmailOrder(
+    args.db,
+    args.accountId,
+    args.conversationId,
+  )
+  if (!pending) return false
+
+  if (isEmailSkipText(args.text)) {
+    return completeReceiptEmail({
       db: args.db,
       accountId: args.accountId,
       userId: args.userId,
       conversationId: args.conversationId,
       contactId: args.contactId,
-      referenceId: order.reference_id as string,
-      catalogId: settings.metaCatalogId!,
-      configurationName: settings.waPaymentConfigurationName!,
-      lines,
-      beneficiary,
+      contactPhone: args.contactPhone,
+      referenceId: pending.reference_id,
+      email: null,
+    })
+  }
+
+  const email = parseOptionalEmail(args.text)
+  if (!email) {
+    await askForReceiptEmail({
+      accountId: args.accountId,
+      userId: args.userId,
+      conversationId: args.conversationId,
+      contactId: args.contactId,
+      referenceId: pending.reference_id,
+      bodyText: EMAIL_INVALID_PROMPT,
     })
     return true
+  }
+
+  return completeReceiptEmail({
+    db: args.db,
+    accountId: args.accountId,
+    userId: args.userId,
+    conversationId: args.conversationId,
+    contactId: args.contactId,
+    contactPhone: args.contactPhone,
+    referenceId: pending.reference_id,
+    email,
+  })
+}
+
+async function continueCheckoutAfterAddress(args: {
+  db: SupabaseClient
+  accountId: string
+  userId: string
+  conversationId: string
+  contactId: string
+  contactPhone: string | null
+  referenceId: string
+  orderId: string
+  lines: MappedCartLine[]
+  beneficiary: CommerceBeneficiary
+}): Promise<boolean> {
+  let beneficiary = args.beneficiary
+  if (!beneficiary.email && args.contactPhone) {
+    const shopify = await loadShopifyConfig(args.db, args.accountId, {
+      requireActive: false,
+    })
+    if (shopify) {
+      const existing = await lookupShopifyCustomerEmail({
+        config: shopify,
+        phone: args.contactPhone,
+      })
+      if (existing) {
+        beneficiary = { ...beneficiary, email: existing }
+        await args.db
+          .from('whatsapp_commerce_orders')
+          .update({ beneficiary })
+          .eq('id', args.orderId)
+      }
+    }
+  }
+
+  if (beneficiary.email) {
+    return proceedToDiscountOrBill({ ...args, beneficiary })
+  }
+
+  const asked = await markAwaitingEmail(args.db, args.orderId)
+  if (!asked) {
+    return proceedToDiscountOrBill(args)
+  }
+  await askForReceiptEmail({
+    accountId: args.accountId,
+    userId: args.userId,
+    conversationId: args.conversationId,
+    contactId: args.contactId,
+    referenceId: args.referenceId,
+  })
+  return true
+}
+
+async function completeReceiptEmail(args: {
+  db: SupabaseClient
+  accountId: string
+  userId: string
+  conversationId: string
+  contactId: string
+  contactPhone: string | null
+  referenceId: string
+  email: string | null
+}): Promise<boolean> {
+  const { data: order } = await args.db
+    .from('whatsapp_commerce_orders')
+    .select('id, line_items, beneficiary, awaiting_email')
+    .eq('account_id', args.accountId)
+    .eq('reference_id', args.referenceId)
+    .eq('status', 'pending')
+    .maybeSingle()
+  if (!order) return false
+
+  const settings = await loadCommerceSettings(args.db, args.accountId)
+  if (!nativeCommerceEnabled(settings)) return false
+  let beneficiary = (order.beneficiary as CommerceBeneficiary) ?? null
+  if (!beneficiary || !isCompleteBeneficiary(beneficiary)) return false
+  if (args.email) beneficiary = { ...beneficiary, email: args.email }
+
+  const claimed = await claimAwaitingEmail(args.db, order.id as string, beneficiary)
+  if (!claimed) return true
+
+  const lines = (order.line_items as MappedCartLine[]) ?? []
+  if (lines.length === 0) return false
+
+  return proceedToDiscountOrBill({
+    db: args.db,
+    accountId: args.accountId,
+    userId: args.userId,
+    conversationId: args.conversationId,
+    contactId: args.contactId,
+    contactPhone: args.contactPhone,
+    referenceId: args.referenceId,
+    orderId: order.id as string,
+    lines,
+    beneficiary,
+  })
+}
+
+async function proceedToDiscountOrBill(args: {
+  db: SupabaseClient
+  accountId: string
+  userId: string
+  conversationId: string
+  contactId: string
+  contactPhone: string | null
+  referenceId: string
+  orderId: string
+  lines: MappedCartLine[]
+  beneficiary: CommerceBeneficiary
+}): Promise<boolean> {
+  const settings = await loadCommerceSettings(args.db, args.accountId)
+  if (!nativeCommerceEnabled(settings)) return false
+
+  const asked = await markAwaitingDiscount(args.db, args.orderId)
+  if (!asked) {
+    return sendCommerceBill({
+      db: args.db,
+      accountId: args.accountId,
+      userId: args.userId,
+      conversationId: args.conversationId,
+      contactId: args.contactId,
+      referenceId: args.referenceId,
+      catalogId: settings.metaCatalogId!,
+      configurationName: settings.waPaymentConfigurationName!,
+      lines: args.lines,
+      beneficiary: args.beneficiary,
+    })
   }
 
   await askForDiscountCode({
@@ -482,9 +697,115 @@ export async function handleAddressConfirmationReply(args: {
     userId: args.userId,
     conversationId: args.conversationId,
     contactId: args.contactId,
-    referenceId: order.reference_id as string,
+    referenceId: args.referenceId,
   })
   return true
+}
+
+async function markAwaitingEmail(
+  db: SupabaseClient,
+  orderId: string,
+): Promise<boolean> {
+  const { error } = await db
+    .from('whatsapp_commerce_orders')
+    .update({ awaiting_email: true })
+    .eq('id', orderId)
+    .eq('status', 'pending')
+  if (!error) return true
+  if (isMissingDbRelation(error, 'awaiting_email')) return false
+  console.warn('[commerce] mark awaiting email failed:', error)
+  return false
+}
+
+async function claimAwaitingEmail(
+  db: SupabaseClient,
+  orderId: string,
+  beneficiary: CommerceBeneficiary,
+): Promise<boolean> {
+  const { data, error } = await db
+    .from('whatsapp_commerce_orders')
+    .update({
+      awaiting_email: false,
+      beneficiary,
+    })
+    .eq('id', orderId)
+    .eq('status', 'pending')
+    .eq('awaiting_email', true)
+    .select('id')
+  if (error) {
+    if (isMissingDbRelation(error, 'awaiting_email')) return true
+    console.warn('[commerce] claim email failed:', error)
+    return false
+  }
+  return Boolean(data && data.length > 0)
+}
+
+async function loadAwaitingEmailOrder(
+  db: SupabaseClient,
+  accountId: string,
+  conversationId: string,
+) {
+  const { data, error } = await db
+    .from('whatsapp_commerce_orders')
+    .select('id, reference_id')
+    .eq('account_id', accountId)
+    .eq('conversation_id', conversationId)
+    .eq('awaiting_email', true)
+    .eq('status', 'pending')
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  if (error) {
+    if (
+      isMissingDbRelation(error, 'whatsapp_commerce_orders') ||
+      isMissingDbRelation(error, 'awaiting_email')
+    ) {
+      return null
+    }
+    console.warn('[commerce] load awaiting email failed:', error)
+    return null
+  }
+  return data
+}
+
+async function askForReceiptEmail(args: {
+  accountId: string
+  userId: string
+  conversationId: string
+  contactId: string
+  referenceId: string
+  bodyText?: string
+}): Promise<void> {
+  try {
+    await engineSendInteractiveButtons({
+      accountId: args.accountId,
+      userId: args.userId,
+      conversationId: args.conversationId,
+      contactId: args.contactId,
+      bodyText: args.bodyText ?? EMAIL_PROMPT,
+      buttons: [
+        {
+          id: emailSkipReplyId(args.referenceId),
+          title: SKIP_EMAIL_BUTTON_TITLE,
+        },
+      ],
+      aiGenerated: true,
+    })
+  } catch (err) {
+    console.error('[commerce] email prompt send failed:', err)
+    try {
+      await engineSendText({
+        accountId: args.accountId,
+        userId: args.userId,
+        conversationId: args.conversationId,
+        contactId: args.contactId,
+        text: args.bodyText ?? EMAIL_PROMPT,
+        aiGenerated: true,
+      })
+    } catch (textErr) {
+      console.error('[commerce] email text prompt failed:', textErr)
+    }
+  }
 }
 
 /**

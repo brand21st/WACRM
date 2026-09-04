@@ -60,6 +60,17 @@ describe('addressConfirmationBody', () => {
     expect(body).toContain('Wayanad house, Sulthan Bathery')
     expect(body).toContain('Wayanad, Kerala 673592')
     expect(body).toContain('1 item · ₹899.00')
+    expect(body).not.toContain('@')
+    expect(body.length).toBeLessThanOrEqual(INTERACTIVE_LIMITS.bodyMaxLength)
+  })
+
+  it('lists an optional receipt email when present', () => {
+    const body = addressConfirmationBody({
+      beneficiary: { ...beneficiary, email: 'ada@example.com' },
+      totalPaise: 89900,
+      itemCount: 1,
+    })
+    expect(body).toContain('ada@example.com')
     expect(body.length).toBeLessThanOrEqual(INTERACTIVE_LIMITS.bodyMaxLength)
   })
 

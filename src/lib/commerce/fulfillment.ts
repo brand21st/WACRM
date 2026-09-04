@@ -7,7 +7,12 @@ import {
 } from '@/lib/whatsapp/meta-api'
 import { loadCommerceSettings } from '@/lib/shopify/commerce-config'
 import { isMissingDbRelation } from '@/lib/shopify/config-db'
-import { WHATSAPP_COMMERCE_TAG } from './shopify-order'
+import { shopifyWebhookOrderGid } from '@/lib/shopify/webhook-order-id'
+import {
+  VACHAT_ORDER_TAG,
+  WHATSAPP_COMMERCE_DISPLAY_TAG,
+  WHATSAPP_COMMERCE_TAG,
+} from './shopify-order'
 import {
   canTransitionOrderStatus,
   isCancelAfterPay,
@@ -29,13 +34,7 @@ function tagsOf(body: Record<string, unknown>): string[] {
 }
 
 function shopifyOrderGid(body: Record<string, unknown>): string {
-  const gid = body.admin_graphql_api_id
-  if (typeof gid === 'string' && gid.includes('Order')) return gid
-  const id = body.id ?? body.order_id
-  if (id == null) return ''
-  const raw = String(id)
-  if (raw.startsWith('gid://')) return raw
-  return `gid://shopify/Order/${raw}`
+  return shopifyWebhookOrderGid(body)
 }
 
 export async function syncWhatsAppOrderFromShopify(args: {
@@ -107,7 +106,11 @@ async function findCommerceOrder(
       .maybeSingle()
     if (data) return data
   }
-  if (keys.tags.includes(WHATSAPP_COMMERCE_TAG) && keys.shopifyOrderName) {
+  const commerceTagged =
+    keys.tags.includes(WHATSAPP_COMMERCE_TAG) ||
+    keys.tags.includes(WHATSAPP_COMMERCE_DISPLAY_TAG) ||
+    keys.tags.includes(VACHAT_ORDER_TAG)
+  if (commerceTagged && keys.shopifyOrderName) {
     const { data } = await db
       .from('whatsapp_commerce_orders')
       .select(

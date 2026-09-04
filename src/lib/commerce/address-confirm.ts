@@ -65,6 +65,7 @@ export function addressConfirmationBody(args: {
     b.address_line1,
     b.address_line2,
     `${b.city}, ${b.state} ${b.postal_code}`,
+    b.email,
   ].filter(Boolean)
   const items = args.itemCount === 1 ? '1 item' : `${args.itemCount} items`
   return [

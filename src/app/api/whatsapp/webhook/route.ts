@@ -23,6 +23,7 @@ import {
   handleAddressFormDeliveryFailure,
   handleDiscountCodeReply,
   handleInboundWhatsAppOrder,
+  handleReceiptEmailReply,
 } from '@/lib/commerce/checkout'
 import {
   addressFormPreviewText,
@@ -949,6 +950,17 @@ async function processMessage(
   // flow runner and the interactive_reply trigger below.
   if (!commerceReplyHandled && interactiveReplyId) {
     commerceReplyHandled = await handleAddressConfirmationReply({
+      db: supabaseAdmin(),
+      accountId,
+      userId: configOwnerUserId,
+      conversationId: conversation.id,
+      contactId: contactRecord.id,
+      contactPhone: contactRecord.phone ?? senderPhone,
+      replyId: interactiveReplyId,
+    })
+  }
+  if (!commerceReplyHandled && interactiveReplyId) {
+    commerceReplyHandled = await handleReceiptEmailReply({
       db: supabaseAdmin(),
       accountId,
       userId: configOwnerUserId,

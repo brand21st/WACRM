@@ -19,6 +19,7 @@ import type { MessageTemplate } from '@/types'
 
 import { shopifyGraphql, shopifyRest } from './client'
 import { loadShopifyConfig } from './config'
+import { shopifyWebhookOrderNumericId } from './webhook-order-id'
 import {
   attachShopContext,
   notificationActionsForTopic,
@@ -36,6 +37,10 @@ import {
   type ShopifyNotificationRule,
   type ShopifyNotificationTrigger,
 } from './notification-triggers'
+import {
+  canEnableShopifyTemplate,
+  rulesMissingApprovedPresets,
+} from './notification-templates'
 
 const FULFILLMENT_ENRICH_QUERY = `
 query NotificationFulfillment($id: ID!) {
@@ -74,7 +79,45 @@ async function loadRules(
     console.error('[shopify/notifications] load rules failed:', error)
     return mergeRules([])
   }
-  return mergeRules((data ?? []) as Partial<ShopifyNotificationRule>[])
+  const rows = (data ?? []) as Partial<ShopifyNotificationRule>[]
+  const autoBound = await persistApprovedStatusRules(db, accountId, rows)
+  return mergeRules([...rows, ...autoBound])
+}
+
+async function persistApprovedStatusRules(
+  db: SupabaseClient,
+  accountId: string,
+  rows: Partial<ShopifyNotificationRule>[],
+): Promise<ShopifyNotificationRule[]> {
+  const { data: templates, error } = await db
+    .from('message_templates')
+    .select('name, language, status')
+    .eq('account_id', accountId)
+    .eq('status', 'APPROVED')
+  if (error || !templates?.length) return []
+
+  const missing = rulesMissingApprovedPresets(
+    rows.map((row) => row.trigger_key ?? ''),
+    templates.filter((row) => canEnableShopifyTemplate(row.status)),
+  )
+  if (missing.length === 0) return []
+
+  const { error: insertError } = await db.from('shopify_notification_rules').insert(
+    missing.map((rule) => ({
+      account_id: accountId,
+      trigger_key: rule.trigger_key,
+      is_enabled: rule.is_enabled,
+      template_name: rule.template_name,
+      template_language: rule.template_language,
+      variable_map: rule.variable_map,
+      config: rule.config,
+    })),
+  )
+  if (insertError) {
+    console.warn('[shopify/notifications] auto-bind rules failed:', insertError)
+    return missing
+  }
+  return missing
 }
 
 function ruleFor(
@@ -113,7 +156,10 @@ async function enrichFields(
   let next = fields
 
   if (config && !skipRest) {
-    const orderId = fields.order_id || String(body.order_id ?? '')
+    const orderId =
+      fields.order_id ||
+      shopifyWebhookOrderNumericId(body) ||
+      String(body.order_id ?? '')
     if (orderId) {
       try {
         const data = await shopifyRest<{ order?: Record<string, unknown> }>({

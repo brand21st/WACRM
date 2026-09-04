@@ -1763,6 +1763,67 @@ export interface PaymentLookupResult {
   }>
 }
 
+function asPaymentRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  return value as Record<string, unknown>
+}
+
+function looksLikePaymentRecord(row: Record<string, unknown>): boolean {
+  return Boolean(
+    row.reference_id ||
+      row.status ||
+      Array.isArray(row.transactions),
+  )
+}
+
+/**
+ * Meta usually wraps lookup in `{ payments: [...] }`. Cloud API
+ * sometimes returns the payment at the top level or as `{ data: [...] }`.
+ */
+export function parseWhatsAppPaymentLookup(
+  data: unknown,
+  fallbackReferenceId: string,
+): PaymentLookupResult | null {
+  const root = asPaymentRecord(data)
+  if (!root) return null
+
+  const candidates: Record<string, unknown>[] = []
+  const wrapped = Array.isArray(root.payments) ? root.payments[0] : null
+  const wrappedRecord = asPaymentRecord(wrapped)
+  if (wrappedRecord && looksLikePaymentRecord(wrappedRecord)) {
+    candidates.push(wrappedRecord)
+  }
+  const listed = Array.isArray(root.data) ? root.data[0] : null
+  const listedRecord = asPaymentRecord(listed)
+  if (listedRecord && looksLikePaymentRecord(listedRecord)) {
+    candidates.push(listedRecord)
+  }
+  if (looksLikePaymentRecord(root) && !Array.isArray(root.payments)) {
+    candidates.push(root)
+  }
+
+  const payment = candidates[0]
+  if (!payment) return null
+
+  const transactions = Array.isArray(payment.transactions)
+    ? (payment.transactions as PaymentLookupResult['transactions'])
+    : []
+  const raw = String(payment.status ?? '').toLowerCase()
+  const txnCaptured = transactions.some((t) => {
+    const s = (t.status ?? '').toLowerCase()
+    return s === 'success' || s === 'captured'
+  })
+  const status =
+    raw === 'captured' || raw === 'success' || raw === 'paid' || txnCaptured
+      ? 'captured'
+      : 'pending'
+  return {
+    reference_id: String(payment.reference_id ?? fallbackReferenceId),
+    status,
+    transactions,
+  }
+}
+
 export async function lookupWhatsAppPayment(args: {
   phoneNumberId: string
   accessToken: string
@@ -1778,28 +1839,8 @@ export async function lookupWhatsAppPayment(args: {
   if (!response.ok) {
     await throwMetaError(response, `Payment lookup failed (${response.status})`)
   }
-  const data = (await response.json()) as {
-    payments?: Array<Record<string, unknown>>
-  }
-  const payment = data.payments?.[0]
-  if (!payment) return null
-  const transactions = Array.isArray(payment.transactions)
-    ? (payment.transactions as PaymentLookupResult['transactions'])
-    : []
-  const raw = String(payment.status ?? '').toLowerCase()
-  const txnCaptured = transactions.some((t) => {
-    const s = (t.status ?? '').toLowerCase()
-    return s === 'success' || s === 'captured'
-  })
-  const status =
-    raw === 'captured' || raw === 'success' || raw === 'paid' || txnCaptured
-      ? 'captured'
-      : 'pending'
-  return {
-    reference_id: String(payment.reference_id ?? args.referenceId),
-    status,
-    transactions,
-  }
+  const data: unknown = await response.json()
+  return parseWhatsAppPaymentLookup(data, args.referenceId)
 }
 
 export async function refundWhatsAppPayment(args: {

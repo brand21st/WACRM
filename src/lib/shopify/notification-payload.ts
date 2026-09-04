@@ -1,5 +1,6 @@
 import { isValidE164, sanitizePhoneForMeta } from '@/lib/whatsapp/phone-utils'
 import type { ShopifyNotificationTrigger } from './notification-triggers'
+import { shopifyWebhookOrderNumericId } from './webhook-order-id'
 
 export interface NotificationAction {
   kind: 'send' | 'queue' | 'cancel_abandoned'
@@ -361,7 +362,7 @@ export function fulfillmentFields(
     refund_amount: '',
     phone: firstValidShopifyPhone(body) ?? '',
     email: str(body.email),
-    order_id: str(body.order_id),
+    order_id: shopifyWebhookOrderNumericId(body) || str(body.order_id),
     ...payloadExtras(body),
   })
 }
@@ -381,7 +382,7 @@ export function refundFields(body: Record<string, unknown>): Record<string, stri
   return orderFields(body, {
     refund_amount: amount,
     order_name: orderName(body) || str(body.order_id),
-    order_id: str(body.order_id),
+    order_id: shopifyWebhookOrderNumericId(body) || str(body.order_id),
   })
 }
 

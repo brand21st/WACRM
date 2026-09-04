@@ -8,6 +8,7 @@ export interface CommerceBeneficiary {
   state: string
   country: string
   postal_code: string
+  email?: string
 }
 
 export interface CommerceSettings {

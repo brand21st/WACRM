@@ -181,6 +181,7 @@ export function sanitizeBeneficiary(
     state,
     country: 'India',
     postal_code: postal,
+    email: input.email?.trim().toLowerCase() || undefined,
   }
 }
 

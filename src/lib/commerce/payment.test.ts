@@ -49,6 +49,10 @@ vi.mock('./shopify-order', () => ({
   markShopifyOrderAsPaid: (...args: unknown[]) => markPaid(...args),
 }))
 
+vi.mock('./shopify-customer', () => ({
+  upsertShopifyCustomerForPayment: async () => 'gid://shopify/Customer/1',
+}))
+
 vi.mock('./checkout', () => ({
   insertInboxNote: vi.fn(),
 }))
@@ -239,6 +243,52 @@ describe('handleWhatsAppPaymentStatus', () => {
         type: 'payment',
         recipient_id: '9198',
         payment: { reference_id: 'wac_1' },
+      },
+    })
+
+    expect(createOrder).toHaveBeenCalled()
+  })
+
+  it('creates the Shopify order when lookup throws but the HMAC webhook is captured', async () => {
+    lookup.mockRejectedValue(new Error('lookup timeout'))
+    createOrder.mockResolvedValue({ id: 'gid://shopify/Order/1', name: '#1001' })
+    engineOrderStatus.mockResolvedValue({ whatsapp_message_id: 'wamid.status' })
+    engineText.mockResolvedValue({ whatsapp_message_id: 'wamid.text' })
+
+    await handleWhatsAppPaymentStatus({
+      db: makeDb() as never,
+      phoneNumberId: 'pnid',
+      status: {
+        type: 'payment',
+        status: 'captured',
+        recipient_id: '9198',
+        payment: {
+          reference_id: 'wac_1',
+          transaction: { id: 'order_1', pg_transaction_id: 'pay_1', status: 'success' },
+        },
+      },
+    })
+
+    expect(createOrder).toHaveBeenCalled()
+  })
+
+  it('creates the Shopify order when lookup is empty but the HMAC webhook is captured', async () => {
+    lookup.mockResolvedValue(null)
+    createOrder.mockResolvedValue({ id: 'gid://shopify/Order/1', name: '#1001' })
+    engineOrderStatus.mockResolvedValue({ whatsapp_message_id: 'wamid.status' })
+    engineText.mockResolvedValue({ whatsapp_message_id: 'wamid.text' })
+
+    await handleWhatsAppPaymentStatus({
+      db: makeDb() as never,
+      phoneNumberId: 'pnid',
+      status: {
+        type: 'payment',
+        status: 'captured',
+        recipient_id: '9198',
+        payment: {
+          reference_id: 'wac_1',
+          transaction: { status: 'success' },
+        },
       },
     })
 

@@ -12,6 +12,7 @@ import {
   isPresetNameForTrigger,
   isShopifyTemplateName,
   presetForTrigger,
+  rulesMissingApprovedPresets,
   SHOPIFY_TEMPLATE_PRESETS,
   templatesForTriggerDropdown,
   triggersMissingPresets,
@@ -137,5 +138,18 @@ describe('templatesForTriggerDropdown', () => {
         false,
       ).map((r) => r.name),
     ).toContain('shopify_processing')
+  })
+
+  it('auto-binds approved status presets only when no rule row exists', () => {
+    const templates = [
+      { name: 'shopify_processing', language: 'en_US', status: 'APPROVED' },
+      { name: 'shopify_fulfilled', language: 'en_US', status: 'APPROVED' },
+      { name: 'shopify_checkout_abandoned', language: 'en_US', status: 'APPROVED' },
+    ]
+    const missing = rulesMissingApprovedPresets(['processing'], templates)
+    expect(missing.map((r) => r.trigger_key)).toContain('fulfilled')
+    expect(missing.map((r) => r.trigger_key)).not.toContain('processing')
+    expect(missing.map((r) => r.trigger_key)).not.toContain('checkout_abandoned')
+    expect(missing.find((r) => r.trigger_key === 'fulfilled')?.is_enabled).toBe(true)
   })
 })

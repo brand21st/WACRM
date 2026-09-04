@@ -24,7 +24,10 @@ mutation WhatsAppCommerceOrderMarkAsPaid($input: OrderMarkAsPaidInput!) {
 `
 
 export const WHATSAPP_COMMERCE_TAG = 'whatsapp-commerce'
+export const WHATSAPP_COMMERCE_DISPLAY_TAG = 'WhatsApp Commerce'
+export const VACHAT_ORDER_TAG = 'VaChat Order'
 export const WHATSAPP_PAYMENT_GATEWAY = 'whatsapp'
+export const STANDARD_DELIVERY_TITLE = 'Standard Delivery'
 
 export interface CreatePaidShopifyOrderArgs {
   config: ShopifyStoreConfig
@@ -35,6 +38,8 @@ export interface CreatePaidShopifyOrderArgs {
   totalPaise: number
   discount?: AppliedCommerceDiscount | null
   authorizationCode?: string | null
+  customerId?: string | null
+  email?: string | null
 }
 
 export interface CreatedShopifyOrder {
@@ -81,19 +86,41 @@ export function paidShopifyOrderCreateVariables(
 
   const amount = shopifyMoneyFromPaise(args.totalPaise)
   const authorizationCode = args.authorizationCode?.trim() || undefined
+  const email = args.email?.trim() || args.beneficiary?.email?.trim() || undefined
+  const customerId = args.customerId?.trim() || undefined
 
   return {
     order: {
       currency: 'INR',
       financialStatus: 'PENDING',
-      tags: [WHATSAPP_COMMERCE_TAG, args.referenceId],
+      tags: [
+        WHATSAPP_COMMERCE_TAG,
+        WHATSAPP_COMMERCE_DISPLAY_TAG,
+        VACHAT_ORDER_TAG,
+        args.referenceId,
+      ],
       note: `WhatsApp commerce ${args.referenceId}`,
       phone,
+      ...(email ? { email } : {}),
+      ...(customerId ? { customer: { toSet: customerId } } : {}),
       lineItems: args.lines.map((line) => ({
         variantId: variantGid(line.variantId),
         quantity: line.quantity,
       })),
       shippingAddress: shipping,
+      billingAddress: shipping,
+      shippingLines: [
+        {
+          title: STANDARD_DELIVERY_TITLE,
+          code: 'standard',
+          priceSet: {
+            shopMoney: {
+              amount: '0.00',
+              currencyCode: 'INR',
+            },
+          },
+        },
+      ],
       discountCode: orderCreateDiscountInput(args.discount),
       transactions: [
         {
@@ -111,7 +138,7 @@ export function paidShopifyOrderCreateVariables(
       ],
     },
     options: {
-      sendReceipt: false,
+      sendReceipt: Boolean(email),
       inventoryBehaviour: 'DECREMENT_OBEYING_POLICY',
     },
   }
@@ -134,13 +161,23 @@ export async function createPaidShopifyOrder(
   let payload = await orderCreateOnce(args.config, variables)
   let errors = payload?.userErrors?.filter((e) => e.message) ?? []
 
-  // Payment is already captured. A bad WhatsApp phone must not block the
-  // Shopify order — drop the number and retry once.
+  // Payment is already captured. A bad WhatsApp phone or customer link
+  // must not block the Shopify order — drop those fields and retry once.
   if (
     errors.some((e) => isInvalidPhoneUserError(e.message)) &&
     orderCreateHasPhone(variables.order)
   ) {
     variables = withoutPhones(variables)
+    payload = await orderCreateOnce(args.config, variables)
+    errors = payload?.userErrors?.filter((e) => e.message) ?? []
+  }
+  if (
+    errors.some((e) => isInvalidCustomerUserError(e.message)) &&
+    variables.order.customer
+  ) {
+    const { customer: _customer, ...orderRest } = variables.order
+    void _customer
+    variables = { ...variables, order: orderRest }
     payload = await orderCreateOnce(args.config, variables)
     errors = payload?.userErrors?.filter((e) => e.message) ?? []
   }
@@ -181,6 +218,10 @@ async function orderCreateOnce(
 
 export function isInvalidPhoneUserError(message: string | undefined): boolean {
   return /phone is invalid/i.test(message ?? '')
+}
+
+export function isInvalidCustomerUserError(message: string | undefined): boolean {
+  return /customer/i.test(message ?? '') && /invalid|not found|does not exist/i.test(message ?? '')
 }
 
 export function orderCreateHasPhone(order: Record<string, unknown>): boolean {

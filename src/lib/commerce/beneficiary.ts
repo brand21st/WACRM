@@ -226,6 +226,7 @@ async function beneficiaryFromShopifyCustomer(
           nodes?: Array<{
             displayName?: string | null
             phone?: string | null
+            email?: string | null
             defaultAddress?: ShopifyAddress | null
           }>
         }
@@ -249,7 +250,11 @@ async function beneficiaryFromShopifyCustomer(
           customer.defaultAddress,
           customer.displayName,
         )
-        if (mapped) return mapped
+        if (mapped) {
+          const email = customer.email?.trim().toLowerCase()
+          if (email) mapped.email = email
+          return mapped
+        }
       }
     } catch (err) {
       console.warn('[commerce] Shopify customer address lookup failed:', err)

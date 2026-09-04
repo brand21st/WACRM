@@ -17,6 +17,10 @@ vi.mock('@/lib/shopify/client', () => ({
 }))
 
 import {
+  STANDARD_DELIVERY_TITLE,
+  VACHAT_ORDER_TAG,
+  WHATSAPP_COMMERCE_DISPLAY_TAG,
+  WHATSAPP_COMMERCE_TAG,
   WHATSAPP_PAYMENT_GATEWAY,
   createPaidShopifyOrder,
   isAlreadyPaidUserError,
@@ -73,6 +77,24 @@ describe('paidShopifyOrderCreateVariables', () => {
     const variables = paidShopifyOrderCreateVariables(args)
     expect(variables.order.financialStatus).toBe('PENDING')
     expect(variables.order.phone).toBe('+918129760955')
+    expect(variables.order.tags).toEqual([
+      WHATSAPP_COMMERCE_TAG,
+      WHATSAPP_COMMERCE_DISPLAY_TAG,
+      VACHAT_ORDER_TAG,
+      'wac_1',
+    ])
+    expect(variables.order.shippingLines).toEqual([
+      {
+        title: STANDARD_DELIVERY_TITLE,
+        code: 'standard',
+        priceSet: {
+          shopMoney: { amount: '0.00', currencyCode: 'INR' },
+        },
+      },
+    ])
+    expect(variables.order.customer).toBeUndefined()
+    expect(variables.order.email).toBeUndefined()
+    expect(variables.options.sendReceipt).toBe(false)
     expect(
       (variables.order.shippingAddress as { phone?: string }).phone,
     ).toBe('+918129760955')
@@ -90,6 +112,17 @@ describe('paidShopifyOrderCreateVariables', () => {
         },
       },
     ])
+  })
+
+  it('sends a Shopify receipt when the customer gave an email', () => {
+    const variables = paidShopifyOrderCreateVariables({
+      ...args,
+      email: 'ada@example.com',
+      customerId: 'gid://shopify/Customer/9',
+    })
+    expect(variables.order.email).toBe('ada@example.com')
+    expect(variables.order.customer).toEqual({ toSet: 'gid://shopify/Customer/9' })
+    expect(variables.options.sendReceipt).toBe(true)
   })
 })
 

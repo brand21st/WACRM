@@ -149,6 +149,8 @@ query CustomerAddressByQuery($query: String!) {
       id
       displayName
       phone
+      email
+      tags
       defaultAddress {
         name
         firstName

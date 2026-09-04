@@ -192,6 +192,7 @@ describe('notificationActionsForTopic', () => {
     expect(actions.map((a) => a.trigger)).toEqual(['fulfilled'])
     expect(actions[0]?.fields.tracking_number).toBe('1Z999')
     expect(actions[0]?.fields.tracking_url_partial).toBe('1Z999')
+    expect(actions[0]?.fields.order_id).toBe('1001')
   })
 
   it('sends partially_fulfilled on fulfillments/create when status is partial', () => {

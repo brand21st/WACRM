@@ -1,7 +1,9 @@
 import type { MessageTemplate, TemplateButton, TemplateSampleValues } from '@/types'
 import { TEMPLATE_LIMITS, type TemplatePayload } from '@/lib/whatsapp/template-validators'
 import {
+  defaultRule,
   SHOPIFY_NOTIFICATION_TRIGGERS,
+  type ShopifyNotificationRule,
   type ShopifyNotificationTrigger,
 } from './notification-triggers'
 
@@ -247,6 +249,35 @@ export const SHOPIFY_TEMPLATE_PICKER_STATUSES = [
 
 export function canEnableShopifyTemplate(status?: string): boolean {
   return status === 'APPROVED'
+}
+
+/** Lifecycle status pings — not marketing abandoned checkout. */
+export function statusTriggersToAutoBind(): ShopifyNotificationTrigger[] {
+  return SHOPIFY_NOTIFICATION_TRIGGERS.filter((trigger) => trigger !== 'checkout_abandoned')
+}
+
+/**
+ * Rules that have no DB row yet and an APPROVED shopify_* preset.
+ * Existing rows (including merchant-disabled ones) are left alone.
+ */
+export function rulesMissingApprovedPresets(
+  existingKeys: Iterable<string>,
+  templates: ShopifyPickerTemplate[],
+): ShopifyNotificationRule[] {
+  const have = new Set(existingKeys)
+  const out: ShopifyNotificationRule[] = []
+  for (const trigger of statusTriggersToAutoBind()) {
+    if (have.has(trigger)) continue
+    const preset = findPresetTemplate(templates, trigger)
+    if (!preset || !canEnableShopifyTemplate(preset.status)) continue
+    out.push({
+      ...defaultRule(trigger),
+      is_enabled: true,
+      template_name: preset.name,
+      template_language: preset.language || 'en_US',
+    })
+  }
+  return out
 }
 
 export function canQuickEditShopifyTemplate(status?: string): boolean {
