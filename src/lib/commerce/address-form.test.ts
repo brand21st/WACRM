@@ -6,6 +6,37 @@ import {
 import { sendAddressMessage } from '@/lib/whatsapp/meta-api'
 
 describe('parseAddressMessageReply', () => {
+  it('reads the nested values object Meta actually sends', () => {
+    // Meta wraps the answer as { saved_address_id?, values: {...} } —
+    // reading the top level instead left every field empty.
+    const submission = parseAddressMessageReply(
+      JSON.stringify({
+        saved_address_id: '3f2504e0-4f89-11d3-9a0c-0305e82c3301',
+        values: {
+          name: 'Ada Lovelace',
+          house_number: '12',
+          building_name: 'Analytical Apartments',
+          address: 'MG Road',
+          landmark_area: 'Near Trinity Metro',
+          city: 'Bengaluru',
+          state: 'Karnataka',
+          in_pin_code: '560001',
+        },
+      }),
+    )!
+    expect(submission.savedAddressId).toBe('3f2504e0-4f89-11d3-9a0c-0305e82c3301')
+    expect(submission.validationErrors).toEqual({})
+    expect(submission.beneficiary).toEqual({
+      name: 'Ada Lovelace',
+      address_line1: '12, Analytical Apartments, MG Road',
+      address_line2: 'Near Trinity Metro',
+      city: 'Bengaluru',
+      state: 'Karnataka',
+      country: 'India',
+      postal_code: '560001',
+    })
+  })
+
   it('collapses the street fields into address_line1', () => {
     const submission = parseAddressMessageReply(
       JSON.stringify({
@@ -19,6 +50,7 @@ describe('parseAddressMessageReply', () => {
         in_pin_code: '560001',
       }),
     )!
+    expect(submission.savedAddressId).toBeNull()
     expect(submission.validationErrors).toEqual({})
     expect(submission.beneficiary).toEqual({
       name: 'Ada Lovelace',
@@ -114,5 +146,59 @@ describe('sendAddressMessage', () => {
     expect(interactive.action.parameters.validation_errors).toEqual({
       in_pin_code: 'Enter a valid 6-digit PIN code.',
     })
+  })
+
+  it('passes saved_addresses so WhatsApp shows the native picker', async () => {
+    let captured: Record<string, unknown> | null = null
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = (async (_url: string, init?: RequestInit) => {
+      captured = JSON.parse(String(init?.body)) as Record<string, unknown>
+      return new Response(JSON.stringify({ messages: [{ id: 'wamid.2' }] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }) as typeof globalThis.fetch
+
+    try {
+      await sendAddressMessage({
+        phoneNumberId: '123',
+        accessToken: 'token',
+        to: '+919876543210',
+        bodyText: 'Pick a saved address below, or add a new one.',
+        savedAddresses: [
+          {
+            id: '3f2504e0-4f89-11d3-9a0c-0305e82c3301',
+            value: {
+              name: 'Goutham',
+              address: 'Wayanad house',
+              city: 'Wayanad',
+              state: 'Kerala',
+              in_pin_code: '673592',
+            },
+          },
+        ],
+      })
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+
+    const parameters = (
+      captured as unknown as {
+        interactive: { action: { parameters: Record<string, unknown> } }
+      }
+    ).interactive.action.parameters
+    expect(parameters.values).toBeUndefined()
+    expect(parameters.saved_addresses).toEqual([
+      {
+        id: '3f2504e0-4f89-11d3-9a0c-0305e82c3301',
+        value: {
+          name: 'Goutham',
+          in_pin_code: '673592',
+          address: 'Wayanad house',
+          city: 'Wayanad',
+          state: 'Kerala',
+        },
+      },
+    ])
   })
 })

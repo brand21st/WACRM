@@ -21,9 +21,15 @@ import {
 } from './beneficiary'
 import {
   ADDRESS_FORM_BODY,
+  ADDRESS_PICKER_BODY,
   addressFormValuesFromBeneficiary,
   parseAddressMessageReply,
 } from './address-form'
+import {
+  loadSavedAddresses,
+  rememberSavedAddress,
+  touchSavedAddress,
+} from './saved-addresses'
 import {
   CONFIRM_BUTTON_TITLE,
   EDIT_BUTTON_TITLE,
@@ -95,6 +101,7 @@ export async function handleInboundWhatsAppOrder(args: {
 
   if (!beneficiary) {
     await askForDeliveryAddress({
+      db: args.db,
       accountId: args.accountId,
       userId: args.userId,
       conversationId: args.conversationId,
@@ -163,8 +170,14 @@ async function askToConfirmAddress(args: {
  * sent (non-India numbers, older API versions, a Meta rejection). The
  * form gives us structured fields instead of parsing free text, so it's
  * always the first attempt.
+ *
+ * Addresses this contact has used before are offered as `saved_addresses`
+ * so WhatsApp shows a picker; the customer can still add a new one.
+ * `values` is only sent when there are no saved addresses to choose
+ * from — prefilling alongside the picker pre-empts the choice.
  */
 async function askForDeliveryAddress(args: {
+  db: SupabaseClient
   accountId: string
   userId: string
   conversationId: string
@@ -172,15 +185,24 @@ async function askForDeliveryAddress(args: {
   values?: AddressMessageValues
   validationErrors?: AddressMessageValues
 }): Promise<void> {
+  // A re-ask carrying inline errors is a correction of one specific
+  // submission, so it keeps that submission's values and drops the picker.
+  const correcting = Boolean(
+    args.validationErrors && Object.keys(args.validationErrors).length > 0,
+  )
+  const savedAddresses = correcting
+    ? []
+    : await loadSavedAddresses(args.db, args.accountId, args.contactId)
   try {
     await engineSendAddressMessage({
       accountId: args.accountId,
       userId: args.userId,
       conversationId: args.conversationId,
       contactId: args.contactId,
-      bodyText: ADDRESS_FORM_BODY,
-      values: args.values,
+      bodyText: savedAddresses.length > 0 ? ADDRESS_PICKER_BODY : ADDRESS_FORM_BODY,
+      values: savedAddresses.length > 0 ? undefined : args.values,
       validationErrors: args.validationErrors,
+      savedAddresses,
       aiGenerated: true,
     })
     return
@@ -239,6 +261,7 @@ export async function completeCommerceAddressFromForm(args: {
 
   if (!submission.beneficiary) {
     await askForDeliveryAddress({
+      db: args.db,
       accountId: args.accountId,
       userId: args.userId,
       conversationId: args.conversationId,
@@ -249,6 +272,15 @@ export async function completeCommerceAddressFromForm(args: {
     return true
   }
 
+  // Reusing a saved address bumps it to the top of the picker.
+  if (submission.savedAddressId) {
+    await touchSavedAddress({
+      db: args.db,
+      accountId: args.accountId,
+      savedAddressId: submission.savedAddressId,
+    })
+  }
+
   return storeAddressAndConfirm({
     db: args.db,
     accountId: args.accountId,
@@ -257,6 +289,7 @@ export async function completeCommerceAddressFromForm(args: {
     contactId: args.contactId,
     order: pending,
     beneficiary: submission.beneficiary,
+    formValues: submission.values,
   })
 }
 
@@ -273,6 +306,8 @@ async function storeAddressAndConfirm(args: {
   contactId: string
   order: { id: string; reference_id: string; line_items: unknown }
   beneficiary: CommerceBeneficiary
+  /** Raw address_message fields, kept verbatim for the saved-address picker. */
+  formValues?: AddressMessageValues
 }): Promise<boolean> {
   const lines = (args.order.line_items as MappedCartLine[]) ?? []
   if (lines.length === 0) return false
@@ -285,6 +320,15 @@ async function storeAddressAndConfirm(args: {
       awaiting_confirmation: true,
     })
     .eq('id', args.order.id)
+
+  // Offer this address back on the customer's next order.
+  await rememberSavedAddress({
+    db: args.db,
+    accountId: args.accountId,
+    contactId: args.contactId,
+    beneficiary: args.beneficiary,
+    formValues: args.formValues,
+  })
 
   await askToConfirmAddress({
     accountId: args.accountId,
@@ -337,6 +381,7 @@ export async function handleAddressConfirmationReply(args: {
       .eq('id', order.id)
       .eq('status', 'pending')
     await askForDeliveryAddress({
+      db: args.db,
       accountId: args.accountId,
       userId: args.userId,
       conversationId: args.conversationId,
@@ -360,6 +405,7 @@ export async function handleAddressConfirmationReply(args: {
       .eq('id', order.id)
       .eq('status', 'pending')
     await askForDeliveryAddress({
+      db: args.db,
       accountId: args.accountId,
       userId: args.userId,
       conversationId: args.conversationId,
@@ -382,6 +428,13 @@ export async function handleAddressConfirmationReply(args: {
 
   const lines = (order.line_items as MappedCartLine[]) ?? []
   if (lines.length === 0) return true
+
+  await rememberSavedAddress({
+    db: args.db,
+    accountId: args.accountId,
+    contactId: args.contactId,
+    beneficiary,
+  })
 
   await sendCommerceBill({
     db: args.db,

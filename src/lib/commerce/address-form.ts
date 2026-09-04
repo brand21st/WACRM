@@ -13,6 +13,10 @@ import type { CommerceBeneficiary } from './types'
 export const ADDRESS_FORM_BODY =
   'Where should we deliver your order? Tap below to share your address.'
 
+/** Shown when the customer has saved addresses to choose from. */
+export const ADDRESS_PICKER_BODY =
+  'Where should we deliver your order? Pick a saved address below, or add a new one.'
+
 export interface AddressFormSubmission {
   /**
    * The customer's answer, normalized. Echoed straight back as `values`
@@ -24,6 +28,11 @@ export interface AddressFormSubmission {
   beneficiary: CommerceBeneficiary | null
   /** Inline errors keyed by form field, for the re-ask. */
   validationErrors: AddressMessageValues
+  /**
+   * Set when the customer picked one of the `saved_addresses` we offered
+   * instead of typing a new one — the id we assigned when sending.
+   */
+  savedAddressId: string | null
 }
 
 /**
@@ -41,9 +50,15 @@ export function parseAddressMessageReply(
   const raw = asRecord(responseJson)
   if (!raw) return null
 
+  // Meta nests the answer: `{ saved_address_id?, values: { ... } }`.
+  // Older payloads (and our own re-sends) put the fields at the top
+  // level, so accept both shapes.
+  const fields = asRecord(raw.values) ?? raw
+  const savedAddressId = sanitizeWebhookText(raw.saved_address_id, 64) || null
+
   const values: AddressMessageValues = {}
   for (const field of ADDRESS_MESSAGE_FIELDS) {
-    const value = sanitizeWebhookText(raw[field], 120)
+    const value = sanitizeWebhookText(fields[field], 120)
     if (value) values[field] = value
   }
 
@@ -68,7 +83,7 @@ export function parseAddressMessageReply(
   }
 
   if (Object.keys(validationErrors).length > 0) {
-    return { values, beneficiary: null, validationErrors }
+    return { values, beneficiary: null, validationErrors, savedAddressId }
   }
 
   const candidate: CommerceBeneficiary = {
@@ -85,12 +100,14 @@ export function parseAddressMessageReply(
       values,
       beneficiary: null,
       validationErrors: { address: 'Enter your full delivery address.' },
+      savedAddressId,
     }
   }
   return {
     values,
     beneficiary: sanitizeBeneficiary(candidate),
     validationErrors: {},
+    savedAddressId,
   }
 }
 
