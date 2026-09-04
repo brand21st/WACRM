@@ -13,7 +13,17 @@ mutation WhatsAppCommerceOrderCreate($order: OrderCreateOrderInput!, $options: O
 }
 `
 
+export const ORDER_MARK_AS_PAID_MUTATION = `
+mutation WhatsAppCommerceOrderMarkAsPaid($input: OrderMarkAsPaidInput!) {
+  orderMarkAsPaid(input: $input) {
+    userErrors { field message }
+    order { id name }
+  }
+}
+`
+
 export const WHATSAPP_COMMERCE_TAG = 'whatsapp-commerce'
+export const WHATSAPP_PAYMENT_GATEWAY = 'whatsapp'
 
 export interface CreatePaidShopifyOrderArgs {
   config: ShopifyStoreConfig
@@ -23,6 +33,7 @@ export interface CreatePaidShopifyOrderArgs {
   lines: MappedCartLine[]
   totalPaise: number
   discount?: AppliedCommerceDiscount | null
+  authorizationCode?: string | null
 }
 
 export interface CreatedShopifyOrder {
@@ -40,19 +51,18 @@ export function shopifyMoneyFromPaise(paise: number): string {
   return (Math.max(0, Math.round(paise)) / 100).toFixed(2)
 }
 
-export async function createPaidShopifyOrder(
+/**
+ * Build the `orderCreate` variables for a WhatsApp-captured payment.
+ *
+ * Shopify only records a real payment (and fires `orders/paid`) when a SALE
+ * transaction exists. Setting `financialStatus: PAID` alone leaves the order
+ * looking paid in the badge while outstanding balance and payment events stay
+ * empty — so we create PENDING with the captured WhatsApp transaction, then
+ * `orderMarkAsPaid` as a second step.
+ */
+export function paidShopifyOrderCreateVariables(
   args: CreatePaidShopifyOrderArgs,
-): Promise<CreatedShopifyOrder> {
-  if (args.lines.length === 0) {
-    throw new Error('Cannot create a Shopify order without line items')
-  }
-  const unmapped = args.lines.filter((line) => !line.variantId)
-  if (unmapped.length > 0) {
-    throw new Error(
-      `Missing Shopify variant for retailer_id ${unmapped[0].retailer_id}`,
-    )
-  }
-
+): { order: Record<string, unknown>; options: Record<string, unknown> } {
   const shipping = args.beneficiary
     ? {
         firstName: firstName(args.beneficiary.name),
@@ -67,6 +77,57 @@ export async function createPaidShopifyOrder(
       }
     : undefined
 
+  const amount = shopifyMoneyFromPaise(args.totalPaise)
+  const authorizationCode = args.authorizationCode?.trim() || undefined
+
+  return {
+    order: {
+      currency: 'INR',
+      financialStatus: 'PENDING',
+      tags: [WHATSAPP_COMMERCE_TAG, args.referenceId],
+      note: `WhatsApp commerce ${args.referenceId}`,
+      phone: args.phone || undefined,
+      lineItems: args.lines.map((line) => ({
+        variantId: variantGid(line.variantId),
+        quantity: line.quantity,
+      })),
+      shippingAddress: shipping,
+      discountCode: orderCreateDiscountInput(args.discount),
+      transactions: [
+        {
+          kind: 'SALE',
+          status: 'SUCCESS',
+          gateway: WHATSAPP_PAYMENT_GATEWAY,
+          amountSet: {
+            shopMoney: {
+              amount,
+              currencyCode: 'INR',
+            },
+          },
+          ...(authorizationCode ? { authorizationCode } : {}),
+        },
+      ],
+    },
+    options: {
+      sendReceipt: false,
+      inventoryBehaviour: 'DECREMENT_OBEYING_POLICY',
+    },
+  }
+}
+
+export async function createPaidShopifyOrder(
+  args: CreatePaidShopifyOrderArgs,
+): Promise<CreatedShopifyOrder> {
+  if (args.lines.length === 0) {
+    throw new Error('Cannot create a Shopify order without line items')
+  }
+  const unmapped = args.lines.filter((line) => !line.variantId)
+  if (unmapped.length > 0) {
+    throw new Error(
+      `Missing Shopify variant for retailer_id ${unmapped[0].retailer_id}`,
+    )
+  }
+
   const data = await shopifyGraphql<{
     orderCreate?: {
       userErrors?: { field?: string[] | null; message?: string }[]
@@ -76,25 +137,7 @@ export async function createPaidShopifyOrder(
     shopDomain: args.config.shopDomain,
     accessToken: args.config.accessToken,
     query: ORDER_CREATE_MUTATION,
-    variables: {
-      order: {
-        currency: 'INR',
-        financialStatus: 'PAID',
-        tags: [WHATSAPP_COMMERCE_TAG, args.referenceId],
-        note: `WhatsApp commerce ${args.referenceId}`,
-        phone: args.phone || undefined,
-        lineItems: args.lines.map((line) => ({
-          variantId: variantGid(line.variantId),
-          quantity: line.quantity,
-        })),
-        shippingAddress: shipping,
-        discountCode: orderCreateDiscountInput(args.discount),
-      },
-      options: {
-        sendReceipt: false,
-        inventoryBehaviour: 'DECREMENT_OBEYING_POLICY',
-      },
-    },
+    variables: paidShopifyOrderCreateVariables(args),
   })
 
   const payload = data.orderCreate
@@ -111,7 +154,49 @@ export async function createPaidShopifyOrder(
   if (!id || !name) {
     throw new ShopifyError('Shopify orderCreate returned no order', 502)
   }
+
   return { id, name }
+}
+
+/**
+ * Record the outstanding balance as paid. Safe to call again when the order
+ * is already paid — Shopify returns a userError we ignore.
+ */
+export async function markShopifyOrderAsPaid(args: {
+  config: ShopifyStoreConfig
+  orderId: string
+}): Promise<void> {
+  const data = await shopifyGraphql<{
+    orderMarkAsPaid?: {
+      userErrors?: { field?: string[] | null; message?: string }[]
+      order?: { id?: string; name?: string } | null
+    }
+  }>({
+    shopDomain: args.config.shopDomain,
+    accessToken: args.config.accessToken,
+    query: ORDER_MARK_AS_PAID_MUTATION,
+    variables: { input: { id: args.orderId } },
+  })
+
+  const errors =
+    data.orderMarkAsPaid?.userErrors?.filter((e) => e.message) ?? []
+  const blocking = errors.filter((e) => !isAlreadyPaidUserError(e.message))
+  if (blocking.length > 0) {
+    throw new ShopifyError(
+      blocking.map((e) => e.message).join('; ') || 'Shopify orderMarkAsPaid failed',
+      422,
+      'shopify_order_mark_as_paid',
+    )
+  }
+}
+
+export function isAlreadyPaidUserError(message: string | undefined): boolean {
+  const text = (message ?? '').toLowerCase()
+  return (
+    text.includes('cannot be marked as paid') ||
+    text.includes('already paid') ||
+    text.includes('already been paid')
+  )
 }
 
 export function orderCreateDiscountInput(

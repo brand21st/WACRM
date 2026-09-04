@@ -158,9 +158,10 @@ describe('shopify order mapping', () => {
 })
 
 describe('payment webhook', () => {
-  it('only treats type=payment as a payment status', () => {
+  it('treats type=payment or a payment reference as a payment status', () => {
     expect(isPaymentStatus({ type: 'payment' })).toBe(true)
     expect(isPaymentStatus({ type: 'message' })).toBe(false)
+    expect(isPaymentStatus({ payment: { reference_id: 'wac_1' } })).toBe(true)
   })
 
   it('verifies Razorpay HMAC without using SaaS billing keys', () => {

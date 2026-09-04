@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const lookup = vi.fn()
 const sendStatus = vi.fn()
 const createOrder = vi.fn()
+const markPaid = vi.fn()
 const engineOrderStatus = vi.fn()
 const engineText = vi.fn()
 
@@ -45,6 +46,7 @@ vi.mock('@/lib/flows/meta-send', () => ({
 
 vi.mock('./shopify-order', () => ({
   createPaidShopifyOrder: (...args: unknown[]) => createOrder(...args),
+  markShopifyOrderAsPaid: (...args: unknown[]) => markPaid(...args),
 }))
 
 vi.mock('./checkout', () => ({
@@ -63,6 +65,7 @@ describe('handleWhatsAppPaymentStatus', () => {
     lookup.mockReset()
     sendStatus.mockReset()
     createOrder.mockReset()
+    markPaid.mockReset()
     engineOrderStatus.mockReset()
     engineText.mockReset()
   })
@@ -105,6 +108,7 @@ describe('handleWhatsAppPaymentStatus', () => {
     })
 
     expect(createOrder).toHaveBeenCalled()
+    expect(markPaid).toHaveBeenCalled()
     // Confirmed only after Shopify accepted the order.
     expect(createOrder.mock.invocationCallOrder[0]).toBeLessThan(
       engineOrderStatus.mock.invocationCallOrder[0],
@@ -171,6 +175,75 @@ describe('handleWhatsAppPaymentStatus', () => {
       }),
     )
   })
+
+  it('still creates the Shopify order on retry after the ledger moved to processing', async () => {
+    capturedLookup()
+    createOrder.mockResolvedValue({ id: 'gid://shopify/Order/1', name: '#1001' })
+
+    await handleWhatsAppPaymentStatus({
+      db: makeDb({ status: 'processing' }) as never,
+      phoneNumberId: 'pnid',
+      status: {
+        type: 'payment',
+        recipient_id: '9198',
+        payment: { reference_id: 'wac_1' },
+      },
+    })
+
+    expect(createOrder).toHaveBeenCalled()
+    expect(engineOrderStatus).not.toHaveBeenCalled()
+    expect(engineText).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: orderConfirmedText('#1001'),
+      }),
+    )
+  })
+
+  it('marks an existing Shopify order paid instead of creating a duplicate', async () => {
+    capturedLookup()
+    markPaid.mockResolvedValue(undefined)
+
+    await handleWhatsAppPaymentStatus({
+      db: makeDb({
+        status: 'processing',
+        shopifyOrderId: 'gid://shopify/Order/1',
+        shopifyOrderName: '#1001',
+      }) as never,
+      phoneNumberId: 'pnid',
+      status: {
+        type: 'payment',
+        recipient_id: '9198',
+        payment: { reference_id: 'wac_1' },
+      },
+    })
+
+    expect(createOrder).not.toHaveBeenCalled()
+    expect(markPaid).toHaveBeenCalled()
+    expect(engineText).not.toHaveBeenCalled()
+  })
+
+  it('creates the Shopify order when lookup status is pending but a transaction succeeded', async () => {
+    lookup.mockResolvedValue({
+      reference_id: 'wac_1',
+      status: 'pending',
+      transactions: [{ id: 'order_1', pg_transaction_id: 'pay_1', status: 'success' }],
+    })
+    createOrder.mockResolvedValue({ id: 'gid://shopify/Order/1', name: '#1001' })
+    engineOrderStatus.mockResolvedValue({ whatsapp_message_id: 'wamid.status' })
+    engineText.mockResolvedValue({ whatsapp_message_id: 'wamid.text' })
+
+    await handleWhatsAppPaymentStatus({
+      db: makeDb() as never,
+      phoneNumberId: 'pnid',
+      status: {
+        type: 'payment',
+        recipient_id: '9198',
+        payment: { reference_id: 'wac_1' },
+      },
+    })
+
+    expect(createOrder).toHaveBeenCalled()
+  })
 })
 
 function capturedLookup() {
@@ -184,9 +257,17 @@ function capturedLookup() {
   engineText.mockResolvedValue({ whatsapp_message_id: 'wamid.text' })
 }
 
-function makeDb(options: { conversationId?: string | null } = {}) {
+function makeDb(
+  options: {
+    conversationId?: string | null
+    status?: string
+    shopifyOrderId?: string | null
+    shopifyOrderName?: string | null
+  } = {},
+) {
   const conversationId =
     options.conversationId === undefined ? 'conv-1' : options.conversationId
+  const status = options.status ?? 'pending'
   return {
     from: (table: string) => {
       if (table === 'whatsapp_config') {
@@ -214,7 +295,7 @@ function makeDb(options: { conversationId?: string | null } = {}) {
                 maybeSingle: async () => ({
                   data: {
                     id: 'ord-1',
-                    status: 'pending',
+                    status,
                     conversation_id: conversationId,
                     contact_id: 'c-1',
                     line_items: [
@@ -237,6 +318,9 @@ function makeDb(options: { conversationId?: string | null } = {}) {
                       postal_code: '560001',
                     },
                     total_value: 4900,
+                    shopify_order_id: options.shopifyOrderId ?? null,
+                    shopify_order_name: options.shopifyOrderName ?? null,
+                    payment_config_id: 'razorpay_prod',
                   },
                   error: null,
                 }),

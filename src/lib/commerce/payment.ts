@@ -9,7 +9,10 @@ import { loadCommerceSettings } from '@/lib/shopify/commerce-config'
 import { loadShopifyConfig } from '@/lib/shopify/config'
 import { isMissingDbRelation } from '@/lib/shopify/config-db'
 import { engineSendOrderStatus, engineSendText } from '@/lib/flows/meta-send'
-import { createPaidShopifyOrder } from './shopify-order'
+import {
+  createPaidShopifyOrder,
+  markShopifyOrderAsPaid,
+} from './shopify-order'
 import {
   ORDER_CONFIRMED_BODY,
   PAYMENT_RECEIVED_BODY,
@@ -41,8 +44,22 @@ export interface WhatsAppPaymentStatus {
 
 export function isPaymentStatus(status: {
   type?: string
+  payment?: { reference_id?: string }
 }): boolean {
-  return status.type === 'payment'
+  return (
+    status.type === 'payment' || Boolean(status.payment?.reference_id?.trim())
+  )
+}
+
+export function isCapturedPaymentLookup(
+  lookup: PaymentLookupResult | null,
+): boolean {
+  if (!lookup) return false
+  if (lookup.status === 'captured') return true
+  return lookup.transactions.some((t) => {
+    const s = (t.status ?? '').toLowerCase()
+    return s === 'success' || s === 'captured'
+  })
 }
 
 export async function handleWhatsAppPaymentStatus(args: {
@@ -63,10 +80,14 @@ export async function handleWhatsAppPaymentStatus(args: {
   const accountId = waConfig.account_id as string
   const order = await loadCommerceOrder(args.db, accountId, referenceId)
   if (!order) return
-  if (order.status !== 'pending') return
+  if (order.status === 'canceled') return
 
   const settings = await loadCommerceSettings(args.db, accountId)
-  const configurationName = settings.waPaymentConfigurationName?.trim()
+  const configurationName =
+    settings.waPaymentConfigurationName?.trim() ||
+    (typeof order.payment_config_id === 'string'
+      ? order.payment_config_id.trim()
+      : '')
   if (!configurationName) return
 
   let lookup: PaymentLookupResult | null = null
@@ -81,9 +102,9 @@ export async function handleWhatsAppPaymentStatus(args: {
     console.error('[commerce] payment lookup failed:', err)
     return
   }
-  if (!lookup || lookup.status !== 'captured') {
+  if (!isCapturedPaymentLookup(lookup)) {
     const failed = lookup?.transactions.find((t) => t.status === 'failed')
-    if (failed && order.conversation_id) {
+    if (failed && order.conversation_id && order.status === 'pending') {
       await insertInboxNote(
         args.db,
         order.conversation_id,
@@ -94,8 +115,8 @@ export async function handleWhatsAppPaymentStatus(args: {
   }
 
   const success =
-    lookup.transactions.find((t) => t.status === 'success' || t.status === 'captured') ??
-    lookup.transactions[0]
+    lookup?.transactions.find((t) => t.status === 'success' || t.status === 'captured') ??
+    lookup?.transactions[0]
   const txn = {
     id: sanitizeWebhookText(success?.id ?? args.status.payment?.transaction?.id, 80),
     pg_transaction_id: sanitizeWebhookText(
@@ -107,42 +128,68 @@ export async function handleWhatsAppPaymentStatus(args: {
     method: sanitizeWebhookText(success?.method?.type, 40),
   }
 
-  if (!canTransitionOrderStatus('pending', 'processing')) return
+  const wasPending = order.status === 'pending'
+  if (wasPending) {
+    if (!canTransitionOrderStatus('pending', 'processing')) return
+    await args.db
+      .from('whatsapp_commerce_orders')
+      .update({
+        status: 'processing',
+        payment_id: txn.id || null,
+        razorpay_order_id: txn.id || null,
+        razorpay_payment_id: txn.pg_transaction_id || null,
+        pg_transaction: txn,
+      })
+      .eq('id', order.id)
+      .eq('status', 'pending')
+  }
 
-  await args.db
-    .from('whatsapp_commerce_orders')
-    .update({
-      status: 'processing',
-      payment_id: txn.id || null,
-      razorpay_order_id: txn.id || null,
-      razorpay_payment_id: txn.pg_transaction_id || null,
-      pg_transaction: txn,
-    })
-    .eq('id', order.id)
-    .eq('status', 'pending')
-
-  // Create the paid Shopify order before telling the customer their
-  // order is confirmed, so the confirmation can carry the real order
-  // number and never claims more than actually happened.
+  // Create (or finish marking paid) the Shopify order before telling
+  // the customer their order is confirmed, so the confirmation can
+  // carry the real order number and never claims more than happened.
+  // Retries are allowed when WhatsApp already captured payment but
+  // Shopify create failed on the first webhook.
   const shopifyOrderName = await createShopifyOrderForPayment({
     db: args.db,
     accountId,
     referenceId,
     order,
+    authorizationCode: txn.pg_transaction_id || txn.id || null,
   })
 
-  await sendPaymentConfirmation({
-    accountId,
-    userId: typeof waConfig.user_id === 'string' ? waConfig.user_id : null,
-    conversationId:
-      typeof order.conversation_id === 'string' ? order.conversation_id : null,
-    contactId: typeof order.contact_id === 'string' ? order.contact_id : null,
-    phoneNumberId: args.phoneNumberId,
-    accessToken: waConfig.access_token as string,
-    recipientId: args.status.recipient_id || '',
-    referenceId,
-    shopifyOrderName,
-  })
+  if (wasPending) {
+    await sendPaymentConfirmation({
+      accountId,
+      userId: typeof waConfig.user_id === 'string' ? waConfig.user_id : null,
+      conversationId:
+        typeof order.conversation_id === 'string' ? order.conversation_id : null,
+      contactId: typeof order.contact_id === 'string' ? order.contact_id : null,
+      phoneNumberId: args.phoneNumberId,
+      accessToken: waConfig.access_token as string,
+      recipientId: args.status.recipient_id || '',
+      referenceId,
+      shopifyOrderName,
+    })
+  } else if (
+    shopifyOrderName &&
+    !order.shopify_order_id &&
+    typeof waConfig.user_id === 'string' &&
+    typeof order.conversation_id === 'string' &&
+    typeof order.contact_id === 'string'
+  ) {
+    try {
+      await engineSendText({
+        accountId,
+        userId: waConfig.user_id,
+        conversationId: order.conversation_id,
+        contactId: order.contact_id,
+        text: orderConfirmedText(shopifyOrderName),
+        aiGenerated: true,
+      })
+    } catch (err) {
+      console.error('[commerce] order confirmation text failed:', err)
+    }
+  }
 }
 
 /**
@@ -155,6 +202,7 @@ async function createShopifyOrderForPayment(args: {
   db: SupabaseClient
   accountId: string
   referenceId: string
+  authorizationCode?: string | null
   order: {
     id: unknown
     conversation_id?: unknown
@@ -162,6 +210,8 @@ async function createShopifyOrderForPayment(args: {
     line_items?: unknown
     beneficiary?: unknown
     total_value?: unknown
+    shopify_order_id?: unknown
+    shopify_order_name?: unknown
     discount_code?: unknown
     discount_value?: unknown
     discount_percent?: unknown
@@ -182,6 +232,26 @@ async function createShopifyOrderForPayment(args: {
       )
     }
     return null
+  }
+
+  const existingId =
+    typeof args.order.shopify_order_id === 'string' ? args.order.shopify_order_id : ''
+  if (existingId) {
+    try {
+      await markShopifyOrderAsPaid({ config: shopify, orderId: existingId })
+    } catch (err) {
+      console.error('[commerce] Shopify orderMarkAsPaid failed:', err)
+      if (conversationId) {
+        await insertInboxNote(
+          args.db,
+          conversationId,
+          `Payment captured for ${args.referenceId} but Shopify mark-as-paid failed: ${err instanceof Error ? err.message : String(err)}`,
+        )
+      }
+    }
+    return typeof args.order.shopify_order_name === 'string'
+      ? args.order.shopify_order_name
+      : null
   }
 
   const lines = (args.order.line_items as MappedCartLine[]) ?? []
@@ -216,6 +286,7 @@ async function createShopifyOrderForPayment(args: {
       lines,
       totalPaise: Number(args.order.total_value) || 0,
       discount: commerceDiscountFromOrder(args.order),
+      authorizationCode: args.authorizationCode,
     })
     await args.db
       .from('whatsapp_commerce_orders')
@@ -224,6 +295,18 @@ async function createShopifyOrderForPayment(args: {
         shopify_order_name: created.name,
       })
       .eq('id', args.order.id)
+    try {
+      await markShopifyOrderAsPaid({ config: shopify, orderId: created.id })
+    } catch (err) {
+      console.error('[commerce] Shopify orderMarkAsPaid failed:', err)
+      if (conversationId) {
+        await insertInboxNote(
+          args.db,
+          conversationId,
+          `Shopify order ${created.name} created for ${args.referenceId} but mark-as-paid failed: ${err instanceof Error ? err.message : String(err)}`,
+        )
+      }
+    }
     return created.name
   } catch (err) {
     console.error('[commerce] Shopify orderCreate failed:', err)
@@ -319,7 +402,7 @@ async function loadCommerceOrder(
   const { data, error } = await db
     .from('whatsapp_commerce_orders')
     .select(
-      'id, status, conversation_id, contact_id, line_items, beneficiary, total_value, shopify_order_id, discount_code, discount_value, discount_percent',
+      'id, status, conversation_id, contact_id, line_items, beneficiary, total_value, shopify_order_id, shopify_order_name, payment_config_id, discount_code, discount_value, discount_percent',
     )
     .eq('account_id', accountId)
     .eq('reference_id', referenceId)

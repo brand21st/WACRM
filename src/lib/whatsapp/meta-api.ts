@@ -1783,10 +1783,18 @@ export async function lookupWhatsAppPayment(args: {
   }
   const payment = data.payments?.[0]
   if (!payment) return null
-  const status = payment.status === 'captured' ? 'captured' : 'pending'
   const transactions = Array.isArray(payment.transactions)
     ? (payment.transactions as PaymentLookupResult['transactions'])
     : []
+  const raw = String(payment.status ?? '').toLowerCase()
+  const txnCaptured = transactions.some((t) => {
+    const s = (t.status ?? '').toLowerCase()
+    return s === 'success' || s === 'captured'
+  })
+  const status =
+    raw === 'captured' || raw === 'success' || raw === 'paid' || txnCaptured
+      ? 'captured'
+      : 'pending'
   return {
     reference_id: String(payment.reference_id ?? args.referenceId),
     status,
