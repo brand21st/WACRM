@@ -11,7 +11,11 @@ interface FAQItem {
 const faqs: FAQItem[] = [
   {
     question: `What does ${PRODUCT_NAME} do?`,
-    answer: `${PRODUCT_NAME} provides businesses with an all-in-one WhatsApp CRM software to broadcast & automate messages, run Click-to-WhatsApp Ads, build Chatbots, manage shared multi-agent live chat, and close sales seamlessly.`,
+    answer: `${PRODUCT_NAME} turns your WhatsApp conversations into Shopify sales with 24/7 AI customer conversations, AI WhatsApp calling, smart product recommendations, in-chat payments, and automated marketing workflows.`,
+  },
+  {
+    question: "How does VaChat integrate with Shopify?",
+    answer: "VaChat connects directly to your Shopify store in just a few clicks, syncing your product catalog, orders, and customer details so your AI can recommend products and process orders in real time.",
   },
   {
     question: "Is this built on official WhatsApp Business APIs?",

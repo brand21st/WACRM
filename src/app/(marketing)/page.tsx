@@ -4,32 +4,23 @@ import React, { useState } from "react";
 import MagicBar from "@/components/marketing/MagicBar";
 import Header from "@/components/marketing/Header";
 import Hero from "@/components/marketing/Hero";
-import LogosMarquee from "@/components/marketing/LogosMarquee";
-import VideoSection from "@/components/marketing/VideoSection";
-import BroadcastSection from "@/components/marketing/BroadcastSection";
-import FeaturesSection from "@/components/marketing/FeaturesSection";
+import ShopifyConversionFeatures from "@/components/marketing/ShopifyConversionFeatures";
+import SalesJourneyBanner from "@/components/marketing/SalesJourneyBanner";
+import SalesAssistantSection from "@/components/marketing/SalesAssistantSection";
 import WhyWhatsApp from "@/components/marketing/WhyWhatsApp";
-import AdvancedGrid from "@/components/marketing/AdvancedGrid";
 import TickerBar from "@/components/marketing/TickerBar";
-import G2Awards from "@/components/marketing/G2Awards";
 import Testimonials from "@/components/marketing/Testimonials";
 import Onboarding from "@/components/marketing/Onboarding";
+import PricingSection from "@/components/marketing/PricingSection";
 import FAQ from "@/components/marketing/FAQ";
+import FinalCTA from "@/components/marketing/FinalCTA";
 import Footer from "@/components/marketing/Footer";
 import WhatsAppWidget from "@/components/marketing/WhatsAppWidget";
-import VideoModal from "@/components/marketing/VideoModal";
 import CalendlyModal from "@/components/marketing/CalendlyModal";
 
 export default function LandingPage() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const [videoModalOpen, setVideoModalOpen] = useState(false);
-  const [currentVideoId, setCurrentVideoId] = useState("Cpvd4yOePWM");
   const [demoModalOpen, setDemoModalOpen] = useState(false);
-
-  const handlePlayVideo = (videoId: string) => {
-    setCurrentVideoId(videoId);
-    setVideoModalOpen(true);
-  };
 
   return (
     <main>
@@ -42,29 +33,20 @@ export default function LandingPage() {
       {/* Hero Section */}
       <Hero onOpenDemo={() => setDemoModalOpen(true)} />
 
-      {/* Partner Logos Infinite Marquee */}
-      <LogosMarquee />
+      {/* 5 Core Shopify + WhatsApp Conversion Features */}
+      <ShopifyConversionFeatures />
 
-      {/* Video Overview Section */}
-      <VideoSection onPlayVideo={handlePlayVideo} />
+      {/* Conversion Funnel Journey Flow */}
+      <SalesJourneyBanner />
 
-      {/* Broadcast Section */}
-      <BroadcastSection />
-
-      {/* Deep-Dive Feature Rows */}
-      <FeaturesSection />
+      {/* Built for Shopify Growth AI Assistant Section */}
+      <SalesAssistantSection />
 
       {/* Why WhatsApp Stats Section */}
       <WhyWhatsApp />
 
-      {/* Advanced Features 4-Card Grid */}
-      <AdvancedGrid />
-
       {/* Infinite Green Ticker Bar */}
       <TickerBar />
-
-      {/* G2 Awards Section */}
-      <G2Awards />
 
       {/* Testimonials */}
       <Testimonials />
@@ -72,21 +54,20 @@ export default function LandingPage() {
       {/* Onboarding in 10 Minutes */}
       <Onboarding />
 
+      {/* VaChat Dark Premium Pricing Section */}
+      <PricingSection />
+
       {/* Interactive FAQ Accordion */}
       <FAQ />
+
+      {/* Final Bottom Conversion CTA Banner */}
+      <FinalCTA />
 
       {/* Multi-Column Footer */}
       <Footer />
 
       {/* Floating Live WhatsApp Support Button */}
       <WhatsAppWidget />
-
-      {/* Lightbox Video Modal */}
-      <VideoModal
-        isOpen={videoModalOpen}
-        videoId={currentVideoId}
-        onClose={() => setVideoModalOpen(false)}
-      />
 
       {/* Calendly Live Demo Modal */}
       <CalendlyModal
