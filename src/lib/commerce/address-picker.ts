@@ -1,4 +1,7 @@
-import { INTERACTIVE_LIMITS } from '@/lib/whatsapp/meta-api'
+import {
+  INTERACTIVE_LIMITS,
+  type InteractiveListRow,
+} from '@/lib/whatsapp/meta-api'
 import { isValidReferenceId } from './money'
 import type { CommerceBeneficiary } from './types'
 
@@ -58,9 +61,9 @@ export function isSavedAddressRowId(id: string): boolean {
 export function savedAddressPickerRows(args: {
   referenceId: string
   addresses: Array<{ id: string; beneficiary: CommerceBeneficiary }>
-}): Array<{ id: string; title: string; description?: string }> {
+}): InteractiveListRow[] {
   const usedTitles = new Set<string>()
-  const rows = args.addresses.map((entry) => {
+  const rows: InteractiveListRow[] = args.addresses.map((entry) => {
     const title = uniqueTitle(pickerTitle(entry.beneficiary.name), usedTitles)
     usedTitles.add(title)
     return {

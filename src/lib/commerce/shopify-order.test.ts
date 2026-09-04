@@ -73,9 +73,17 @@ const args = {
 }
 
 describe('paidShopifyOrderCreateVariables', () => {
-  it('creates the order as pending with a WhatsApp SALE transaction', () => {
+  it('creates a paid Shopify order with a WhatsApp SALE transaction', () => {
     const variables = paidShopifyOrderCreateVariables(args)
-    expect(variables.order.financialStatus).toBe('PENDING')
+    expect(variables.order.financialStatus).toBe('PAID')
+    expect(variables.order.lineItems).toEqual([
+      {
+        variantId: 'gid://shopify/ProductVariant/99',
+        quantity: 1,
+        requiresShipping: true,
+        title: 'Red Bag',
+      },
+    ])
     expect(variables.order.phone).toBe('+918129760955')
     expect(variables.order.tags).toEqual([
       WHATSAPP_COMMERCE_TAG,
@@ -141,7 +149,10 @@ describe('createPaidShopifyOrder', () => {
     const created = await createPaidShopifyOrder(args)
     expect(created).toEqual({ id: 'gid://shopify/Order/1', name: '#1001' })
     expect(graphql).toHaveBeenCalledTimes(1)
-    expect(graphql.mock.calls[0][0].variables.order.financialStatus).toBe('PENDING')
+    expect(graphql.mock.calls[0][0].variables.order.financialStatus).toBe('PAID')
+    expect(graphql.mock.calls[0][0].variables.order.lineItems[0].requiresShipping).toBe(
+      true,
+    )
     expect(graphql.mock.calls[0][0].variables.order.transactions[0]).toMatchObject({
       kind: 'SALE',
       status: 'SUCCESS',

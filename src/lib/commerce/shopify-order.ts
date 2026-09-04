@@ -60,11 +60,14 @@ export function shopifyMoneyFromPaise(paise: number): string {
 /**
  * Build the `orderCreate` variables for a WhatsApp-captured payment.
  *
- * Shopify only records a real payment (and fires `orders/paid`) when a SALE
- * transaction exists. Setting `financialStatus: PAID` alone leaves the order
- * looking paid in the badge while outstanding balance and payment events stay
- * empty — so we create PENDING with the captured WhatsApp transaction, then
- * `orderMarkAsPaid` as a second step.
+ * Shopify records a real payment (and fires `orders/paid`) only when a SALE
+ * transaction exists. `financialStatus` is PAID to match that capture —
+ * PENDING plus a SUCCESS sale leaves the badge as "Payment pending" while
+ * `orderMarkAsPaid` then no-ops because outstanding balance is already 0.
+ *
+ * Line items default to `requiresShipping: false` on orderCreate, which
+ * makes Shopify show "Shipping not required". Physical WhatsApp orders
+ * always ship, so we set it true and attach Standard Delivery.
  */
 export function paidShopifyOrderCreateVariables(
   args: CreatePaidShopifyOrderArgs,
@@ -92,7 +95,7 @@ export function paidShopifyOrderCreateVariables(
   return {
     order: {
       currency: 'INR',
-      financialStatus: 'PENDING',
+      financialStatus: 'PAID',
       tags: [
         WHATSAPP_COMMERCE_TAG,
         WHATSAPP_COMMERCE_DISPLAY_TAG,
@@ -108,6 +111,8 @@ export function paidShopifyOrderCreateVariables(
       lineItems: args.lines.map((line) => ({
         variantId: variantGid(line.variantId),
         quantity: line.quantity,
+        requiresShipping: true,
+        title: line.name || undefined,
       })),
       shippingAddress: shipping,
       billingAddress: shipping,
