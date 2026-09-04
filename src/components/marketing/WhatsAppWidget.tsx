@@ -4,7 +4,7 @@ import { PRODUCT_NAME } from "@/lib/brand";
 export default function WhatsAppWidget() {
   return (
     <a
-      href="https://wa.me/918512463259?text=Hi%2C%20I%20am%20interested%20in%20WhatsApp%20CRM"
+      href="https://wa.me/918848772371?text=Hi%2C%20I%20am%20interested%20in%20WhatsApp%20CRM"
       className="floating-wa-widget"
       target="_blank"
       rel="noopener noreferrer"
