@@ -55,10 +55,10 @@ describe('docker-compose Coolify contract', () => {
     expect(compose).not.toMatch(/3000:80/)
   })
 
-  it('passes runtime secrets into app so Coolify UI env reaches the process', () => {
-    expect(compose).toContain('SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}')
-    expect(compose).toContain('ENCRYPTION_KEY: ${ENCRYPTION_KEY}')
-    expect(compose).toContain('META_APP_SECRET: ${META_APP_SECRET}')
+  it('lets Coolify inject runtime secrets instead of interpolating them at build', () => {
+    expect(compose).not.toContain('${SUPABASE_SERVICE_ROLE_KEY}')
+    expect(compose).not.toContain('${ENCRYPTION_KEY}')
+    expect(compose).not.toContain('${META_APP_SECRET}')
   })
 
   it('healthchecks the public liveness route', () => {

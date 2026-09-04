@@ -6,7 +6,10 @@
 FROM node:20-alpine AS deps
 WORKDIR /app
 COPY package.json package-lock.json ./
-RUN npm ci
+# Lockfile is generated on Windows. Alpine optional native packages
+# (@emnapi, @swc/helpers) are not always listed, so npm ci fails.
+# Coolify's Dockerfile pack used to sed this to npm install.
+RUN npm ci || npm install
 
 # ---------------------------------------------------------------
 # Stage 2 — build

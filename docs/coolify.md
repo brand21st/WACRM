@@ -30,7 +30,7 @@ Changing these requires a rebuild, not just a restart. In Coolify mark them as a
 - `AUTOMATION_CRON_SECRET` (HTTP crons: automations, flows, broadcasts, billing)
 - Optional: `WHATSAPP_WEBHOOK_VERIFY_TOKEN`, `META_APP_ID`, `ALLOWED_INVITE_HOSTS`, Razorpay secrets
 
-Do **not** set `REDIS_URL` in Coolify. Compose pins `REDIS_URL=redis://redis:6379` on `app`.
+Do **not** set `REDIS_URL` in Coolify. Compose pins `REDIS_URL=redis://redis:6379` on `app`. Coolify writes the rest of the UI env into a runtime `.env` on the containers — do not also `${interpolate}` secrets in `docker-compose.yml` (that file is parsed at **build** time, when secrets are not available).
 
 Do **not** set `PORT`. Compose pins it to 3000 inside `app`.
 
