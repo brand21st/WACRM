@@ -1,6 +1,9 @@
 import type { MessageTemplate, TemplateButton, TemplateSampleValues } from '@/types'
 import { TEMPLATE_LIMITS, type TemplatePayload } from '@/lib/whatsapp/template-validators'
-import { type ShopifyNotificationTrigger } from './notification-triggers'
+import {
+  SHOPIFY_NOTIFICATION_TRIGGERS,
+  type ShopifyNotificationTrigger,
+} from './notification-triggers'
 
 export interface ShopifyTemplatePreset {
   trigger: ShopifyNotificationTrigger
@@ -42,7 +45,16 @@ export const SHOPIFY_TEMPLATE_PRESETS: Record<
     body_text:
       'Hi {{1}}, you left items in your cart. Complete your order here: {{2}} Use code {{3}} at checkout.',
     sampleBody: ['Ada', 'https://shop.example/checkouts/abc', 'SAVE10'],
-    buttons: [{ type: 'COPY_CODE', text: 'Copy code', example: 'SAVE10' }],
+    buttons: [{ type: 'COPY_CODE', text: 'Copy offer code', example: 'SAVE10' }],
+  },
+  partially_fulfilled: {
+    trigger: 'partially_fulfilled',
+    name: 'shopify_partially_fulfilled',
+    category: 'Utility',
+    language: 'en_US',
+    body_text:
+      'Hi {{1}}, part of order {{2}} has shipped. Tracking: {{3}}. Thank you.',
+    sampleBody: ['Ada', '#1001', 'https://track.example/1Z999'],
   },
   fulfilled: {
     trigger: 'fulfilled',
@@ -50,7 +62,7 @@ export const SHOPIFY_TEMPLATE_PRESETS: Record<
     category: 'Utility',
     language: 'en_US',
     body_text:
-      'Order {{1}} is on its way. Tracking number: {{2}}. Track it here: {{3}}',
+      'Order {{1}} is on its way. Tracking number: {{2}}. Track it here: {{3}}. Thank you.',
     sampleBody: ['#1001', '1Z999', 'https://track.example/1Z999'],
   },
   tracking: {
@@ -59,7 +71,7 @@ export const SHOPIFY_TEMPLATE_PRESETS: Record<
     category: 'Utility',
     language: 'en_US',
     body_text:
-      'Tracking update for order {{1}}. Number: {{2}}. Track: {{3}}',
+      'Tracking update for order {{1}}. The tracking number is {{2}}. Track your shipment here: {{3}}. We will keep you posted.',
     sampleBody: ['#1001', '1Z999', 'https://track.example/1Z999'],
   },
   delivered: {
@@ -77,6 +89,14 @@ export const SHOPIFY_TEMPLATE_PRESETS: Record<
     language: 'en_US',
     body_text:
       'Hi {{1}}, how is order {{2}}? Reply here if you need help with size, returns, or anything else.',
+    sampleBody: ['Ada', '#1001'],
+  },
+  cancelled: {
+    trigger: 'cancelled',
+    name: 'shopify_cancelled',
+    category: 'Utility',
+    language: 'en_US',
+    body_text: 'Hi {{1}}, order {{2}} has been cancelled.',
     sampleBody: ['Ada', '#1001'],
   },
   refund: {
@@ -206,6 +226,15 @@ export function findPresetTemplate(
     matches.find((row) => row.language === preferredLanguage) ??
     matches.find((row) => row.language === 'en_US') ??
     matches[0]
+  )
+}
+
+/** Triggers whose `shopify_*` preset is not yet on the account. */
+export function triggersMissingPresets(
+  templates: ShopifyPickerTemplate[],
+): ShopifyNotificationTrigger[] {
+  return SHOPIFY_NOTIFICATION_TRIGGERS.filter(
+    (trigger) => !findPresetTemplate(templates, trigger),
   )
 }
 

@@ -138,6 +138,48 @@ describe('notificationActionsForTopic', () => {
     expect(actions[0]?.kind).toBe('cancel_abandoned')
   })
 
+  it('sends cancelled on orders/cancelled', () => {
+    const actions = notificationActionsForTopic('orders/cancelled', {
+      id: 1001,
+      name: '#1001',
+      customer: CUSTOMER,
+    })
+    expect(actions).toEqual([
+      expect.objectContaining({
+        kind: 'send',
+        trigger: 'cancelled',
+        fields: expect.objectContaining({
+          customer_first_name: 'Ada',
+          order_name: '#1001',
+        }),
+      }),
+    ])
+  })
+
+  it('sends partially_fulfilled on orders/partially_fulfilled', () => {
+    const actions = notificationActionsForTopic('orders/partially_fulfilled', {
+      id: 1001,
+      name: '#1001',
+      customer: CUSTOMER,
+      fulfillments: [
+        {
+          tracking_number: '1Z999',
+          tracking_url: 'https://track.example/1Z999',
+        },
+      ],
+    })
+    expect(actions).toEqual([
+      expect.objectContaining({
+        kind: 'send',
+        trigger: 'partially_fulfilled',
+        fields: expect.objectContaining({
+          order_name: '#1001',
+          tracking_url: 'https://track.example/1Z999',
+        }),
+      }),
+    ])
+  })
+
   it('sends fulfilled on fulfillments/create without a tracking trigger', () => {
     const actions = notificationActionsForTopic('fulfillments/create', {
       id: 55,
@@ -150,6 +192,17 @@ describe('notificationActionsForTopic', () => {
     expect(actions.map((a) => a.trigger)).toEqual(['fulfilled'])
     expect(actions[0]?.fields.tracking_number).toBe('1Z999')
     expect(actions[0]?.fields.tracking_url_partial).toBe('1Z999')
+  })
+
+  it('sends partially_fulfilled on fulfillments/create when status is partial', () => {
+    const actions = notificationActionsForTopic('fulfillments/create', {
+      id: 56,
+      order_id: 1001,
+      status: 'partial',
+      tracking_url: 'https://track.example/1Z999',
+      destination: { phone: '+14155550123' },
+    })
+    expect(actions.map((a) => a.trigger)).toEqual(['partially_fulfilled'])
   })
 
   it('sends tracking on fulfillments/update when tracking appears', () => {
@@ -240,7 +293,7 @@ describe('buildBodyParams / mergeRules', () => {
         config: {},
       },
     ])
-    expect(rules).toHaveLength(9)
+    expect(rules).toHaveLength(11)
     expect(rules[0]?.template_name).toBe('order_confirm')
     expect(rules.find((r) => r.trigger_key === 'checkout_abandoned')?.config.delay_hours).toBe(1)
   })
@@ -249,6 +302,10 @@ describe('buildBodyParams / mergeRules', () => {
 describe('webhook topics', () => {
   it('registers order-lifecycle topics alongside catalog and pages', () => {
     expect(SHOPIFY_NOTIFICATION_WEBHOOK_TOPICS).toContain('orders/create')
+    expect(SHOPIFY_NOTIFICATION_WEBHOOK_TOPICS).toContain('orders/cancelled')
+    expect(SHOPIFY_NOTIFICATION_WEBHOOK_TOPICS).toContain(
+      'orders/partially_fulfilled',
+    )
     expect(SHOPIFY_NOTIFICATION_WEBHOOK_TOPICS).toContain('checkouts/update')
     expect(isShopifyNotificationTopic('orders/create')).toBe(true)
     expect(isShopifyNotificationTopic('products/create')).toBe(false)

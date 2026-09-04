@@ -2,10 +2,12 @@ export const SHOPIFY_NOTIFICATION_TRIGGERS = [
   'new_order',
   'processing',
   'checkout_abandoned',
+  'partially_fulfilled',
   'fulfilled',
   'tracking',
   'delivered',
   'after_delivered',
+  'cancelled',
   'refund',
   'return_request',
 ] as const
@@ -79,6 +81,11 @@ export const DEFAULT_VARIABLE_MAPS: Record<
     '2': 'checkout_url',
     '3': 'discount_code',
   },
+  partially_fulfilled: {
+    '1': 'customer_first_name',
+    '2': 'order_name',
+    '3': 'tracking_url',
+  },
   fulfilled: {
     '1': 'order_name',
     '2': 'tracking_number',
@@ -94,6 +101,10 @@ export const DEFAULT_VARIABLE_MAPS: Record<
     '2': 'order_name',
   },
   after_delivered: {
+    '1': 'customer_first_name',
+    '2': 'order_name',
+  },
+  cancelled: {
     '1': 'customer_first_name',
     '2': 'order_name',
   },

@@ -14,6 +14,7 @@ import {
   presetForTrigger,
   SHOPIFY_TEMPLATE_PRESETS,
   templatesForTriggerDropdown,
+  triggersMissingPresets,
 } from './notification-templates'
 
 describe('Shopify template presets', () => {
@@ -37,12 +38,27 @@ describe('Shopify template presets', () => {
   it('marks abandoned checkout as Marketing with a COPY_CODE button', () => {
     const preset = SHOPIFY_TEMPLATE_PRESETS.checkout_abandoned
     expect(preset.category).toBe('Marketing')
-    expect(preset.buttons?.[0]).toMatchObject({ type: 'COPY_CODE', example: 'SAVE10' })
+    expect(preset.buttons?.[0]).toMatchObject({
+      type: 'COPY_CODE',
+      text: 'Copy offer code',
+      example: 'SAVE10',
+    })
   })
 
   it('uses Utility for order-status templates', () => {
     expect(SHOPIFY_TEMPLATE_PRESETS.new_order.category).toBe('Utility')
     expect(SHOPIFY_TEMPLATE_PRESETS.delivered.category).toBe('Utility')
+    expect(SHOPIFY_TEMPLATE_PRESETS.cancelled.category).toBe('Utility')
+    expect(SHOPIFY_TEMPLATE_PRESETS.partially_fulfilled.category).toBe('Utility')
+  })
+
+  it('lists triggers whose shopify_* preset is missing', () => {
+    expect(triggersMissingPresets([])).toHaveLength(SHOPIFY_NOTIFICATION_TRIGGERS.length)
+    expect(
+      triggersMissingPresets([
+        { name: 'shopify_new_order', language: 'en_US', status: 'PENDING' },
+      ]),
+    ).not.toContain('new_order')
   })
 })
 

@@ -28,6 +28,7 @@ import {
   isPresetNameForTrigger,
   presetForTrigger,
   templatesForTriggerDropdown,
+  triggersMissingPresets,
   type ShopifyPickerTemplate,
 } from '@/lib/shopify/notification-templates';
 import {
@@ -56,6 +57,7 @@ export function ShopifyNotificationsCard({
   const t = useTranslations('Settings.shopifyNotifications');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [submittingAll, setSubmittingAll] = useState(false);
   const [rules, setRules] = useState<ShopifyNotificationRule[]>(() => mergeRules([]));
   const [templates, setTemplates] = useState<ShopifyPickerTemplate[]>([]);
   const [openMap, setOpenMap] = useState<string | null>(null);
@@ -116,6 +118,66 @@ export function ShopifyNotificationsCard({
     }
   };
 
+  const submitAllPresets = async () => {
+    const missing = triggersMissingPresets(templates);
+    if (missing.length === 0) {
+      toast.success(t('submitAllNone'));
+      return;
+    }
+    setSubmittingAll(true);
+    let ok = 0;
+    let failed = 0;
+    try {
+      for (const trigger of missing) {
+        const preset = presetForTrigger(trigger);
+        const payload = buildPresetSubmitPayload(preset, preset.body_text, '');
+        try {
+          const res = await fetch('/api/whatsapp/templates/submit', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          });
+          const data = await res.json();
+          if (!res.ok) {
+            failed += 1;
+            continue;
+          }
+          ok += 1;
+          const row = (data.template ?? payload) as ShopifyPickerTemplate;
+          const patch: Partial<ShopifyNotificationRule> = {
+            template_name: row.name ?? preset.name,
+            template_language: row.language ?? preset.language,
+            variable_map: { ...DEFAULT_VARIABLE_MAPS[trigger] },
+          };
+          if (!canEnableShopifyTemplate(row.status)) {
+            patch.is_enabled = false;
+          }
+          patchRule(trigger, patch);
+        } catch {
+          failed += 1;
+        }
+      }
+      try {
+        const res = await fetch('/api/shopify/notifications', { cache: 'no-store' });
+        const data = await res.json();
+        if (res.ok && Array.isArray(data.templates)) {
+          setTemplates(data.templates);
+        }
+      } catch {
+        toast.error(t('loadFailed'));
+      }
+      if (failed === 0) {
+        toast.success(t('submitAllDone', { count: ok }));
+      } else if (ok === 0) {
+        toast.error(t('submitFailed'));
+      } else {
+        toast.warning(t('submitAllPartial', { ok, failed }));
+      }
+    } finally {
+      setSubmittingAll(false);
+    }
+  };
+
   if (!configured) return null;
 
   return (
@@ -159,10 +221,21 @@ export function ShopifyNotificationsCard({
                 />
               );
             })}
-            <Button onClick={() => void save()} disabled={disabled || saving}>
-              {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-              {t('save')}
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <Button onClick={() => void save()} disabled={disabled || saving || submittingAll}>
+                {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                {t('save')}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => void submitAllPresets()}
+                disabled={disabled || saving || submittingAll}
+              >
+                {submittingAll ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                {t('submitAll')}
+              </Button>
+            </div>
           </>
         )}
       </CardContent>

@@ -16,6 +16,8 @@ export const SHOPIFY_PAGE_WEBHOOK_TOPICS = [
 export const SHOPIFY_NOTIFICATION_WEBHOOK_TOPICS = [
   'orders/create',
   'orders/paid',
+  'orders/cancelled',
+  'orders/partially_fulfilled',
   'checkouts/create',
   'checkouts/update',
   'fulfillments/create',

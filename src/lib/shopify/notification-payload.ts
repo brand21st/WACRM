@@ -221,6 +221,38 @@ function isOrderFulfilled(body: Record<string, unknown>): boolean {
   return str(body.fulfillment_status).toLowerCase() === 'fulfilled'
 }
 
+function isPartialFulfillment(body: Record<string, unknown>): boolean {
+  const status = str(body.status).toLowerCase()
+  const fulfillmentStatus = str(body.fulfillment_status).toLowerCase()
+  const orderStatus = str(
+    nested(body, ['order', 'fulfillment_status']),
+  ).toLowerCase()
+  return (
+    status === 'partial' ||
+    fulfillmentStatus === 'partial' ||
+    orderStatus === 'partial'
+  )
+}
+
+function trackingFromOrder(body: Record<string, unknown>): {
+  number: string
+  url: string
+  company: string
+} {
+  const direct = trackingFrom(body)
+  if (direct.number || direct.url) return direct
+  const fulfillments = body.fulfillments
+  if (Array.isArray(fulfillments)) {
+    for (const row of fulfillments) {
+      const rec = asRecord(row)
+      if (!rec) continue
+      const next = trackingFrom(rec)
+      if (next.number || next.url) return next
+    }
+  }
+  return direct
+}
+
 function isCheckoutCompleted(body: Record<string, unknown>): boolean {
   return Boolean(str(body.completed_at))
 }
@@ -415,6 +447,31 @@ export function notificationActionsForTopic(
         },
       ]
     }
+    case 'orders/cancelled': {
+      return [
+        {
+          kind: 'send',
+          trigger: 'cancelled',
+          resourceId: `order-cancelled:${resourceId(body, ['id'])}`,
+          fields: orderFields(body),
+        },
+      ]
+    }
+    case 'orders/partially_fulfilled': {
+      const tracking = trackingFromOrder(body)
+      return [
+        {
+          kind: 'send',
+          trigger: 'partially_fulfilled',
+          resourceId: `order-partial:${resourceId(body, ['id'])}`,
+          fields: orderFields(body, {
+            tracking_number: tracking.number,
+            tracking_url: tracking.url,
+            tracking_company: tracking.company,
+          }),
+        },
+      ]
+    }
     case 'checkouts/create':
     case 'checkouts/update': {
       const token = resourceId(body, ['token', 'id'])
@@ -443,11 +500,12 @@ export function notificationActionsForTopic(
     }
     case 'fulfillments/create': {
       const fields = fulfillmentFields(body)
+      const partial = isPartialFulfillment(body)
       return [
         {
           kind: 'send',
-          trigger: 'fulfilled',
-          resourceId: `fulfillment:${resourceId(body, ['id'])}`,
+          trigger: partial ? 'partially_fulfilled' : 'fulfilled',
+          resourceId: `${partial ? 'partial' : 'fulfillment'}:${resourceId(body, ['id'])}`,
           fields,
         },
       ]
