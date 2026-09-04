@@ -3,6 +3,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const lookup = vi.fn()
 const sendStatus = vi.fn()
 const createOrder = vi.fn()
+const engineOrderStatus = vi.fn()
+const engineText = vi.fn()
 
 vi.mock('@/lib/whatsapp/encryption', () => ({
   decrypt: (v: string) => v,
@@ -36,6 +38,11 @@ vi.mock('@/lib/shopify/config', () => ({
   }),
 }))
 
+vi.mock('@/lib/flows/meta-send', () => ({
+  engineSendOrderStatus: (...args: unknown[]) => engineOrderStatus(...args),
+  engineSendText: (...args: unknown[]) => engineText(...args),
+}))
+
 vi.mock('./shopify-order', () => ({
   createPaidShopifyOrder: (...args: unknown[]) => createOrder(...args),
 }))
@@ -45,12 +52,19 @@ vi.mock('./checkout', () => ({
 }))
 
 import { handleWhatsAppPaymentStatus } from './payment'
+import {
+  ORDER_CONFIRMED_BODY,
+  PAYMENT_RECEIVED_BODY,
+  orderConfirmedText,
+} from './order-status'
 
 describe('handleWhatsAppPaymentStatus', () => {
   beforeEach(() => {
     lookup.mockReset()
     sendStatus.mockReset()
     createOrder.mockReset()
+    engineOrderStatus.mockReset()
+    engineText.mockReset()
   })
 
   it('does not create a Shopify order until lookup status is captured', async () => {
@@ -59,74 +73,9 @@ describe('handleWhatsAppPaymentStatus', () => {
       status: 'pending',
       transactions: [{ status: 'failed' }],
     })
-    const updates: unknown[] = []
-    const db = {
-      from: (table: string) => {
-        if (table === 'whatsapp_config') {
-          return {
-            select: () => ({
-              eq: () => ({
-                maybeSingle: async () => ({
-                  data: {
-                    account_id: 'acct-1',
-                    access_token: 'token',
-                    phone_number_id: 'pnid',
-                  },
-                  error: null,
-                }),
-              }),
-            }),
-          }
-        }
-        if (table === 'whatsapp_commerce_orders') {
-          return {
-            select: () => ({
-              eq: () => ({
-                eq: () => ({
-                  maybeSingle: async () => ({
-                    data: {
-                      id: 'ord-1',
-                      status: 'pending',
-                      conversation_id: 'conv-1',
-                      contact_id: 'c-1',
-                      line_items: [
-                        {
-                          retailer_id: 'BAG-RED',
-                          variantId: '99',
-                          quantity: 1,
-                          amountPaise: 4900,
-                          name: 'Red Bag',
-                          productId: '42',
-                          sku: 'BAG-RED',
-                        },
-                      ],
-                      beneficiary: {
-                        name: 'Ada',
-                        address_line1: '12 MG',
-                        city: 'Bengaluru',
-                        state: 'KA',
-                        country: 'India',
-                        postal_code: '560001',
-                      },
-                      total_value: 4900,
-                    },
-                    error: null,
-                  }),
-                }),
-              }),
-            }),
-            update: (payload: unknown) => {
-              updates.push(payload)
-              return { eq: () => ({ eq: async () => ({ error: null }) }) }
-            },
-          }
-        }
-        return { select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null }) }) }) }
-      },
-    }
 
     await handleWhatsAppPaymentStatus({
-      db: db as never,
+      db: makeDb() as never,
       phoneNumberId: 'pnid',
       status: {
         type: 'payment',
@@ -138,90 +87,15 @@ describe('handleWhatsAppPaymentStatus', () => {
     expect(lookup).toHaveBeenCalled()
     expect(createOrder).not.toHaveBeenCalled()
     expect(sendStatus).not.toHaveBeenCalled()
+    expect(engineOrderStatus).not.toHaveBeenCalled()
   })
 
-  it('creates a Shopify order after lookup captured', async () => {
-    lookup.mockResolvedValue({
-      reference_id: 'wac_1',
-      status: 'captured',
-      transactions: [{ id: 'order_1', pg_transaction_id: 'pay_1', status: 'success' }],
-    })
+  it('creates the Shopify order, then confirms it in chat with the order number', async () => {
+    capturedLookup()
     createOrder.mockResolvedValue({ id: 'gid://shopify/Order/1', name: '#1001' })
-    sendStatus.mockResolvedValue({ messageId: 'wamid' })
-
-    const db = {
-      from: (table: string) => {
-        if (table === 'whatsapp_config') {
-          return {
-            select: () => ({
-              eq: () => ({
-                maybeSingle: async () => ({
-                  data: {
-                    account_id: 'acct-1',
-                    access_token: 'token',
-                    phone_number_id: 'pnid',
-                  },
-                  error: null,
-                }),
-              }),
-            }),
-          }
-        }
-        if (table === 'whatsapp_commerce_orders') {
-          return {
-            select: () => ({
-              eq: () => ({
-                eq: () => ({
-                  maybeSingle: async () => ({
-                    data: {
-                      id: 'ord-1',
-                      status: 'pending',
-                      conversation_id: 'conv-1',
-                      contact_id: 'c-1',
-                      line_items: [
-                        {
-                          retailer_id: 'BAG-RED',
-                          variantId: '99',
-                          quantity: 1,
-                          amountPaise: 4900,
-                          name: 'Red Bag',
-                          productId: '42',
-                          sku: 'BAG-RED',
-                        },
-                      ],
-                      beneficiary: {
-                        name: 'Ada',
-                        address_line1: '12 MG',
-                        city: 'Bengaluru',
-                        state: 'KA',
-                        country: 'India',
-                        postal_code: '560001',
-                      },
-                      total_value: 4900,
-                    },
-                    error: null,
-                  }),
-                }),
-              }),
-            }),
-            update: () => ({ eq: () => ({ eq: async () => ({ error: null }) }) }),
-          }
-        }
-        if (table === 'contacts') {
-          return {
-            select: () => ({
-              eq: () => ({
-                maybeSingle: async () => ({ data: { phone: '9198' }, error: null }),
-              }),
-            }),
-          }
-        }
-        return { select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null }) }) }) }
-      },
-    }
 
     await handleWhatsAppPaymentStatus({
-      db: db as never,
+      db: makeDb() as never,
       phoneNumberId: 'pnid',
       status: {
         type: 'payment',
@@ -231,8 +105,161 @@ describe('handleWhatsAppPaymentStatus', () => {
     })
 
     expect(createOrder).toHaveBeenCalled()
+    // Confirmed only after Shopify accepted the order.
+    expect(createOrder.mock.invocationCallOrder[0]).toBeLessThan(
+      engineOrderStatus.mock.invocationCallOrder[0],
+    )
+    expect(engineOrderStatus).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: 'processing',
+        referenceId: 'wac_1',
+        conversationId: 'conv-1',
+        bodyText: ORDER_CONFIRMED_BODY,
+      }),
+    )
+    expect(engineText).toHaveBeenCalledWith(
+      expect.objectContaining({
+        conversationId: 'conv-1',
+        text: orderConfirmedText('#1001'),
+      }),
+    )
+    // Persisted through the engine senders, not a raw Graph call, so
+    // both messages show up in the inbox.
+    expect(sendStatus).not.toHaveBeenCalled()
+  })
+
+  it('acknowledges the payment but claims no order when Shopify create fails', async () => {
+    capturedLookup()
+    createOrder.mockRejectedValue(new Error('variant not found'))
+
+    await handleWhatsAppPaymentStatus({
+      db: makeDb() as never,
+      phoneNumberId: 'pnid',
+      status: {
+        type: 'payment',
+        recipient_id: '9198',
+        payment: { reference_id: 'wac_1' },
+      },
+    })
+
+    expect(engineOrderStatus).toHaveBeenCalledWith(
+      expect.objectContaining({ bodyText: PAYMENT_RECEIVED_BODY }),
+    )
+    expect(engineText).not.toHaveBeenCalled()
+  })
+
+  it('falls back to a raw Graph send when the order has no conversation', async () => {
+    capturedLookup()
+    createOrder.mockResolvedValue({ id: 'gid://shopify/Order/1', name: '#1001' })
+
+    await handleWhatsAppPaymentStatus({
+      db: makeDb({ conversationId: null }) as never,
+      phoneNumberId: 'pnid',
+      status: {
+        type: 'payment',
+        recipient_id: '9198',
+        payment: { reference_id: 'wac_1' },
+      },
+    })
+
+    expect(engineOrderStatus).not.toHaveBeenCalled()
     expect(sendStatus).toHaveBeenCalledWith(
-      expect.objectContaining({ status: 'processing', referenceId: 'wac_1' }),
+      expect.objectContaining({
+        status: 'processing',
+        referenceId: 'wac_1',
+        bodyText: ORDER_CONFIRMED_BODY,
+      }),
     )
   })
 })
+
+function capturedLookup() {
+  lookup.mockResolvedValue({
+    reference_id: 'wac_1',
+    status: 'captured',
+    transactions: [{ id: 'order_1', pg_transaction_id: 'pay_1', status: 'success' }],
+  })
+  sendStatus.mockResolvedValue({ messageId: 'wamid' })
+  engineOrderStatus.mockResolvedValue({ whatsapp_message_id: 'wamid.status' })
+  engineText.mockResolvedValue({ whatsapp_message_id: 'wamid.text' })
+}
+
+function makeDb(options: { conversationId?: string | null } = {}) {
+  const conversationId =
+    options.conversationId === undefined ? 'conv-1' : options.conversationId
+  return {
+    from: (table: string) => {
+      if (table === 'whatsapp_config') {
+        return {
+          select: () => ({
+            eq: () => ({
+              maybeSingle: async () => ({
+                data: {
+                  account_id: 'acct-1',
+                  user_id: 'user-1',
+                  access_token: 'token',
+                  phone_number_id: 'pnid',
+                },
+                error: null,
+              }),
+            }),
+          }),
+        }
+      }
+      if (table === 'whatsapp_commerce_orders') {
+        return {
+          select: () => ({
+            eq: () => ({
+              eq: () => ({
+                maybeSingle: async () => ({
+                  data: {
+                    id: 'ord-1',
+                    status: 'pending',
+                    conversation_id: conversationId,
+                    contact_id: 'c-1',
+                    line_items: [
+                      {
+                        retailer_id: 'BAG-RED',
+                        variantId: '99',
+                        quantity: 1,
+                        amountPaise: 4900,
+                        name: 'Red Bag',
+                        productId: '42',
+                        sku: 'BAG-RED',
+                      },
+                    ],
+                    beneficiary: {
+                      name: 'Ada',
+                      address_line1: '12 MG',
+                      city: 'Bengaluru',
+                      state: 'KA',
+                      country: 'India',
+                      postal_code: '560001',
+                    },
+                    total_value: 4900,
+                  },
+                  error: null,
+                }),
+              }),
+            }),
+          }),
+          update: () => ({
+            eq: () => ({ eq: async () => ({ error: null }) }),
+          }),
+        }
+      }
+      if (table === 'contacts') {
+        return {
+          select: () => ({
+            eq: () => ({
+              maybeSingle: async () => ({ data: { phone: '9198' }, error: null }),
+            }),
+          }),
+        }
+      }
+      return {
+        select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null }) }) }),
+      }
+    },
+  }
+}
