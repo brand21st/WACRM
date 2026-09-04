@@ -51,6 +51,8 @@ describe('docker-compose Coolify contract', () => {
   it('builds nginx from the image instead of bind-mounting git files', () => {
     expect(compose).toContain('context: ./deploy/nginx')
     expect(compose).not.toMatch(/nginx\.conf:\/etc\/nginx/)
+    const nginxDocker = readFileSync(join(root, 'deploy/nginx/Dockerfile'), 'utf8')
+    expect(nginxDocker).toContain('rm -f /etc/nginx/conf.d/default.conf')
   })
 
   it('exposes nginx to Coolify Traefik without binding host 80', () => {
