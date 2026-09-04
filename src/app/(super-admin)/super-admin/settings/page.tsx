@@ -138,7 +138,7 @@ export default function SuperAdminSettingsPage() {
   if (loading) return <p className="text-muted-foreground">{t("loading")}</p>;
 
   const source = payload?.source ?? "none";
-  const mode = payload?.mode;
+  const mode = payload?.mode ?? null;
 
   return (
     <div className="max-w-2xl space-y-6">
