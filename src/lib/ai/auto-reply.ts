@@ -106,7 +106,9 @@ interface DispatchArgs {
  *   - AI off / auto-reply disabled for the account
  *   - a human agent is assigned (they own the thread)
  *   - auto-reply was disabled for this conversation (prior handoff)
- *   - the per-conversation reply cap is reached
+ *     unless full-agent mode is on
+ *   - the per-conversation reply cap is reached, unless full-agent
+ *     mode is on or the account is set to unlimited
  *   - there's nothing to reply to
  *
  * The 24h WhatsApp session window is inherently open here — we're
@@ -167,8 +169,10 @@ export async function dispatchInboundToAiReply(
     if (liveCalls && liveCalls.length > 0) return
 
     // Cheap early-out; the authoritative cap check is the atomic claim
-    // below (this read can race a concurrent inbound).
+    // below (this read can race a concurrent inbound). Full-agent owns
+    // the thread — a silent cap looks like a dead bot.
     if (
+      !config.fullAgentEnabled &&
       !config.autoReplyUnlimited &&
       conv.ai_reply_count >= config.autoReplyMaxPerConversation
     )
@@ -795,9 +799,10 @@ async function claimReplySlot(
     'claim_ai_reply_slot',
     {
       conversation_id: conversationId,
-      max_replies: config.autoReplyUnlimited
-        ? null
-        : config.autoReplyMaxPerConversation,
+      max_replies:
+        config.fullAgentEnabled || config.autoReplyUnlimited
+          ? null
+          : config.autoReplyMaxPerConversation,
     },
   )
   if (claimErr) {

@@ -551,6 +551,22 @@ describe('dispatchInboundToAiReply — eligibility gates', () => {
     })
   })
 
+  it('still replies when the cap is reached but full-agent mode is on', async () => {
+    h.loadAiConfig.mockResolvedValue(aiConfig({ fullAgentEnabled: true }))
+    h.state.conv = {
+      assigned_agent_id: null,
+      ai_autoreply_disabled: false,
+      ai_reply_count: 20,
+    }
+    await dispatchInboundToAiReply(ARGS)
+    expect(h.generateReply).toHaveBeenCalled()
+    expect(h.engineSendInteractiveButtons).toHaveBeenCalled()
+    expect(h.state.rpcCalls[0]).toMatchObject({
+      name: 'claim_ai_reply_slot',
+      args: { max_replies: null },
+    })
+  })
+
   it('injects stored chat memory into the system prompt', async () => {
     h.formatCustomerMemoryBlock.mockReturnValue(
       'Profile: Wants a red saree, size M',
