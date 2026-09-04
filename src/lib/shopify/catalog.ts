@@ -18,6 +18,7 @@ import {
 import type { ShopifyProductHit, ShopifyStoreConfig, ShopifyVariantHit } from './types'
 import type { ShopifyCatalogVariant } from '@/types'
 import { catalogIsFresh } from './config'
+import { matchProductsToAsk } from './rank'
 import { cartPermalink, checkoutPermalink, productPageUrl } from './permalinks'
 import { SHOPIFY_CATALOG_WEBHOOK_TOPICS } from './webhook-topics'
 import { isMissingDbColumn } from './config-db'
@@ -222,16 +223,32 @@ export async function searchProducts(
   query: string,
   limit = 5,
 ): Promise<ShopifyProductHit[]> {
+  const fetchLimit = Math.min(10, Math.max(limit * 3, limit))
+  let hits: ShopifyProductHit[] = []
   if (catalogIsFresh(config)) {
-    const local = await searchCatalogSnapshot(db, config.accountId, query, limit)
-    if (local.length > 0) return local
+    hits = matchProductsToAsk(
+      query,
+      await searchCatalogSnapshot(db, config.accountId, query, fetchLimit),
+      limit,
+    )
   }
-  try {
-    return await searchProductsLive(config, query, { first: limit })
-  } catch (err) {
-    console.warn('[shopify] live product search failed, trying snapshot:', err)
-    return searchCatalogSnapshot(db, config.accountId, query, limit)
+  if (hits.length === 0) {
+    try {
+      hits = matchProductsToAsk(
+        query,
+        await searchProductsLive(config, query, { first: fetchLimit }),
+        limit,
+      )
+    } catch (err) {
+      console.warn('[shopify] live product search failed, trying snapshot:', err)
+      hits = matchProductsToAsk(
+        query,
+        await searchCatalogSnapshot(db, config.accountId, query, fetchLimit),
+        limit,
+      )
+    }
   }
+  return hits
 }
 
 export async function listNewArrivals(

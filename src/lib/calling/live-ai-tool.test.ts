@@ -49,6 +49,9 @@ vi.mock('@/lib/shopify/commerce-config', () => ({
   }),
 }))
 vi.mock('@/lib/ai/knowledge', () => ({ retrieveKnowledge: h.retrieveKnowledge }))
+vi.mock('@/lib/ai/context', () => ({
+  buildConversationContext: async () => [{ role: 'user', content: 'bag' }],
+}))
 vi.mock('@/lib/ai/auto-reply', () => ({
   bindShopifyTools: h.bindShopifyTools,
   sendProductCards: h.sendProductCards,

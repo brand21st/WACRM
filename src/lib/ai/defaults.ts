@@ -179,7 +179,7 @@ export function buildSystemPrompt(args: {
         : formatPhotoMatchBlock(photoMatches)
     parts.push(
         'Shopify is connected. You MUST use tools to look up products, prices, variants, new arrivals, best selling, trending, and this customer’s orders or tracking. ' +
-        'When the customer names a product, color, SKU, or keyword, call search_products with those words. Set limit to how many they asked for (1–10). Do not send extra unrelated cards. ' +
+        'When the customer names a product, color, SKU, or keyword — in text, voice, or a WhatsApp AI call — call search_products with those words. Only send cards that match what they named. If none match, say so; do not send other catalog items. Set limit to how many they asked for (1–10). Do not send extra unrelated cards. ' +
         'When they ask for new products, new arrivals, or tap wacrm:products, call list_new_arrivals. ' +
         'When they ask for best selling, bestsellers, popular, or trending products, call list_best_selling. ' +
         'When they ask for recommendations, suggestions, “for me”, “what should I buy”, or products based on their interest, call recommend_products and pass this turn’s words as query. Default to a few cards unless they asked to see many. It uses this ask first, then remembered products and preferences. ' +

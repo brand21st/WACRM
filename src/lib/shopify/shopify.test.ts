@@ -12,7 +12,12 @@ import {
 import { shopifyPhoneMatchesContact, customerSearchQueries, toShopifyPhone } from './phone'
 import { shoppingOrSupportPrompt } from '@/lib/ai/describe-inbound-image'
 import { mapGqlProduct } from './map-product'
-import { rankProductsByDescription, tokensFromDescription } from './rank'
+import {
+  matchProductsToAsk,
+  productSearchQuery,
+  rankProductsByDescription,
+  tokensFromDescription,
+} from './rank'
 import { shopifyGraphql } from './client'
 import { CUSTOMERS_BY_QUERY, ORDERS_BY_QUERY } from './queries'
 import { executeShopifyTool, shopifyLlmTools, toCard } from './tools'
@@ -432,6 +437,59 @@ describe('rankProductsByDescription', () => {
     )
     expect(ranked).toHaveLength(1)
     expect(ranked[0]?.handle).toBe('red-leather-tote')
+  })
+})
+
+describe('matchProductsToAsk', () => {
+  it('keeps only products that match the named ask', () => {
+    const redBag = fixtureProduct({
+      id: 'gid://shopify/Product/1',
+      handle: 'red-bag',
+      title: 'Red Bag',
+    })
+    const blue = fixtureProduct({
+      id: 'gid://shopify/Product/2',
+      handle: 'blue-sneakers',
+      title: 'Blue Sneakers',
+      description: 'Canvas runners',
+      variants: [],
+    })
+    const tote = fixtureProduct()
+    expect(
+      matchProductsToAsk('send me the red bag', [blue, redBag, tote], 3).map(
+        (p) => p.title,
+      ),
+    ).toEqual(['Red Bag'])
+  })
+
+  it('matches a SKU and drops unrelated hits', () => {
+    const hit = fixtureProduct({
+      title: 'Cotton Saree',
+      handle: 'cotton-saree',
+      variants: [
+        {
+          id: 'v1',
+          variantId: '1',
+          title: 'Default',
+          sku: 'AB-1234',
+          price: '10',
+          compareAtPrice: null,
+          available: true,
+          options: [],
+        },
+      ],
+    })
+    const other = fixtureProduct({
+      id: 'gid://shopify/Product/9',
+      handle: 'other',
+      title: 'Other Item',
+      variants: [],
+    })
+    expect(matchProductsToAsk('AB-1234', [other, hit], 3)).toEqual([hit])
+  })
+
+  it('builds a search query from spoken filler words', () => {
+    expect(productSearchQuery('send me the red bag')).toBe('red bag')
   })
 })
 
@@ -982,11 +1040,200 @@ describe('executeShopifyTool', () => {
       },
     })
     const result = await executeShopifyTool(
-      { db: {} as SupabaseClient, config: STORE, contactPhone: null },
+      {
+        db: {} as SupabaseClient,
+        config: STORE,
+        contactPhone: null,
+        customerText: 'new arrivals',
+      },
       'list_new_arrivals',
       {},
     )
     expect(result.cards).toHaveLength(10)
+  })
+
+  it('sends 1 search card when the customer asked for one item', async () => {
+    const graphql = vi.spyOn(client, 'shopifyGraphql').mockResolvedValue({
+      products: {
+        nodes: [
+          {
+            id: 'gid://shopify/Product/1',
+            handle: 'red-bag',
+            title: 'Red Bag',
+            description: 'Bag',
+            featuredImage: { url: 'https://cdn.example/red-bag.jpg' },
+            variants: {
+              nodes: [
+                {
+                  id: 'gid://shopify/ProductVariant/1',
+                  legacyResourceId: '101',
+                  title: 'Default',
+                  sku: 'BAG-RED',
+                  availableForSale: true,
+                  price: '49.00',
+                  selectedOptions: [],
+                },
+              ],
+            },
+          },
+          {
+            id: 'gid://shopify/Product/2',
+            handle: 'blue-sneakers',
+            title: 'Blue Sneakers',
+            description: 'Shoes',
+            featuredImage: { url: 'https://cdn.example/blue.jpg' },
+            variants: {
+              nodes: [
+                {
+                  id: 'gid://shopify/ProductVariant/2',
+                  legacyResourceId: '102',
+                  title: 'Default',
+                  sku: 'SNK-BLU',
+                  availableForSale: true,
+                  price: '80.00',
+                  selectedOptions: [],
+                },
+              ],
+            },
+          },
+        ],
+      },
+    })
+    const result = await executeShopifyTool(
+      {
+        db: {} as SupabaseClient,
+        config: STORE,
+        contactPhone: null,
+        customerText: 'send the red bag',
+      },
+      'search_products',
+      { query: 'red bag' },
+    )
+    expect(result.cards).toHaveLength(1)
+    expect(result.cards[0].title).toBe('Red Bag')
+    expect(graphql).toHaveBeenCalledWith(
+      expect.objectContaining({
+        variables: expect.objectContaining({ first: 3 }),
+      }),
+    )
+  })
+
+  it('sends 3 search cards for a named product ask with no count', async () => {
+    vi.spyOn(client, 'shopifyGraphql').mockResolvedValue({
+      products: {
+        nodes: Array.from({ length: 6 }, (_, i) => ({
+          id: `gid://shopify/Product/${i + 1}`,
+          handle: `red-bag-${i + 1}`,
+          title: `Red Bag ${i + 1}`,
+          description: 'Bag',
+          featuredImage: { url: `https://cdn.example/red-${i + 1}.jpg` },
+          variants: {
+            nodes: [
+              {
+                id: `gid://shopify/ProductVariant/${i + 1}`,
+                legacyResourceId: String(300 + i),
+                title: 'Default',
+                sku: `RED-${i + 1}`,
+                availableForSale: true,
+                price: '49.00',
+                selectedOptions: [],
+              },
+            ],
+          },
+        })),
+      },
+    })
+    const result = await executeShopifyTool(
+      {
+        db: {} as SupabaseClient,
+        config: STORE,
+        contactPhone: null,
+        customerText: 'show me red bags',
+      },
+      'search_products',
+      { query: 'red bags' },
+    )
+    expect(result.cards).toHaveLength(3)
+  })
+
+  it('lets a tool limit override the inferred search count', async () => {
+    vi.spyOn(client, 'shopifyGraphql').mockResolvedValue({
+      products: {
+        nodes: Array.from({ length: 8 }, (_, i) => ({
+          id: `gid://shopify/Product/${i + 1}`,
+          handle: `red-bag-${i + 1}`,
+          title: `Red Bag ${i + 1}`,
+          description: 'Bag',
+          featuredImage: { url: `https://cdn.example/bag-${i + 1}.jpg` },
+          variants: {
+            nodes: [
+              {
+                id: `gid://shopify/ProductVariant/${i + 1}`,
+                legacyResourceId: String(400 + i),
+                title: 'Default',
+                sku: `BAG-${i + 1}`,
+                availableForSale: true,
+                price: '49.00',
+                selectedOptions: [],
+              },
+            ],
+          },
+        })),
+      },
+    })
+    const result = await executeShopifyTool(
+      {
+        db: {} as SupabaseClient,
+        config: STORE,
+        contactPhone: null,
+        customerText: 'send the red bag',
+      },
+      'search_products',
+      { query: 'red bag', limit: 5 },
+    )
+    expect(result.cards).toHaveLength(5)
+    expect(result.cards.every((c) => c.title.startsWith('Red Bag'))).toBe(true)
+  })
+
+  it('uses spoken customer text when the tool query is empty', async () => {
+    vi.spyOn(client, 'shopifyGraphql').mockResolvedValue({
+      products: {
+        nodes: [
+          {
+            id: 'gid://shopify/Product/1',
+            handle: 'red-bag',
+            title: 'Red Bag',
+            description: 'Bag',
+            featuredImage: { url: 'https://cdn.example/red-bag.jpg' },
+            variants: {
+              nodes: [
+                {
+                  id: 'gid://shopify/ProductVariant/1',
+                  legacyResourceId: '101',
+                  title: 'Default',
+                  sku: 'BAG-RED',
+                  availableForSale: true,
+                  price: '49.00',
+                  selectedOptions: [],
+                },
+              ],
+            },
+          },
+        ],
+      },
+    })
+    const result = await executeShopifyTool(
+      {
+        db: {} as SupabaseClient,
+        config: STORE,
+        contactPhone: null,
+        customerText: 'I want the red bag',
+      },
+      'search_products',
+      { query: '' },
+    )
+    expect(result.cards).toHaveLength(1)
+    expect(result.cards[0].title).toBe('Red Bag')
   })
 
   it('includes send_whatsapp_catalog only when the WhatsApp catalog is on', () => {

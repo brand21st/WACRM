@@ -109,6 +109,8 @@ describe('buildSystemPrompt', () => {
     expect(prompt).toMatch(/recommend_products/)
     expect(prompt).toMatch(/best selling|trending/)
     expect(prompt).toMatch(/search_products with those words/)
+    expect(prompt).toMatch(/Only send cards that match what they named/)
+    expect(prompt).toMatch(/text, voice, or a WhatsApp AI call/)
     expect(prompt).toMatch(/Set limit to how many they asked for/)
     expect(prompt).toMatch(/Do not send extra unrelated cards/)
     expect(prompt).toMatch(/this ask first, then remembered products and preferences/)

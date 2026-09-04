@@ -27,7 +27,13 @@ export {
   handleShopifyPageWebhook,
 } from './store-content'
 export { handleShopifyNotificationWebhook, drainShopifyNotificationJobs } from './notifications'
-export { rankProductsByDescription, tokensFromDescription } from './rank'
+export {
+  rankProductsByDescription,
+  tokensFromDescription,
+  matchProductsToAsk,
+  productAskTokens,
+  productSearchQuery,
+} from './rank'
 export { matchProductsFromPhoto } from './match-photo'
 export { confirmCatalogMatchesFromPhoto, pickConfirmedHits, listingImagesForConfirm } from './confirm-photo'
 export {

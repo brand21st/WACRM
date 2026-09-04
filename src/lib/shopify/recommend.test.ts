@@ -142,6 +142,27 @@ describe('listRecommendedProducts', () => {
     expect(h.listBestSelling).toHaveBeenCalled()
     expect(hits[0].title).toBe('Best Bag')
   })
+
+  it('searches this turn query before remembered products', async () => {
+    h.searchProducts.mockImplementation(
+      async (_db: unknown, _config: unknown, term: string) => {
+        if (term === 'red saree') return [hit('3', 'Red Saree', 'red-saree')]
+        if (term === 'Pournami Red') return [hit('17', 'Pournami Red', 'pournami-red')]
+        return []
+      },
+    )
+    h.searchProductsLive.mockResolvedValue([])
+    const fetchImpl = vi.fn(async () => Response.json({ products: [] }))
+    await listRecommendedProducts(
+      {} as SupabaseClient,
+      STORE,
+      { query: 'red saree', products: ['Pournami Red'] },
+      { limit: 3, fetchImpl: fetchImpl as unknown as typeof fetch },
+    )
+    const terms = h.searchProducts.mock.calls.map((call) => call[2])
+    expect(terms[0]).toBe('red saree')
+    expect(terms.indexOf('Pournami Red')).toBeGreaterThan(0)
+  })
 })
 
 describe('executeShopifyTool recommend_products', () => {
@@ -149,6 +170,35 @@ describe('executeShopifyTool recommend_products', () => {
     h.searchProducts.mockReset()
     h.searchProductsLive.mockReset()
     h.listBestSelling.mockReset()
+  })
+
+  it('searches query red saree first', async () => {
+    h.searchProducts.mockImplementation(
+      async (_db: unknown, _config: unknown, term: string) => {
+        if (term === 'red saree') return [hit('3', 'Red Saree', 'red-saree')]
+        return []
+      },
+    )
+    h.searchProductsLive.mockResolvedValue([])
+    const fetchImpl = vi.fn(async () => Response.json({ products: [] }))
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = fetchImpl as unknown as typeof fetch
+    try {
+      await executeShopifyTool(
+        {
+          db: {} as SupabaseClient,
+          config: STORE,
+          contactPhone: null,
+          customerInterest: { products: ['Pournami Red'] },
+          customerText: 'red saree',
+        },
+        'recommend_products',
+        { query: 'red saree' },
+      )
+      expect(h.searchProducts.mock.calls[0][2]).toBe('red saree')
+    } finally {
+      globalThis.fetch = originalFetch
+    }
   })
 
   it('returns up to 10 interest-based cards', async () => {
@@ -173,9 +223,10 @@ describe('executeShopifyTool recommend_products', () => {
           config: STORE,
           contactPhone: null,
           customerInterest: { products: ['Pournami Red'] },
+          customerText: 'recommend something for me',
         },
         'recommend_products',
-        {},
+        { limit: 10 },
       )
       expect(result.cards).toHaveLength(10)
     } finally {

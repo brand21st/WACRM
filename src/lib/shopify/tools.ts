@@ -15,6 +15,7 @@ import {
   DEFAULT_SEARCH_CARDS,
   resolveProductCardLimit,
 } from '@/lib/ai/product-card-limit'
+import { matchProductsToAsk, productAskTokens, productSearchQuery } from './rank'
 import {
   matchProductsFromPhoto,
   type MatchProductsFromPhotoOpts,
@@ -42,7 +43,7 @@ export const SHOPIFY_LLM_TOOLS: LlmToolDef[] = [
   {
     name: 'search_products',
     description:
-      'Search the Shopify catalog for products the customer named. Use this for any specific product, color, or keyword ask. Set limit to how many they asked for (1–10). Never invent products.',
+      'Search the Shopify catalog for the exact product the customer named. Copy their words into query. Only matching catalog items are returned — never invent or substitute other products.',
     parameters: {
       type: 'object',
       properties: {
@@ -240,8 +241,10 @@ export async function executeShopifyTool(
     switch (name) {
       case 'search_products': {
         const limit = resolveProductCardLimit(args.limit, ctx.customerText)
+        const raw = str(args.query) || (ctx.customerText ?? '').trim()
+        const query = productSearchQuery(raw) || raw
         return productsResult(
-          await searchProducts(ctx.db, ctx.config, str(args.query), limit),
+          await searchProducts(ctx.db, ctx.config, query, limit),
           ctx.retailerIdSource,
           limit,
         )
@@ -268,19 +271,30 @@ export async function executeShopifyTool(
       }
       case 'recommend_products': {
         const limit = resolveProductCardLimit(args.limit, ctx.customerText)
-        return productsResult(
-          await listRecommendedProducts(
-            ctx.db,
-            ctx.config,
-            {
-              ...(ctx.customerInterest ?? {}),
-              query: str(args.query) || ctx.customerInterest?.query,
-            },
-            { limit, shownCards: ctx.productCards },
-          ),
-          ctx.retailerIdSource,
-          limit,
+        const query = str(args.query) || ctx.customerInterest?.query || ''
+        const ask = (ctx.customerText ?? '').trim() || query
+        let hits = await listRecommendedProducts(
+          ctx.db,
+          ctx.config,
+          {
+            ...(ctx.customerInterest ?? {}),
+            query: query || ctx.customerInterest?.query,
+          },
+          { limit, shownCards: ctx.productCards },
         )
+        if (productAskTokens(ask).length > 0) {
+          const matched = matchProductsToAsk(ask, hits, limit)
+          hits =
+            matched.length > 0
+              ? matched
+              : await searchProducts(
+                  ctx.db,
+                  ctx.config,
+                  productSearchQuery(ask) || query,
+                  limit,
+                )
+        }
+        return productsResult(hits, ctx.retailerIdSource, limit)
       }
       case 'match_product_from_photo': {
         return productsResult(
@@ -819,10 +833,4 @@ interface OrderNode {
 
 function str(v: unknown): string {
   return typeof v === 'string' ? v.trim() : ''
-}
-
-function clampInt(v: unknown, min: number, max: number, fallback: number): number {
-  const n = typeof v === 'number' ? v : Number(v)
-  if (!Number.isFinite(n)) return fallback
-  return Math.min(max, Math.max(min, Math.floor(n)))
 }
