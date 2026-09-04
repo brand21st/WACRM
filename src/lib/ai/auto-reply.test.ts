@@ -1104,6 +1104,57 @@ describe('dispatchInboundToAiReply — OpenAI Realtime voice', () => {
     )
   })
 
+  it('sends a Track order card when Shopify order tools return one', async () => {
+    h.loadShopifyConfig.mockResolvedValue({
+      accountId: 'acct-1',
+      shopDomain: 'acme.myshopify.com',
+      accessToken: 'shpat_test',
+      isActive: true,
+      shopName: 'Acme',
+      primaryDomain: 'https://shop.example',
+      currency: 'INR',
+      metaCatalogId: null,
+      lastVerifiedAt: null,
+      lastCatalogSyncAt: null,
+      catalogProductCount: 2,
+    })
+    h.executeShopifyTool.mockResolvedValue({
+      json: JSON.stringify({ orders: [{ name: '#1001' }] }),
+      cards: [],
+      orderCards: [
+        {
+          orderName: '#1001',
+          bodyText:
+            'Name: Priya\nPhone: +91 88487 72371\nOrder: #1001\n1 × Red Tote — ₹2,499\nTotal: ₹2,499',
+          buttonLabel: 'Track order',
+          url: 'https://track.example/1Z999',
+        },
+      ],
+    })
+    h.generateReply.mockImplementation(async (args: { executeTool?: Function }) => {
+      if (args.executeTool) {
+        await args.executeTool('get_order_tracking', { order_name: '#1001' })
+      }
+      return {
+        text: 'Here is order #1001. Track order: https://track.example/1Z999',
+        handoff: false,
+      }
+    })
+    await dispatchInboundToAiReply(ARGS)
+    expect(h.engineSendText).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: expect.not.stringContaining('https://track.example/1Z999'),
+      }),
+    )
+    expect(h.engineSendCtaUrl).toHaveBeenCalledWith(
+      expect.objectContaining({
+        displayText: 'Track order',
+        url: 'https://track.example/1Z999',
+        bodyText: expect.stringContaining('Order: #1001'),
+      }),
+    )
+  })
+
   it('sends Checkout after each in-stock product image', async () => {
     h.loadShopifyConfig.mockResolvedValue({
       accountId: 'acct-1',

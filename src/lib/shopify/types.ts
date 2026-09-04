@@ -53,6 +53,15 @@ export interface ShopifyProductCard {
   retailerId?: string | null
 }
 
+export interface ShopifyOrderLineItem {
+  title: string
+  quantity: number
+  sku: string | null
+  variantTitle: string | null
+  price: string | null
+  currency: string | null
+}
+
 export interface ShopifyOrderHit {
   id: string
   name: string
@@ -61,8 +70,18 @@ export interface ShopifyOrderHit {
   createdAt: string | null
   total: string | null
   currency: string | null
-  lineItems: { title: string; quantity: number; sku: string | null; variantTitle: string | null }[]
+  customerName: string | null
+  customerPhone: string | null
+  statusPageUrl: string | null
+  lineItems: ShopifyOrderLineItem[]
   tracking: { number: string | null; url: string | null; company: string | null; status: string | null }[]
+}
+
+export interface ShopifyOrderCard {
+  orderName: string
+  bodyText: string
+  buttonLabel: string | null
+  url: string | null
 }
 
 export type CatalogVariantSummary = ShopifyCatalogVariant

@@ -11,6 +11,7 @@ const h = vi.hoisted(() => ({
   retrieveKnowledge: vi.fn(),
   bindShopifyTools: vi.fn(),
   sendProductCards: vi.fn(),
+  sendOrderCards: vi.fn(),
   sendWhatsAppCatalogMessage: vi.fn(),
   persistCallTurnMessage: vi.fn(),
   loadLiveAiCustomerMemory: vi.fn(),
@@ -51,6 +52,7 @@ vi.mock('@/lib/ai/knowledge', () => ({ retrieveKnowledge: h.retrieveKnowledge })
 vi.mock('@/lib/ai/auto-reply', () => ({
   bindShopifyTools: h.bindShopifyTools,
   sendProductCards: h.sendProductCards,
+  sendOrderCards: h.sendOrderCards,
   sendWhatsAppCatalogMessage: h.sendWhatsAppCatalogMessage,
 }))
 vi.mock('@/lib/calling/persist-call-turn', () => ({
@@ -106,6 +108,7 @@ beforeEach(() => {
   h.retrieveKnowledge.mockReset()
   h.bindShopifyTools.mockReset()
   h.sendProductCards.mockReset()
+  h.sendOrderCards.mockReset()
   h.persistCallTurnMessage.mockReset()
   h.loadLiveAiCustomerMemory.mockReset()
   h.loadContactMemory.mockReset()
@@ -266,6 +269,35 @@ describe('executeLiveAiTool', () => {
     })
     expect(result.handoff).toBe(false)
     expect(h.sendProductCards).toHaveBeenCalled()
+  })
+
+  it('runs Shopify tools and sends order tracking cards', async () => {
+    h.loadShopifyConfig.mockResolvedValue({ shopName: 'Demo' })
+    h.sendOrderCards.mockResolvedValue(undefined)
+    h.bindShopifyTools.mockImplementation(
+      (
+        _db: unknown,
+        _shop: unknown,
+        _phone: unknown,
+        _cards: unknown[],
+        opts: { orderCards?: { orderName: string }[] },
+      ) => {
+        opts.orderCards?.push({ orderName: '#1001' })
+        return {
+          executeTool: async () => '{"orders":[]}',
+        }
+      },
+    )
+
+    const result = await executeLiveAiTool({
+      accountId: 'acct-1',
+      userId: 'user-1',
+      callId: 'call-1',
+      name: 'get_order_tracking',
+      arguments: { order_name: '#1001' },
+    })
+    expect(result.handoff).toBe(false)
+    expect(h.sendOrderCards).toHaveBeenCalled()
   })
 
   it('rejects tools when the call was not AI-answered', async () => {

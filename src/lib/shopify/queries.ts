@@ -127,9 +127,17 @@ query CustomersByQuery($query: String!) {
           displayFinancialStatus
           displayFulfillmentStatus
           createdAt
+          statusPageUrl
           totalPriceSet { shopMoney { amount currencyCode } }
           lineItems(first: 20) {
-            nodes { title quantity sku variantTitle }
+            nodes {
+              title
+              quantity
+              sku
+              variantTitle
+              originalTotalSet { shopMoney { amount currencyCode } }
+              discountedTotalSet { shopMoney { amount currencyCode } }
+            }
           }
           fulfillments(first: 5) {
             status
@@ -217,12 +225,20 @@ query OrdersByQuery($query: String!) {
       displayFinancialStatus
       displayFulfillmentStatus
       createdAt
+      statusPageUrl
       totalPriceSet { shopMoney { amount currencyCode } }
       customer { phone email displayName }
       shippingAddress { phone }
       billingAddress { phone }
       lineItems(first: 20) {
-        nodes { title quantity sku variantTitle }
+        nodes {
+          title
+          quantity
+          sku
+          variantTitle
+          originalTotalSet { shopMoney { amount currencyCode } }
+          discountedTotalSet { shopMoney { amount currencyCode } }
+        }
       }
       fulfillments(first: 5) {
         status

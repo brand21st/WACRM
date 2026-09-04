@@ -102,6 +102,8 @@ describe('buildSystemPrompt', () => {
     expect(prompt).toMatch(/wacrm:more_options/)
     expect(prompt).toMatch(/Product cards sent in chat already list in-stock variants/)
     expect(prompt).toMatch(/matching variants from tool results/)
+    expect(prompt).toMatch(/Track order card is sent separately/)
+    expect(prompt).toMatch(/lookup_my_orders|get_order_tracking/)
     expect(prompt).not.toMatch(/Do not mention Shopify/)
     expect(prompt).not.toMatch(/can’t find live products|can't find live products/)
     expect(prompt).not.toMatch(/This is their first message/)

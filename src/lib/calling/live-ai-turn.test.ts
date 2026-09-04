@@ -18,6 +18,7 @@ const h = vi.hoisted(() => ({
   generateCustomerFacingReply: vi.fn(),
   bindShopifyTools: vi.fn(),
   sendProductCards: vi.fn(),
+  sendOrderCards: vi.fn(),
   sendWhatsAppCatalogMessage: vi.fn(),
   transcribeSpeech: vi.fn(),
   synthesizeSpeech: vi.fn(),
@@ -99,6 +100,7 @@ vi.mock('@/lib/ai/auto-reply', () => ({
   generateCustomerFacingReply: h.generateCustomerFacingReply,
   bindShopifyTools: h.bindShopifyTools,
   sendProductCards: h.sendProductCards,
+  sendOrderCards: h.sendOrderCards,
   sendWhatsAppCatalogMessage: h.sendWhatsAppCatalogMessage,
 }))
 vi.mock('@/lib/ai/speech', () => ({
@@ -168,6 +170,8 @@ describe('runLiveAiTurn', () => {
       handoff: false,
     })
     h.sendProductCards.mockResolvedValue(undefined)
+    h.sendOrderCards.mockReset()
+    h.sendOrderCards.mockResolvedValue(undefined)
     h.transcribeSpeech.mockResolvedValue('Do you have bags?')
     h.synthesizeSpeech.mockResolvedValue({
       bytes: new Uint8Array([1, 2, 3]),
@@ -261,6 +265,36 @@ describe('runLiveAiTurn', () => {
     ])
     expect(result.transcript).toBe('Do you have bags?')
     expect(result.handoff).toBe(false)
+  })
+
+  it('sends an order tracking card when Shopify lookup returns one', async () => {
+    h.loadShopifyConfig.mockResolvedValue({
+      accountId: 'acct-1',
+      shopDomain: 'acme.myshopify.com',
+      accessToken: 't',
+      isActive: true,
+      shopName: 'Acme',
+    })
+    h.bindShopifyTools.mockImplementation(
+      (
+        _db: unknown,
+        _shopify: unknown,
+        _phone: unknown,
+        _cards: unknown[],
+        opts: { orderCards?: { orderName: string }[] },
+      ) => {
+        opts.orderCards?.push({ orderName: '#1001' })
+        return { tools: [{ name: 'get_order_tracking' }], executeTool: vi.fn() }
+      },
+    )
+    await runLiveAiTurn({
+      accountId: 'acct-1',
+      userId: 'user-1',
+      callId: 'call-1',
+      kind: 'utterance',
+      audio: { bytes: Buffer.from([9]), mimeType: 'audio/webm', fileName: 'u.webm' },
+    })
+    expect(h.sendOrderCards).toHaveBeenCalled()
   })
 
   it('skips empty transcripts', async () => {

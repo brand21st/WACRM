@@ -31,6 +31,7 @@ import {
   ctaBodyFromCard,
   stripCheckoutUrlsFromReply,
 } from './checkout-cta'
+import { stripOrderUrlsFromReply } from './order-card'
 import { detectSpokenIndicTarget } from './indic-language'
 import { uploadGeneratedAudio } from '@/lib/elevenlabs/storage'
 import { realtimeTurn } from './realtime'
@@ -54,7 +55,7 @@ import {
   tryCompleteCommerceDiscount,
   tryCompleteCommerceEmail,
 } from '@/lib/commerce/checkout'
-import type { CartOffer, ShopifyProductCard, ShopifyStoreConfig } from '@/lib/shopify'
+import type { CartOffer, ShopifyOrderCard, ShopifyProductCard, ShopifyStoreConfig } from '@/lib/shopify'
 import { rehostPublicImage } from '@/lib/storage/generated-media'
 import type { ExecuteLlmTool, LlmToolDef } from './providers/shared'
 import type { AiConfig, ChatMessage } from './types'
@@ -289,6 +290,7 @@ export async function dispatchInboundToAiReply(
     }
 
     const productCards: ShopifyProductCard[] = []
+    const orderCards: ShopifyOrderCard[] = []
     const cartOfferHolder: { value: CartOffer | null } = { value: null }
     const catalogHolder: { value: boolean } = { value: false }
     const metaCatalogId = (
@@ -313,6 +315,7 @@ export async function dispatchInboundToAiReply(
         retailerIdSource: commerce?.retailerIdSource,
         whatsappCatalog,
         sendCatalog: catalogHolder,
+        orderCards,
       },
     )
 
@@ -420,20 +423,19 @@ export async function dispatchInboundToAiReply(
               conv,
               conversationId,
               sendArgs,
-              text: stripCheckoutUrlsFromReply(
-                spoken.text,
-                productCards.map((c) => c.checkoutUrl),
-              ),
+              text: stripReplyLinkUrls(spoken.text, productCards, orderCards),
               messages,
               shopify: false,
               wantsText: true,
               wantsAudio: true,
               audioSent: true,
               productCards,
+              orderCards,
             })
             if (handedOff) return
           }
           await sendProductCards(sendArgs, productCards, shopify)
+          await sendOrderCards(sendArgs, orderCards)
           return
         }
         if (!config.fullAgentEnabled) {
@@ -500,6 +502,7 @@ export async function dispatchInboundToAiReply(
         aiGenerated: true,
       })
       await sendProductCards(sendArgs, productCards, shopify)
+      await sendOrderCards(sendArgs, orderCards)
       return
     }
 
@@ -553,12 +556,12 @@ export async function dispatchInboundToAiReply(
       confirmTap && cartOffer && (!(text ?? '').trim() || handoff)
         ? cartOfferFallbackText(cartOffer.items)
         : text
-    const textForCustomer = stripCheckoutUrlsFromReply(replyText, [
-      ...productCards.map((c) => c.checkoutUrl),
-      ...productCards.map((c) => c.cartUrl),
-      cartOffer?.cartUrl,
-      cartOffer?.checkoutUrl,
-    ])
+    const textForCustomer = stripReplyLinkUrls(
+      replyText,
+      productCards,
+      orderCards,
+      [cartOffer?.cartUrl, cartOffer?.checkoutUrl],
+    )
 
     const handedOff = await sendCustomerFacingText({
       db,
@@ -573,6 +576,7 @@ export async function dispatchInboundToAiReply(
       wantsAudio,
       audioSent,
       productCards,
+      orderCards,
       chatButtonMode: cartOffer ? (confirmTap ? 'none' : 'cart') : 'nav',
     })
     if (handedOff) return
@@ -581,15 +585,18 @@ export async function dispatchInboundToAiReply(
       catalogHolder.value || isWhatsAppCatalogRequest(queryText)
     if (catalogRequested && metaCatalogId) {
       await sendWhatsAppCatalogMessage(sendArgs, textForCustomer)
+      await sendOrderCards(sendArgs, orderCards)
       return
     }
 
     if (cartOffer) {
       await sendCartOffer(sendArgs, cartOffer)
+      await sendOrderCards(sendArgs, orderCards)
       return
     }
 
     await sendProductCards(sendArgs, productCards, shopify)
+    await sendOrderCards(sendArgs, orderCards)
   } catch (err) {
     console.error('[ai auto-reply] dispatch failed:', err)
   }
@@ -622,6 +629,7 @@ async function sendCustomerFacingText(args: {
   wantsAudio: boolean
   audioSent: boolean
   productCards: ShopifyProductCard[]
+  orderCards?: ShopifyOrderCard[]
   chatButtonMode?: 'nav' | 'cart' | 'none'
 }): Promise<boolean> {
   const mode = args.chatButtonMode ?? 'nav'
@@ -669,6 +677,7 @@ async function sendCustomerFacingText(args: {
     args.wantsText ||
     (args.wantsAudio && !args.audioSent) ||
     args.productCards.length > 0 ||
+    (args.orderCards?.length ?? 0) > 0 ||
     mode === 'cart' ||
     mode === 'none'
   ) {
@@ -844,6 +853,7 @@ export function bindShopifyTools(
     retailerIdSource?: import('@/lib/shopify/retailer-id').RetailerIdSource
     whatsappCatalog?: boolean
     sendCatalog?: { value: boolean }
+    orderCards?: ShopifyOrderCard[]
   } = { imageTurn: false },
 ): { tools?: LlmToolDef[]; executeTool?: ExecuteLlmTool } {
   if (!shopify) return {}
@@ -876,6 +886,9 @@ export function bindShopifyTools(
         opts.imageTurn &&
         (name === 'search_products' || name === 'list_new_arrivals')
       if (!skipCards && !result.sendCatalog) productCards.push(...result.cards)
+      if (result.orderCards?.length && opts.orderCards) {
+        opts.orderCards.push(...result.orderCards)
+      }
       if (result.cartOffer && opts.cartOffer) {
         opts.cartOffer.value = result.cartOffer
       }
@@ -909,6 +922,23 @@ async function hydrateCardImages(
 }
 
 const MAX_PRODUCT_CARDS = 3
+const MAX_ORDER_CARDS = 3
+
+function stripReplyLinkUrls(
+  text: string,
+  productCards: ShopifyProductCard[],
+  orderCards: ShopifyOrderCard[],
+  extra: (string | null | undefined)[] = [],
+): string {
+  return stripOrderUrlsFromReply(
+    stripCheckoutUrlsFromReply(text, [
+      ...productCards.map((c) => c.checkoutUrl),
+      ...productCards.map((c) => c.cartUrl),
+      ...extra,
+    ]),
+    orderCards,
+  )
+}
 
 const CATALOG_MESSAGE_FALLBACK = 'Browse our catalog'
 
@@ -980,6 +1010,54 @@ export async function sendProductCards(
     }
     await sendCheckoutCtaIfInStock(sendArgs, card)
     sent += 1
+  }
+}
+
+export async function sendOrderCards(
+  sendArgs: {
+    accountId: string
+    userId: string
+    conversationId: string
+    contactId: string
+  },
+  cards: ShopifyOrderCard[],
+): Promise<void> {
+  const seen = new Set<string>()
+  let sent = 0
+  for (const card of cards) {
+    if (sent >= MAX_ORDER_CARDS) break
+    const key = card.orderName || card.bodyText
+    if (!key || seen.has(key)) continue
+    seen.add(key)
+    const body = card.bodyText.trim().slice(0, 1024)
+    if (!body) continue
+    const url = card.url?.trim()
+    const label = card.buttonLabel?.trim()
+    if (url && label) {
+      try {
+        await engineSendCtaUrl({
+          ...sendArgs,
+          bodyText: body,
+          displayText: label,
+          url,
+          aiGenerated: true,
+        })
+        sent += 1
+        continue
+      } catch (err) {
+        console.error('[ai auto-reply] order tracking card send failed:', err)
+      }
+    }
+    try {
+      await engineSendText({
+        ...sendArgs,
+        text: body,
+        aiGenerated: true,
+      })
+      sent += 1
+    } catch (err) {
+      console.error('[ai auto-reply] order card text send failed:', err)
+    }
   }
 }
 

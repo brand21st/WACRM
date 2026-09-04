@@ -14,6 +14,7 @@ import { shoppingOrSupportPrompt } from '@/lib/ai/describe-inbound-image'
 import { mapGqlProduct } from './map-product'
 import { rankProductsByDescription, tokensFromDescription } from './rank'
 import { shopifyGraphql } from './client'
+import { CUSTOMERS_BY_QUERY, ORDERS_BY_QUERY } from './queries'
 import { executeShopifyTool, shopifyLlmTools, toCard } from './tools'
 import * as matchPhoto from './match-photo'
 import { searchProductsLive, listNewArrivals, searchCatalogSnapshot } from './catalog'
@@ -567,6 +568,7 @@ describe('executeShopifyTool', () => {
     )
     expect(JSON.parse(result.json).note).toMatch(/phone/i)
     expect(JSON.parse(result.json).orders).toEqual([])
+    expect(result.orderCards).toEqual([])
   })
 
   it('returns no orders when the Shopify customer phone does not match', async () => {
@@ -598,6 +600,7 @@ describe('executeShopifyTool', () => {
     const body = JSON.parse(result.json)
     expect(body.orders).toEqual([])
     expect(body.note).toMatch(/this WhatsApp number/i)
+    expect(result.orderCards).toEqual([])
   })
 
   it('returns tracking only when the contact phone matches', async () => {
@@ -645,6 +648,103 @@ describe('executeShopifyTool', () => {
       company: 'UPS',
     })
     expect(body.orders[0].lineItems).toBeUndefined()
+    expect(result.orderCards).toHaveLength(1)
+    expect(result.orderCards?.[0]).toMatchObject({
+      orderName: '#1001',
+      buttonLabel: 'Track order',
+      url: 'https://track.example/1Z999',
+    })
+  })
+
+  it('returns an order card with name, phone, prices, and tracking URL', async () => {
+    vi.spyOn(client, 'shopifyGraphql').mockResolvedValue({
+      customers: {
+        nodes: [
+          {
+            displayName: 'Priya',
+            phone: '+91 88487 72371',
+            defaultAddress: { phone: null },
+            orders: {
+              nodes: [
+                {
+                  id: 'gid://shopify/Order/1',
+                  name: '#1001',
+                  displayFinancialStatus: 'PAID',
+                  displayFulfillmentStatus: 'FULFILLED',
+                  statusPageUrl: 'https://shop.example/pages/order/abc',
+                  totalPriceSet: { shopMoney: { amount: '2499.00', currencyCode: 'INR' } },
+                  lineItems: {
+                    nodes: [
+                      {
+                        title: 'Red Tote',
+                        quantity: 1,
+                        sku: 'TOTE',
+                        variantTitle: null,
+                        originalTotalSet: {
+                          shopMoney: { amount: '2499.00', currencyCode: 'INR' },
+                        },
+                        discountedTotalSet: {
+                          shopMoney: { amount: '2499.00', currencyCode: 'INR' },
+                        },
+                      },
+                    ],
+                  },
+                  fulfillments: [
+                    {
+                      status: 'SUCCESS',
+                      trackingInfo: [
+                        {
+                          number: '1Z999',
+                          url: 'https://track.example/1Z999',
+                          company: 'UPS',
+                        },
+                      ],
+                    },
+                  ],
+                },
+              ],
+            },
+          },
+        ],
+      },
+    })
+    const result = await executeShopifyTool(
+      { db: {} as SupabaseClient, config: STORE, contactPhone: '918848772371' },
+      'lookup_my_orders',
+      { order_name: '#1001' },
+    )
+    const body = JSON.parse(result.json)
+    expect(body.orders).toHaveLength(1)
+    expect(body.orders[0]).toMatchObject({
+      name: '#1001',
+      customerName: 'Priya',
+      customerPhone: '+91 88487 72371',
+      statusPageUrl: 'https://shop.example/pages/order/abc',
+    })
+    expect(body.orders[0].lineItems[0]).toMatchObject({
+      title: 'Red Tote',
+      price: '2499.00',
+      currency: 'INR',
+    })
+    expect(result.orderCards).toHaveLength(1)
+    expect(result.orderCards?.[0]).toMatchObject({
+      orderName: '#1001',
+      buttonLabel: 'Track order',
+      url: 'https://track.example/1Z999',
+    })
+    expect(result.orderCards?.[0]?.bodyText).toContain('Name: Priya')
+    expect(result.orderCards?.[0]?.bodyText).toContain('Phone: +91 88487 72371')
+    expect(result.orderCards?.[0]?.bodyText).toContain('Order: #1001')
+    expect(result.orderCards?.[0]?.bodyText).toMatch(/Red Tote/)
+  })
+
+  it('order GraphQL queries ask for status page and line prices', () => {
+    expect(CUSTOMERS_BY_QUERY).toContain('statusPageUrl')
+    expect(CUSTOMERS_BY_QUERY).toContain('discountedTotalSet')
+    expect(CUSTOMERS_BY_QUERY).toContain('originalTotalSet')
+    expect(ORDERS_BY_QUERY).toContain('statusPageUrl')
+    expect(ORDERS_BY_QUERY).toContain('discountedTotalSet')
+    expect(ORDERS_BY_QUERY).toContain('displayName')
   })
 
   it('delegates match_product_from_photo to matchProductsFromPhoto', async () => {

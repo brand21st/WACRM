@@ -192,6 +192,8 @@ export function buildSystemPrompt(args: {
           : 'When the customer asks for their cart, a checkout link, “send me the link”, or is ready to buy, call offer_cart and recap what they asked plus the items — do not paste the URLs. If offer_cart returns no items, search the catalog first. ') +
         photoBlock +
         'Orders and tracking are only for this WhatsApp number — never mention another customer’s order. ' +
+        'When the customer asks for tracking, shipment status, or an order ID, call lookup_my_orders or get_order_tracking. ' +
+        'Do not paste tracking or order-status URLs — a Track order card is sent separately. Recap briefly (for example, here is order #1001) and let the card carry name, phone, products, and price. ' +
         'When the customer taps a quick-reply button, their message may include an action id: ' +
         'wacrm:products = show new products, wacrm:orders = look up their orders, wacrm:agent = hand off to a human, wacrm:help = general assistance, ' +
         (nativeCommerce

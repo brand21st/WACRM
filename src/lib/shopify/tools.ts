@@ -10,7 +10,9 @@ import { searchStoreContent } from './store-content'
 import { customerSearchQueries, shopifyPhoneMatchesContact } from './phone'
 import { retailerIdForProduct } from './retailer-id'
 import type { RetailerIdSource } from './retailer-id'
+import { orderCardsFromHits } from '@/lib/ai/order-card'
 import type {
+  ShopifyOrderCard,
   ShopifyOrderHit,
   ShopifyProductCard,
   ShopifyProductHit,
@@ -96,7 +98,7 @@ export const SHOPIFY_LLM_TOOLS: LlmToolDef[] = [
   {
     name: 'lookup_my_orders',
     description:
-      'Look up this WhatsApp customer’s Shopify orders. Always uses the contact phone; never other customers. Optional order name like #1001.',
+      'Look up this WhatsApp customer’s Shopify orders. Always uses the contact phone; never other customers. Optional order name like #1001. An order card with a Track order button is sent separately — do not paste tracking URLs.',
     parameters: {
       type: 'object',
       properties: {
@@ -110,7 +112,7 @@ export const SHOPIFY_LLM_TOOLS: LlmToolDef[] = [
   {
     name: 'get_order_tracking',
     description:
-      'Get shipment tracking for this WhatsApp customer’s order (phone-gated).',
+      'Get shipment tracking for this WhatsApp customer’s order (phone-gated). An order card with a Track order button is sent separately — do not paste tracking URLs.',
     parameters: {
       type: 'object',
       properties: {
@@ -165,6 +167,7 @@ export interface ShopifyToolContext {
 export interface ShopifyToolResult {
   json: string
   cards: ShopifyProductCard[]
+  orderCards?: ShopifyOrderCard[]
   cartOffer?: CartOffer | null
   sendCatalog?: boolean
 }
@@ -233,19 +236,15 @@ export async function executeShopifyTool(
         }
       }
       case 'lookup_my_orders':
-        return {
-          json: JSON.stringify(
-            await lookupOrders(ctx, str(args.order_name) || undefined),
-          ),
-          cards: [],
-        }
+        return orderLookupResult(
+          ctx,
+          await lookupOrders(ctx, str(args.order_name) || undefined),
+        )
       case 'get_order_tracking':
-        return {
-          json: JSON.stringify(
-            await lookupOrders(ctx, str(args.order_name) || undefined, true),
-          ),
-          cards: [],
-        }
+        return orderLookupResult(
+          ctx,
+          await lookupOrders(ctx, str(args.order_name) || undefined, true),
+        )
       case 'offer_cart': {
         const items = await resolveCartOfferItems({
           db: ctx.db,
@@ -488,15 +487,29 @@ export function toCard(
   }
 }
 
+function orderLookupResult(
+  ctx: ShopifyToolContext,
+  result: { payload: Record<string, unknown>; hits: ShopifyOrderHit[] },
+): ShopifyToolResult {
+  return {
+    json: JSON.stringify(result.payload),
+    cards: [],
+    orderCards: orderCardsFromHits(result.hits, ctx.contactPhone),
+  }
+}
+
 async function lookupOrders(
   ctx: ShopifyToolContext,
   orderName?: string,
   trackingOnly = false,
-): Promise<Record<string, unknown>> {
+): Promise<{ payload: Record<string, unknown>; hits: ShopifyOrderHit[] }> {
   if (!ctx.contactPhone) {
     return {
-      orders: [],
-      note: 'No WhatsApp phone on this contact, so orders cannot be looked up.',
+      payload: {
+        orders: [],
+        note: 'No WhatsApp phone on this contact, so orders cannot be looked up.',
+      },
+      hits: [],
     }
   }
 
@@ -516,21 +529,27 @@ async function lookupOrders(
 
   if (filtered.length === 0) {
     return {
-      orders: [],
-      note: 'No orders found for this WhatsApp number. Do not reveal anyone else’s orders.',
+      payload: {
+        orders: [],
+        note: 'No orders found for this WhatsApp number. Do not reveal anyone else’s orders.',
+      },
+      hits: [],
     }
   }
 
   return {
-    orders: filtered.map((o) =>
-      trackingOnly
-        ? {
-            name: o.name,
-            fulfillment_status: o.fulfillmentStatus,
-            tracking: o.tracking,
-          }
-        : o,
-    ),
+    payload: {
+      orders: filtered.map((o) =>
+        trackingOnly
+          ? {
+              name: o.name,
+              fulfillment_status: o.fulfillmentStatus,
+              tracking: o.tracking,
+            }
+          : o,
+      ),
+    },
+    hits: filtered,
   }
 }
 
@@ -562,7 +581,16 @@ async function fetchOrdersForPhone(
       for (const order of customer.orders?.nodes ?? []) {
         if (!order.id || seen.has(order.id)) continue
         seen.add(order.id)
-        out.push(mapOrder(order))
+        out.push(
+          mapOrder(
+            order,
+            {
+              displayName: customer.displayName,
+              phone: customer.phone ?? customer.defaultAddress?.phone,
+            },
+            ctx.contactPhone,
+          ),
+        )
       }
     }
     if (out.length > 0) break
@@ -591,28 +619,66 @@ export async function lookupOrderByNameForPhone(
         order.billingAddress?.phone,
       ])
     ) {
-      return mapOrder(order)
+      return mapOrder(
+        order,
+        {
+          displayName: order.customer?.displayName,
+          phone: order.customer?.phone,
+        },
+        ctx.contactPhone,
+      )
     }
   }
   return null
 }
 
-function mapOrder(order: OrderNode): ShopifyOrderHit {
-  const money = order.totalPriceSet?.shopMoney
+function moneyFromSet(
+  set?: { shopMoney?: { amount?: string; currencyCode?: string } | null } | null,
+): { amount: string | null; currency: string | null } {
+  return {
+    amount: set?.shopMoney?.amount ?? null,
+    currency: set?.shopMoney?.currencyCode ?? null,
+  }
+}
+
+function mapOrder(
+  order: OrderNode,
+  customer?: { displayName?: string | null; phone?: string | null },
+  contactPhone?: string | null,
+): ShopifyOrderHit {
+  const money = moneyFromSet(order.totalPriceSet)
+  const customerName =
+    customer?.displayName?.trim() || order.customer?.displayName?.trim() || null
+  const customerPhone =
+    customer?.phone?.trim() ||
+    order.customer?.phone?.trim() ||
+    contactPhone?.trim() ||
+    null
   return {
     id: order.id || '',
     name: order.name || '',
     financialStatus: order.displayFinancialStatus ?? null,
     fulfillmentStatus: order.displayFulfillmentStatus ?? null,
     createdAt: order.createdAt ?? null,
-    total: money?.amount ?? null,
-    currency: money?.currencyCode ?? null,
-    lineItems: (order.lineItems?.nodes ?? []).map((li) => ({
-      title: li.title || '',
-      quantity: li.quantity ?? 1,
-      sku: li.sku ?? null,
-      variantTitle: li.variantTitle ?? null,
-    })),
+    total: money.amount,
+    currency: money.currency,
+    customerName,
+    customerPhone,
+    statusPageUrl: order.statusPageUrl?.trim() || null,
+    lineItems: (order.lineItems?.nodes ?? []).map((li) => {
+      const priced =
+        moneyFromSet(li.discountedTotalSet).amount
+          ? moneyFromSet(li.discountedTotalSet)
+          : moneyFromSet(li.originalTotalSet)
+      return {
+        title: li.title || '',
+        quantity: li.quantity ?? 1,
+        sku: li.sku ?? null,
+        variantTitle: li.variantTitle ?? null,
+        price: priced.amount,
+        currency: priced.currency ?? money.currency,
+      }
+    }),
     tracking: (order.fulfillments ?? []).flatMap((f) =>
       (f.trackingInfo ?? []).map((t) => ({
         number: t.number ?? null,
@@ -625,6 +691,7 @@ function mapOrder(order: OrderNode): ShopifyOrderHit {
 }
 
 interface CustomerNode {
+  displayName?: string | null
   phone?: string | null
   defaultAddress?: { phone?: string | null } | null
   orders?: { nodes?: OrderNode[] | null } | null
@@ -636,8 +703,9 @@ interface OrderNode {
   displayFinancialStatus?: string | null
   displayFulfillmentStatus?: string | null
   createdAt?: string | null
+  statusPageUrl?: string | null
   totalPriceSet?: { shopMoney?: { amount?: string; currencyCode?: string } | null } | null
-  customer?: { phone?: string | null } | null
+  customer?: { phone?: string | null; displayName?: string | null } | null
   shippingAddress?: { phone?: string | null } | null
   billingAddress?: { phone?: string | null } | null
   lineItems?: {
@@ -646,6 +714,12 @@ interface OrderNode {
       quantity?: number | null
       sku?: string | null
       variantTitle?: string | null
+      originalTotalSet?: {
+        shopMoney?: { amount?: string; currencyCode?: string } | null
+      } | null
+      discountedTotalSet?: {
+        shopMoney?: { amount?: string; currencyCode?: string } | null
+      } | null
     }[] | null
   } | null
   fulfillments?: {

@@ -42,4 +42,11 @@ export {
   resolveCartOfferItems,
 } from './cart-offer'
 export type { CartOffer, CartOfferItem } from './cart-offer'
-export type { ShopifyStoreConfig, ShopifyProductHit, ShopifyProductCard, ShopifyOrderHit } from './types'
+export type {
+  ShopifyStoreConfig,
+  ShopifyProductHit,
+  ShopifyProductCard,
+  ShopifyOrderHit,
+  ShopifyOrderCard,
+  ShopifyOrderLineItem,
+} from './types'

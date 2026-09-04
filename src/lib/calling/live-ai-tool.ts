@@ -7,6 +7,7 @@ import { nativeCommerceEnabled } from '@/lib/commerce/types'
 import { persistCallTurnMessage } from '@/lib/calling/persist-call-turn'
 import {
   bindShopifyTools,
+  sendOrderCards,
   sendProductCards,
   sendWhatsAppCatalogMessage,
 } from '@/lib/ai/auto-reply'
@@ -33,7 +34,7 @@ import {
   type ChatLanguageLock,
 } from '@/lib/ai/language-lock'
 import { liveAiHandoffSpoken } from '@/lib/calling/live-ai-speech-language'
-import type { ShopifyProductCard } from '@/lib/shopify'
+import type { ShopifyOrderCard, ShopifyProductCard } from '@/lib/shopify'
 
 export type LiveAiToolTranscriptRole = 'customer' | 'bot'
 
@@ -194,6 +195,7 @@ export async function executeLiveAiTool(args: {
     .maybeSingle()
 
   const productCards: ShopifyProductCard[] = []
+  const orderCards: ShopifyOrderCard[] = []
   const catalogHolder: { value: boolean } = { value: false }
   const commerce = await loadCommerceSettings(db, args.accountId).catch(() => null)
   const metaCatalogId = (
@@ -213,6 +215,7 @@ export async function executeLiveAiTool(args: {
       retailerIdSource: commerce?.retailerIdSource,
       whatsappCatalog: Boolean(metaCatalogId),
       sendCatalog: catalogHolder,
+      orderCards,
     },
   )
   if (!bound.executeTool) {
@@ -234,6 +237,9 @@ export async function executeLiveAiTool(args: {
       await sendWhatsAppCatalogMessage(sendArgs, 'Browse our catalog')
     } else if (productCards.length > 0) {
       await sendProductCards(sendArgs, productCards, shopify)
+    }
+    if (orderCards.length > 0) {
+      await sendOrderCards(sendArgs, orderCards)
     }
   }
   return { output, handoff: false }

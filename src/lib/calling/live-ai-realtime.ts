@@ -20,7 +20,7 @@ import { bindShopifyTools } from '@/lib/ai/auto-reply'
 import { loadShopifyConfig, retrieveShopifyStoreContent } from '@/lib/shopify'
 import { loadCommerceSettings } from '@/lib/shopify/commerce-config'
 import { nativeCommerceEnabled } from '@/lib/commerce/types'
-import type { ShopifyProductCard } from '@/lib/shopify'
+import type { ShopifyOrderCard, ShopifyProductCard } from '@/lib/shopify'
 import type { LlmToolDef } from '@/lib/ai/providers/shared'
 import { liveCallRealtimeModelId } from '@/lib/ai/realtime'
 import { effectiveRealtimeVoice } from '@/lib/ai/realtime/voices'
@@ -206,6 +206,7 @@ export async function buildLiveAiRealtimeContext(args: {
   tools: RealtimeFunctionTool[]
   shopifyTools: ReturnType<typeof bindShopifyTools>
   productCards: ShopifyProductCard[]
+  orderCards: ShopifyOrderCard[]
   contactPhone: string | null
   settings: CallingSettings
   transcriptionLanguage: string | null
@@ -264,6 +265,7 @@ export async function buildLiveAiRealtimeContext(args: {
   })
   const whatsappCatalog = Boolean(metaCatalogId)
   const productCards: ShopifyProductCard[] = []
+  const orderCards: ShopifyOrderCard[] = []
   const shopifyTools = bindShopifyTools(
     db,
     shopify,
@@ -274,6 +276,7 @@ export async function buildLiveAiRealtimeContext(args: {
       nativeCommerce,
       retailerIdSource: commerce?.retailerIdSource,
       whatsappCatalog,
+      orderCards,
     },
   )
 
@@ -316,6 +319,7 @@ export async function buildLiveAiRealtimeContext(args: {
     ],
     shopifyTools,
     productCards,
+    orderCards,
     contactPhone: contactRow?.phone ?? null,
     settings,
     transcriptionLanguage: liveAiTranscriptionLanguage(
