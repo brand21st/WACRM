@@ -9,9 +9,9 @@ import { DEFAULT_JOB_OPTIONS, QUEUE_NAMES } from '@/lib/queue/names'
 import { getBullmqConnection } from '@/lib/queue/redis'
 
 type QueueMap = {
-  aiChatReply: Queue<AiChatReplyJob>
-  aiVoiceInbound: Queue<AiVoiceInboundJob>
-  callRecording: Queue<CallRecordingJob>
+  aiChatReply: Queue
+  aiVoiceInbound: Queue
+  callRecording: Queue
 }
 
 let queues: QueueMap | null = null
@@ -27,15 +27,9 @@ function getQueues(): QueueMap | null {
   if (!queues) {
     const opts = { connection, defaultJobOptions: DEFAULT_JOB_OPTIONS }
     queues = {
-      aiChatReply: new Queue<AiChatReplyJob>(QUEUE_NAMES.aiChatReply, opts),
-      aiVoiceInbound: new Queue<AiVoiceInboundJob>(
-        QUEUE_NAMES.aiVoiceInbound,
-        opts,
-      ),
-      callRecording: new Queue<CallRecordingJob>(
-        QUEUE_NAMES.callRecording,
-        opts,
-      ),
+      aiChatReply: new Queue(QUEUE_NAMES.aiChatReply, opts),
+      aiVoiceInbound: new Queue(QUEUE_NAMES.aiVoiceInbound, opts),
+      callRecording: new Queue(QUEUE_NAMES.callRecording, opts),
     }
   }
   return queues
