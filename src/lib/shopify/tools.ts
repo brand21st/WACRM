@@ -1,7 +1,20 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { shopifyGraphql } from './client'
 import { CUSTOMERS_BY_QUERY, ORDERS_BY_QUERY } from './queries'
-import { getProductLive, listNewArrivals, searchProducts } from './catalog'
+import {
+  getProductLive,
+  listBestSelling,
+  listNewArrivals,
+  searchProducts,
+} from './catalog'
+import {
+  listRecommendedProducts,
+  type CustomerProductInterest,
+} from './recommend'
+import {
+  DEFAULT_SEARCH_CARDS,
+  resolveProductCardLimit,
+} from '@/lib/ai/product-card-limit'
 import {
   matchProductsFromPhoto,
   type MatchProductsFromPhotoOpts,
@@ -29,13 +42,18 @@ export const SHOPIFY_LLM_TOOLS: LlmToolDef[] = [
   {
     name: 'search_products',
     description:
-      'Search the Shopify catalog for products by name, color, brand, or keywords. Use for prices, variants, and product details. Never invent products.',
+      'Search the Shopify catalog for products the customer named. Use this for any specific product, color, or keyword ask. Set limit to how many they asked for (1–10). Never invent products.',
     parameters: {
       type: 'object',
       properties: {
         query: {
           type: 'string',
-          description: 'Search text, e.g. "red leather bag" or a SKU',
+          description: 'Search text copied from what they asked, e.g. "red leather bag" or a SKU',
+        },
+        limit: {
+          type: 'integer',
+          description:
+            'How many cards to send (1–10). Omit to match how many they asked for.',
         },
       },
       required: ['query'],
@@ -57,11 +75,50 @@ export const SHOPIFY_LLM_TOOLS: LlmToolDef[] = [
   },
   {
     name: 'list_new_arrivals',
-    description: 'List the newest published products in the Shopify catalog.',
+    description:
+      'List the newest published products. Use for new products, new arrivals, or the wacrm:products button. Do not use search_products for those browse phrases.',
     parameters: {
       type: 'object',
       properties: {
-        limit: { type: 'integer', description: 'How many to return (1–8)' },
+        limit: {
+          type: 'integer',
+          description:
+            'How many to return (1–10). Omit to match how many the customer asked for.',
+        },
+      },
+    },
+  },
+  {
+    name: 'list_best_selling',
+    description:
+      'List best-selling or trending Shopify products. Use when the customer asks for best selling, bestsellers, popular, or trending products. Do not use search_products for those browse phrases.',
+    parameters: {
+      type: 'object',
+      properties: {
+        limit: {
+          type: 'integer',
+          description:
+            'How many to return (1–10). Omit to match how many the customer asked for.',
+        },
+      },
+    },
+  },
+  {
+    name: 'recommend_products',
+    description:
+      'Recommend Shopify products related to this turn. Pass query as the words they just used (primary seed). Remembered products and preferences only fill after that. Use when they ask for recommendations, suggestions, “for me”, “what should I buy”, or similar. Do not use for a named product search.',
+    parameters: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description: 'Optional extra hint from this message, e.g. "wedding" or a color',
+        },
+        limit: {
+          type: 'integer',
+          description:
+            'How many to return (1–10). Omit to match how many the customer asked for.',
+        },
       },
     },
   },
@@ -162,6 +219,8 @@ export interface ShopifyToolContext {
   conversationId?: string | null
   nativeCommerce?: boolean
   retailerIdSource?: RetailerIdSource
+  customerInterest?: CustomerProductInterest
+  customerText?: string | null
 }
 
 export interface ShopifyToolResult {
@@ -179,20 +238,48 @@ export async function executeShopifyTool(
 ): Promise<ShopifyToolResult> {
   try {
     switch (name) {
-      case 'search_products':
+      case 'search_products': {
+        const limit = resolveProductCardLimit(args.limit, ctx.customerText)
         return productsResult(
-          await searchProducts(ctx.db, ctx.config, str(args.query)),
+          await searchProducts(ctx.db, ctx.config, str(args.query), limit),
           ctx.retailerIdSource,
+          limit,
         )
+      }
       case 'get_product': {
         const hit = await getProductLive(ctx.config, str(args.id))
-        return productsResult(hit ? [hit] : [], ctx.retailerIdSource)
+        return productsResult(hit ? [hit] : [], ctx.retailerIdSource, 1)
       }
       case 'list_new_arrivals': {
-        const limit = clampInt(args.limit, 1, 8, 6)
+        const limit = resolveProductCardLimit(args.limit, ctx.customerText)
         return productsResult(
           await listNewArrivals(ctx.db, ctx.config, limit),
           ctx.retailerIdSource,
+          limit,
+        )
+      }
+      case 'list_best_selling': {
+        const limit = resolveProductCardLimit(args.limit, ctx.customerText)
+        return productsResult(
+          await listBestSelling(ctx.db, ctx.config, limit),
+          ctx.retailerIdSource,
+          limit,
+        )
+      }
+      case 'recommend_products': {
+        const limit = resolveProductCardLimit(args.limit, ctx.customerText)
+        return productsResult(
+          await listRecommendedProducts(
+            ctx.db,
+            ctx.config,
+            {
+              ...(ctx.customerInterest ?? {}),
+              query: str(args.query) || ctx.customerInterest?.query,
+            },
+            { limit, shownCards: ctx.productCards },
+          ),
+          ctx.retailerIdSource,
+          limit,
         )
       }
       case 'match_product_from_photo': {
@@ -204,6 +291,7 @@ export async function executeShopifyTool(
             ctx.photoMatch,
           ),
           ctx.retailerIdSource,
+          DEFAULT_SEARCH_CARDS,
         )
       }
       case 'search_store_info': {
@@ -324,6 +412,7 @@ export async function executeShopifyTool(
 function productsResult(
   hits: ShopifyProductHit[],
   source?: RetailerIdSource,
+  maxCards = DEFAULT_SEARCH_CARDS,
 ): ShopifyToolResult {
   if (hits.length === 0) {
     return {
@@ -336,7 +425,7 @@ function productsResult(
   }
   return {
     json: JSON.stringify({ products: hits.map(summarizeProduct) }),
-    cards: hits.slice(0, 3).map((hit) => toCard(hit, source)),
+    cards: hits.slice(0, maxCards).map((hit) => toCard(hit, source)),
   }
 }
 

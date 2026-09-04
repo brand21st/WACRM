@@ -119,7 +119,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json({
       checkout: {
-        key: razorpayKeyId(),
+        key: await razorpayKeyId(),
         subscription_id: sub.id,
         name: 'Vachat.in',
         description: pkg.name,

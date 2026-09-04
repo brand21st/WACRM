@@ -4,14 +4,14 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
-import { LayoutDashboard, LogOut, Package, Sparkles, Users } from "lucide-react";
+import { LayoutDashboard, LogOut, Package, Settings, Sparkles, Users } from "lucide-react";
 import { AuthProvider, useAuth } from "@/hooks/use-auth";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 
 const NAV: Array<{
   href: string
-  labelKey: "overview" | "accounts" | "ai" | "packages"
+  labelKey: "overview" | "accounts" | "ai" | "packages" | "settings"
   icon: typeof LayoutDashboard
   exact?: boolean
 }> = [
@@ -19,6 +19,7 @@ const NAV: Array<{
   { href: "/super-admin/accounts", labelKey: "accounts", icon: Users },
   { href: "/super-admin/ai", labelKey: "ai", icon: Sparkles },
   { href: "/super-admin/packages", labelKey: "packages", icon: Package },
+  { href: "/super-admin/settings", labelKey: "settings", icon: Settings },
 ];
 
 interface NavPackage {

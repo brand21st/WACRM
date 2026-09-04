@@ -104,6 +104,18 @@ describe('buildSystemPrompt', () => {
     expect(prompt).toMatch(/matching variants from tool results/)
     expect(prompt).toMatch(/Track order card is sent separately/)
     expect(prompt).toMatch(/lookup_my_orders|get_order_tracking/)
+    expect(prompt).toMatch(/list_new_arrivals/)
+    expect(prompt).toMatch(/list_best_selling/)
+    expect(prompt).toMatch(/recommend_products/)
+    expect(prompt).toMatch(/best selling|trending/)
+    expect(prompt).toMatch(/search_products with those words/)
+    expect(prompt).toMatch(/Set limit to how many they asked for/)
+    expect(prompt).toMatch(/Do not send extra unrelated cards/)
+    expect(prompt).toMatch(/this ask first, then remembered products and preferences/)
+    expect(prompt).toMatch(
+      /Do not call list_new_arrivals, list_best_selling, or recommend_products for a specific product ask/,
+    )
+    expect(prompt).toMatch(/Do not call search_products for those browse phrases/)
     expect(prompt).not.toMatch(/Do not mention Shopify/)
     expect(prompt).not.toMatch(/can’t find live products|can't find live products/)
     expect(prompt).not.toMatch(/This is their first message/)

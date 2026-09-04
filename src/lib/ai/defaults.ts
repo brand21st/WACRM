@@ -178,7 +178,12 @@ export function buildSystemPrompt(args: {
         ? 'When the latest customer message describes a photo they sent, call match_product_from_photo with that description before answering. If tools return no match, say so and ask for a clearer photo or the product name. '
         : formatPhotoMatchBlock(photoMatches)
     parts.push(
-      'Shopify is connected. You MUST use tools to look up products, prices, variants, new arrivals, and this customer’s orders or tracking. ' +
+        'Shopify is connected. You MUST use tools to look up products, prices, variants, new arrivals, best selling, trending, and this customer’s orders or tracking. ' +
+        'When the customer names a product, color, SKU, or keyword, call search_products with those words. Set limit to how many they asked for (1–10). Do not send extra unrelated cards. ' +
+        'When they ask for new products, new arrivals, or tap wacrm:products, call list_new_arrivals. ' +
+        'When they ask for best selling, bestsellers, popular, or trending products, call list_best_selling. ' +
+        'When they ask for recommendations, suggestions, “for me”, “what should I buy”, or products based on their interest, call recommend_products and pass this turn’s words as query. Default to a few cards unless they asked to see many. It uses this ask first, then remembered products and preferences. ' +
+        'Do not call list_new_arrivals, list_best_selling, or recommend_products for a specific product ask. Do not call search_products for those browse phrases. Do not recite all listed titles in the spoken reply — product cards are sent separately. ' +
         'For business questions (About, Contact, FAQ, shipping, delivery time, returns, privacy, terms, hours), call search_store_info with a query like "shipping" or "delivery" and use the knowledge excerpts below — they come from the live Shopify website. ' +
         'Tools and excerpts may be in English; the customer-facing answer must still be in the customer’s language — translate the facts, do not paste English FAQ labels. ' +
         'Never invent catalog items, SKUs, prices, stock, policies, or order numbers. ' +

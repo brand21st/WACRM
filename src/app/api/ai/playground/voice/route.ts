@@ -153,6 +153,7 @@ export async function POST(request: Request) {
                   config: shopify,
                   contactPhone: null,
                   productCards,
+                  customerText: latestUserMessage(messages),
                 },
                 name,
                 args,

@@ -2,6 +2,7 @@ import crypto from 'crypto'
 
 import type { BillingInterval } from './types'
 import { razorpayPlanPeriod } from './interval'
+import { resolveBillingCredentials } from './platform-settings'
 
 const API = 'https://api.razorpay.com/v1'
 
@@ -12,25 +13,42 @@ export class RazorpayConfigError extends Error {
   }
 }
 
-export function razorpayKeyId(): string {
-  return (process.env.RAZORPAY_KEY_ID ?? process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID ?? '').trim()
+export function isValidRazorpayKeyId(keyId: string): boolean {
+  return keyId.startsWith('rzp_test_') || keyId.startsWith('rzp_live_')
 }
 
-export function razorpayKeySecret(): string {
-  return (process.env.RAZORPAY_KEY_SECRET ?? '').trim()
+export function razorpayKeyMode(keyId: string): 'test' | 'live' | null {
+  if (keyId.startsWith('rzp_test_')) return 'test'
+  if (keyId.startsWith('rzp_live_')) return 'live'
+  return null
 }
 
-export function razorpayWebhookSecret(): string {
-  return (process.env.RAZORPAY_WEBHOOK_SECRET ?? '').trim()
+export async function razorpayKeyId(): Promise<string> {
+  const creds = await resolveBillingCredentials()
+  return creds.keyId
 }
 
-export function isRazorpayConfigured() {
-  return Boolean(razorpayKeyId() && razorpayKeySecret())
+export async function isRazorpayConfigured() {
+  const creds = await resolveBillingCredentials()
+  return creds.configured
 }
 
-export function assertRazorpayConfigured() {
-  if (!isRazorpayConfigured()) {
+export async function assertRazorpayConfigured() {
+  if (!(await isRazorpayConfigured())) {
     throw new RazorpayConfigError()
+  }
+}
+
+export async function validateRazorpayKeys(keyId: string, keySecret: string): Promise<void> {
+  const auth = Buffer.from(`${keyId}:${keySecret}`).toString('base64')
+  const res = await fetch(`${API}/payments?count=1`, {
+    headers: { Authorization: `Basic ${auth}` },
+  })
+  if (!res.ok) {
+    const body = (await res.json().catch(() => null)) as {
+      error?: { description?: string }
+    } | null
+    throw new Error(body?.error?.description || 'Razorpay rejected these keys')
   }
 }
 
@@ -38,10 +56,9 @@ async function razorpayFetch<T>(
   path: string,
   init: RequestInit = {},
 ): Promise<T> {
-  assertRazorpayConfigured()
-  const auth = Buffer.from(`${razorpayKeyId()}:${razorpayKeySecret()}`).toString(
-    'base64',
-  )
+  const creds = await resolveBillingCredentials()
+  if (!creds.configured) throw new RazorpayConfigError()
+  const auth = Buffer.from(`${creds.keyId}:${creds.keySecret}`).toString('base64')
   const res = await fetch(`${API}${path}`, {
     ...init,
     headers: {
@@ -96,11 +113,11 @@ export async function maybeSyncRazorpayPlan(args: {
   currency: string
   interval: BillingInterval
 }): Promise<{ planId: string | null; warning?: string }> {
-  if (!isRazorpayConfigured()) {
+  if (!(await isRazorpayConfigured())) {
     return {
       planId: null,
       warning:
-        'Package saved without a Razorpay Plan. Add RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET so merchants can subscribe.',
+        'Package saved without a Razorpay Plan. Add Razorpay keys in Super Admin → Settings so merchants can subscribe.',
     }
   }
   return { planId: await syncRazorpayPlan(args) }
@@ -150,25 +167,28 @@ export async function cancelRazorpaySubscription(
   })
 }
 
-export function verifyWebhookSignature(rawBody: string, signature: string): boolean {
-  const secret = razorpayWebhookSecret()
-  if (!secret || !signature) return false
-  const expected = crypto.createHmac('sha256', secret).update(rawBody).digest('hex')
+export async function verifyWebhookSignature(
+  rawBody: string,
+  signature: string,
+): Promise<boolean> {
+  const { webhookSecret } = await resolveBillingCredentials()
+  if (!webhookSecret || !signature) return false
+  const expected = crypto.createHmac('sha256', webhookSecret).update(rawBody).digest('hex')
   const a = Buffer.from(expected)
   const b = Buffer.from(signature)
   if (a.length !== b.length) return false
   return crypto.timingSafeEqual(a, b)
 }
 
-export function verifyCheckoutSignature(args: {
+export async function verifyCheckoutSignature(args: {
   subscriptionId: string
   paymentId: string
   signature: string
-}): boolean {
-  const secret = razorpayKeySecret()
-  if (!secret) return false
+}): Promise<boolean> {
+  const { keySecret } = await resolveBillingCredentials()
+  if (!keySecret) return false
   const payload = `${args.paymentId}|${args.subscriptionId}`
-  const expected = crypto.createHmac('sha256', secret).update(payload).digest('hex')
+  const expected = crypto.createHmac('sha256', keySecret).update(payload).digest('hex')
   const a = Buffer.from(expected)
   const b = Buffer.from(args.signature)
   if (a.length !== b.length) return false

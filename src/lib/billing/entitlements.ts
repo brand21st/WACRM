@@ -3,6 +3,8 @@ import { parseBillingInterval } from './interval'
 import {
   FALLBACK_ENTITLEMENTS,
   type AccountEntitlements,
+  type BillingGate,
+  type BillingGateInput,
   type BillingInterval,
   type BillingPackage,
   type SubscriptionStatus,
@@ -66,6 +68,117 @@ export function mapPackageRow(row: PackageRow): BillingPackage {
     whatsappMonthlyMessageCap: row.whatsapp_monthly_message_cap,
     shopifyEnabled: Boolean(row.shopify_enabled),
   }
+}
+
+export const BILLING_WARN_MS = 3 * 24 * 60 * 60 * 1000
+
+function packageFromRow(row: SubscriptionRow | null): PackageRow | null {
+  const pkgRaw = row?.billing_packages
+  if (!pkgRaw) return null
+  return Array.isArray(pkgRaw) ? pkgRaw[0] ?? null : pkgRaw
+}
+
+export function evaluateBillingGate(
+  row: BillingGateInput | null,
+  now = new Date(),
+): BillingGate {
+  if (!row) return { mode: 'ok', periodEnd: null, packageName: null }
+  const base = { periodEnd: row.currentPeriodEnd, packageName: row.packageName }
+  if (row.accountStatus === 'hold') {
+    return { mode: 'lock', ...base }
+  }
+  if (row.source === 'comp' || row.isFree || row.amountPaise === 0) {
+    return { mode: 'ok', ...base }
+  }
+  if (row.status === 'expired') {
+    return { mode: 'lock', ...base }
+  }
+  if (!row.currentPeriodEnd) {
+    return { mode: 'ok', ...base }
+  }
+  const end = new Date(row.currentPeriodEnd).getTime()
+  if (Number.isNaN(end)) return { mode: 'ok', ...base }
+  const t = now.getTime()
+  if (t >= end) return { mode: 'lock', ...base }
+  if (t >= end - BILLING_WARN_MS) return { mode: 'warn', ...base }
+  return { mode: 'ok', ...base }
+}
+
+function accountStatusFromRow(status: unknown): BillingGateInput['accountStatus'] {
+  if (status === 'hold' || status === 'suspended') return status
+  return 'active'
+}
+
+export async function loadAccountBillingGate(
+  accountId: string,
+  now = new Date(),
+): Promise<BillingGate> {
+  const db = supabaseAdmin()
+  const [{ data, error }, accountRes] = await Promise.all([
+    db
+      .from('account_subscriptions')
+      .select(
+        'status, source, current_period_end, billing_packages (name, is_free, amount_paise)',
+      )
+      .eq('account_id', accountId)
+      .maybeSingle(),
+    db.from('accounts').select('status').eq('id', accountId).maybeSingle(),
+  ])
+  const accountStatus = accountStatusFromRow(accountRes.data?.status)
+  if (error) {
+    console.error('[billing] gate load failed:', error)
+    return evaluateBillingGate(
+      accountStatus === 'hold'
+        ? {
+            status: 'active',
+            source: 'comp',
+            currentPeriodEnd: null,
+            packageName: null,
+            isFree: true,
+            amountPaise: 0,
+            accountStatus,
+          }
+        : null,
+      now,
+    )
+  }
+  if (!data) {
+    return evaluateBillingGate(
+      accountStatus === 'hold'
+        ? {
+            status: 'active',
+            source: 'comp',
+            currentPeriodEnd: null,
+            packageName: null,
+            isFree: true,
+            amountPaise: 0,
+            accountStatus,
+          }
+        : null,
+      now,
+    )
+  }
+  const pkgRaw = (
+    data as {
+      billing_packages:
+        | { name: string; is_free: boolean; amount_paise: number }
+        | { name: string; is_free: boolean; amount_paise: number }[]
+        | null
+    }
+  ).billing_packages
+  const pkg = Array.isArray(pkgRaw) ? pkgRaw[0] ?? null : pkgRaw
+  return evaluateBillingGate(
+    {
+      status: data.status as BillingGateInput['status'],
+      source: data.source as BillingGateInput['source'],
+      currentPeriodEnd: data.current_period_end,
+      packageName: pkg?.name ?? null,
+      isFree: Boolean(pkg?.is_free),
+      amountPaise: pkg?.amount_paise ?? 0,
+      accountStatus,
+    },
+    now,
+  )
 }
 
 export function subscriptionIsLive(
@@ -132,8 +245,7 @@ export async function getAccountEntitlements(
   }
 
   const row = data as SubscriptionRow | null
-  const pkgRaw = row?.billing_packages
-  const pkg = Array.isArray(pkgRaw) ? pkgRaw[0] : pkgRaw
+  const pkg = packageFromRow(row)
 
   if (row && pkg && subscriptionIsLive(row.status, row.current_period_end)) {
     return entitlementsFromPackage(

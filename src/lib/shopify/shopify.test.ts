@@ -17,7 +17,12 @@ import { shopifyGraphql } from './client'
 import { CUSTOMERS_BY_QUERY, ORDERS_BY_QUERY } from './queries'
 import { executeShopifyTool, shopifyLlmTools, toCard } from './tools'
 import * as matchPhoto from './match-photo'
-import { searchProductsLive, listNewArrivals, searchCatalogSnapshot } from './catalog'
+import {
+  searchProductsLive,
+  listBestSelling,
+  listNewArrivals,
+  searchCatalogSnapshot,
+} from './catalog'
 import type { ShopifyProductHit, ShopifyStoreConfig } from './types'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import * as client from './client'
@@ -553,6 +558,37 @@ describe('live catalog queries', () => {
       }),
     )
   })
+
+  it('defaults new arrivals to 10 products', async () => {
+    const gql = vi.spyOn(client, 'shopifyGraphql').mockResolvedValue({
+      products: { nodes: [] },
+    })
+    await listNewArrivals({} as SupabaseClient, STORE)
+    expect(gql).toHaveBeenCalledWith(
+      expect.objectContaining({
+        variables: expect.objectContaining({
+          first: 10,
+          sortKey: 'CREATED_AT',
+        }),
+      }),
+    )
+  })
+
+  it('lists best selling with Shopify BEST_SELLING sort', async () => {
+    const gql = vi.spyOn(client, 'shopifyGraphql').mockResolvedValue({
+      products: { nodes: [] },
+    })
+    await listBestSelling({} as SupabaseClient, STORE, 10)
+    expect(gql).toHaveBeenCalledWith(
+      expect.objectContaining({
+        variables: expect.objectContaining({
+          first: 10,
+          sortKey: 'BEST_SELLING',
+          reverse: false,
+        }),
+      }),
+    )
+  })
 })
 
 describe('executeShopifyTool', () => {
@@ -879,6 +915,78 @@ describe('executeShopifyTool', () => {
     const body = JSON.parse(result.json)
     expect(body.sent).toBe(false)
     expect(result.sendCatalog).toBeUndefined()
+  })
+
+  it('returns 10 product cards for list_best_selling', async () => {
+    vi.spyOn(client, 'shopifyGraphql').mockResolvedValue({
+      products: {
+        nodes: Array.from({ length: 12 }, (_, i) => ({
+          id: `gid://shopify/Product/${i + 1}`,
+          handle: `bag-${i + 1}`,
+          title: `Bag ${i + 1}`,
+          description: 'Bag',
+          featuredImage: { url: `https://cdn.example/bag-${i + 1}.jpg` },
+          variants: {
+            nodes: [
+              {
+                id: `gid://shopify/ProductVariant/${i + 1}`,
+                legacyResourceId: String(100 + i),
+                title: 'Default',
+                sku: `BAG-${i + 1}`,
+                availableForSale: true,
+                price: '49.00',
+                selectedOptions: [],
+              },
+            ],
+          },
+        })),
+      },
+    })
+    const result = await executeShopifyTool(
+      {
+        db: {} as SupabaseClient,
+        config: STORE,
+        contactPhone: null,
+        customerText: 'best selling',
+      },
+      'list_best_selling',
+      {},
+    )
+    expect(result.cards).toHaveLength(10)
+    expect(JSON.parse(result.json).products).toHaveLength(12)
+  })
+
+  it('returns 10 product cards for list_new_arrivals', async () => {
+    vi.spyOn(client, 'shopifyGraphql').mockResolvedValue({
+      products: {
+        nodes: Array.from({ length: 10 }, (_, i) => ({
+          id: `gid://shopify/Product/${i + 1}`,
+          handle: `new-${i + 1}`,
+          title: `New ${i + 1}`,
+          description: 'New',
+          featuredImage: { url: `https://cdn.example/new-${i + 1}.jpg` },
+          variants: {
+            nodes: [
+              {
+                id: `gid://shopify/ProductVariant/${i + 1}`,
+                legacyResourceId: String(200 + i),
+                title: 'Default',
+                sku: `NEW-${i + 1}`,
+                availableForSale: true,
+                price: '29.00',
+                selectedOptions: [],
+              },
+            ],
+          },
+        })),
+      },
+    })
+    const result = await executeShopifyTool(
+      { db: {} as SupabaseClient, config: STORE, contactPhone: null },
+      'list_new_arrivals',
+      {},
+    )
+    expect(result.cards).toHaveLength(10)
   })
 
   it('includes send_whatsapp_catalog only when the WhatsApp catalog is on', () => {

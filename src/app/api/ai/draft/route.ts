@@ -183,6 +183,7 @@ export async function POST(request: Request) {
                   contactPhone,
                   productCards,
                   conversationId,
+                  customerText: latestUserMessage(messages),
                 },
                 name,
                 args,

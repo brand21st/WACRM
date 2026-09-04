@@ -1,8 +1,7 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import Script from 'next/script';
-import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import {
   Card,
@@ -12,96 +11,29 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 import { useCan } from '@/hooks/use-can';
-import { intervalPriceSuffix } from '@/lib/billing/interval';
+import {
+  formatBillingPrice,
+  loadBillingCatalog,
+  useBillingCheckout,
+} from '@/hooks/use-billing-checkout';
 import type { AccountEntitlements, BillingPackage } from '@/lib/billing/types';
-
-declare global {
-  interface Window {
-    Razorpay?: new (options: Record<string, unknown>) => { open: () => void };
-  }
-}
-
-function formatPrice(pkg: BillingPackage) {
-  if (pkg.isFree || pkg.amountPaise === 0) return 'Free';
-  const rupees = pkg.amountPaise / 100;
-  return `₹${rupees.toLocaleString('en-IN')}/${intervalPriceSuffix(pkg.interval)}`;
-}
 
 export function BillingPanel() {
   const canEdit = useCan('edit-settings');
   const [packages, setPackages] = useState<BillingPackage[]>([]);
   const [sub, setSub] = useState<AccountEntitlements | null>(null);
-  const [busy, setBusy] = useState<string | null>(null);
 
-  async function load() {
-    const res = await fetch('/api/billing/packages');
-    const data = await res.json();
-    setPackages(data.packages ?? []);
-    setSub(data.subscription ?? null);
-  }
-
-  useEffect(() => {
-    void load();
+  const load = useCallback(async () => {
+    const data = await loadBillingCatalog();
+    setPackages(data.packages);
+    setSub(data.subscription);
   }, []);
 
-  async function subscribe(pkg: BillingPackage) {
-    if (!canEdit) return;
-    setBusy(pkg.id);
-    try {
-      const res = await fetch('/api/billing/subscribe', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ packageId: pkg.id }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        toast.error(data.error ?? 'Checkout failed');
-        return;
-      }
-      if (data.activated) {
-        toast.success('Plan updated');
-        await load();
-        return;
-      }
-      if (!data.checkout || !window.Razorpay) {
-        toast.error('Razorpay Checkout is not available');
-        return;
-      }
-      const checkout = new window.Razorpay({
-        ...data.checkout,
-        handler: async (response: {
-          razorpay_subscription_id: string;
-          razorpay_payment_id: string;
-          razorpay_signature: string;
-        }) => {
-          await fetch('/api/billing/verify', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(response),
-          });
-          toast.success('Payment received — activating your plan');
-          await load();
-        },
-      });
-      checkout.open();
-    } finally {
-      setBusy(null);
-    }
-  }
+  useEffect(() => {
+    void load().catch(() => {});
+  }, [load]);
 
-  async function cancel() {
-    setBusy('cancel');
-    try {
-      const res = await fetch('/api/billing/cancel', { method: 'POST' });
-      if (!res.ok) toast.error('Could not cancel');
-      else {
-        toast.success('Cancellation scheduled at period end');
-        await load();
-      }
-    } finally {
-      setBusy(null);
-    }
-  }
+  const { busy, subscribe, cancel } = useBillingCheckout(load);
 
   return (
     <div className="space-y-6">
@@ -135,7 +67,7 @@ export function BillingPanel() {
             <Card key={pkg.id}>
               <CardHeader>
                 <CardTitle className="text-base">{pkg.name}</CardTitle>
-                <CardDescription>{formatPrice(pkg)}</CardDescription>
+                <CardDescription>{formatBillingPrice(pkg)}</CardDescription>
               </CardHeader>
               <CardContent className="space-y-3">
                 <p className="text-sm text-muted-foreground">

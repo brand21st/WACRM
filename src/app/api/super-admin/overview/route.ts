@@ -22,11 +22,15 @@ export async function GET() {
       packages,
       usage,
     ] = await Promise.all([
-      admin.from('accounts').select('id', { count: 'exact', head: true }),
       admin
         .from('accounts')
         .select('id', { count: 'exact', head: true })
-        .eq('status', 'suspended'),
+        .neq('owner_user_id', userId),
+      admin
+        .from('accounts')
+        .select('id', { count: 'exact', head: true })
+        .eq('status', 'suspended')
+        .neq('owner_user_id', userId),
       admin
         .from('platform_ai_settings')
         .select('openai_api_key, anthropic_api_key, global_ai_enabled')

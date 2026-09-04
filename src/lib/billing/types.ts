@@ -1,6 +1,23 @@
 export type BillingInterval = 'month' | 'quarter' | 'year'
 export type SubscriptionStatus = 'active' | 'past_due' | 'cancelled' | 'expired'
 export type SubscriptionSource = 'checkout' | 'comp'
+export type BillingGateMode = 'ok' | 'warn' | 'lock'
+
+export interface BillingGate {
+  mode: BillingGateMode
+  periodEnd: string | null
+  packageName: string | null
+}
+
+export interface BillingGateInput {
+  status: SubscriptionStatus
+  source: SubscriptionSource
+  currentPeriodEnd: string | null
+  packageName: string | null
+  isFree: boolean
+  amountPaise: number
+  accountStatus?: 'active' | 'hold' | 'suspended'
+}
 
 export interface BillingPackage {
   id: string

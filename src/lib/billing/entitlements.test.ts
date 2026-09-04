@@ -1,6 +1,20 @@
 import { describe, expect, it, vi } from 'vitest'
-import { FALLBACK_ENTITLEMENTS } from './types'
-import { startOfUtcMonth, subscriptionIsLive } from './entitlements'
+import { FALLBACK_ENTITLEMENTS, type BillingGateInput } from './types'
+import { evaluateBillingGate, startOfUtcMonth, subscriptionIsLive } from './entitlements'
+
+const now = new Date('2026-09-05T00:00:00.000Z')
+
+function paidCheckout(overrides: Partial<BillingGateInput> = {}): BillingGateInput {
+  return {
+    status: 'active',
+    source: 'checkout',
+    currentPeriodEnd: '2026-09-10T00:00:00.000Z',
+    packageName: 'Pro',
+    isFree: false,
+    amountPaise: 777700,
+    ...overrides,
+  }
+}
 
 describe('subscriptionIsLive', () => {
   it('treats active and past_due as live', () => {
@@ -17,10 +31,158 @@ describe('subscriptionIsLive', () => {
   })
 })
 
+describe('evaluateBillingGate', () => {
+  it('locks when Super Admin sets HOLD, including Free and complimentary', () => {
+    expect(
+      evaluateBillingGate(
+        paidCheckout({
+          source: 'comp',
+          isFree: true,
+          amountPaise: 0,
+          accountStatus: 'hold',
+        }),
+        now,
+      ).mode,
+    ).toBe('lock')
+    expect(
+      evaluateBillingGate(paidCheckout({ accountStatus: 'hold' }), now).mode,
+    ).toBe('lock')
+  })
+
+  it('stays ok for Active Free and complimentary accounts', () => {
+    expect(
+      evaluateBillingGate(
+        paidCheckout({
+          source: 'comp',
+          isFree: true,
+          amountPaise: 0,
+          accountStatus: 'active',
+        }),
+        now,
+      ).mode,
+    ).toBe('ok')
+  })
+
+  it('is ok with no subscription, free plans, and complimentary assigns', () => {
+    expect(evaluateBillingGate(null, now).mode).toBe('ok')
+    expect(
+      evaluateBillingGate(paidCheckout({ isFree: true, amountPaise: 0, source: 'comp' }), now)
+        .mode,
+    ).toBe('ok')
+    expect(
+      evaluateBillingGate(
+        paidCheckout({ source: 'comp', currentPeriodEnd: '2026-09-01T00:00:00.000Z' }),
+        now,
+      ).mode,
+    ).toBe('ok')
+    expect(evaluateBillingGate(paidCheckout({ amountPaise: 0 }), now).mode).toBe('ok')
+  })
+
+  it('is ok more than 3 days before period end', () => {
+    expect(
+      evaluateBillingGate(paidCheckout({ currentPeriodEnd: '2026-09-10T00:00:00.000Z' }), now)
+        .mode,
+    ).toBe('ok')
+  })
+
+  it('warns inside the last 3 days before period end', () => {
+    expect(
+      evaluateBillingGate(paidCheckout({ currentPeriodEnd: '2026-09-07T00:00:00.000Z' }), now)
+        .mode,
+    ).toBe('warn')
+    expect(
+      evaluateBillingGate(paidCheckout({ currentPeriodEnd: '2026-09-06T12:00:00.000Z' }), now)
+        .mode,
+    ).toBe('warn')
+  })
+
+  it('locks at period end, after period end, and when expired', () => {
+    expect(
+      evaluateBillingGate(paidCheckout({ currentPeriodEnd: '2026-09-05T00:00:00.000Z' }), now)
+        .mode,
+    ).toBe('lock')
+    expect(
+      evaluateBillingGate(paidCheckout({ currentPeriodEnd: '2026-09-04T00:00:00.000Z' }), now)
+        .mode,
+    ).toBe('lock')
+    expect(
+      evaluateBillingGate(
+        paidCheckout({
+          status: 'expired',
+          currentPeriodEnd: '2026-10-01T00:00:00.000Z',
+        }),
+        now,
+      ).mode,
+    ).toBe('lock')
+  })
+
+  it('is ok when a paid checkout row has no period end', () => {
+    expect(evaluateBillingGate(paidCheckout({ currentPeriodEnd: null }), now).mode).toBe(
+      'ok',
+    )
+  })
+
+  it('keeps past_due before period end out of lock', () => {
+    expect(
+      evaluateBillingGate(
+        paidCheckout({ status: 'past_due', currentPeriodEnd: '2026-09-10T00:00:00.000Z' }),
+        now,
+      ).mode,
+    ).toBe('ok')
+    expect(
+      evaluateBillingGate(
+        paidCheckout({ status: 'past_due', currentPeriodEnd: '2026-09-06T00:00:00.000Z' }),
+        now,
+      ).mode,
+    ).toBe('warn')
+  })
+})
+
 describe('startOfUtcMonth', () => {
   it('returns the first UTC day of the month', () => {
     const d = startOfUtcMonth(new Date('2026-09-15T12:00:00Z'))
     expect(d.toISOString()).toBe('2026-09-01T00:00:00.000Z')
+  })
+})
+
+describe('loadAccountBillingGate', () => {
+  it('locks a complimentary Free account when accounts.status is hold', async () => {
+    vi.resetModules()
+    vi.doMock('@/lib/ai/admin-client', () => ({
+      supabaseAdmin: () => ({
+        from: (table: string) => {
+          if (table === 'accounts') {
+            return {
+              select: () => ({
+                eq: () => ({
+                  maybeSingle: async () => ({ data: { status: 'hold' }, error: null }),
+                }),
+              }),
+            }
+          }
+          return {
+            select: () => ({
+              eq: () => ({
+                maybeSingle: async () => ({
+                  data: {
+                    status: 'active',
+                    source: 'comp',
+                    current_period_end: null,
+                    billing_packages: { name: 'Free', is_free: true, amount_paise: 0 },
+                  },
+                  error: null,
+                }),
+              }),
+            }),
+          }
+        },
+      }),
+    }))
+    const { loadAccountBillingGate } = await import('./entitlements')
+    await expect(loadAccountBillingGate('acc-1')).resolves.toMatchObject({
+      mode: 'lock',
+      packageName: 'Free',
+    })
   })
 })
 

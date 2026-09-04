@@ -10,6 +10,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { AccountStatusSelect } from "@/components/super-admin/account-status-select";
+import { formatPlanDate } from "@/lib/auth/account-status";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
@@ -57,6 +59,7 @@ interface Detail {
     source: string;
     package_id: string;
     package_name: string | null;
+    current_period_start: string | null;
     current_period_end: string | null;
   } | null;
   tokens_this_month: number;
@@ -111,7 +114,6 @@ export default function SuperAdminAccountDetailPage() {
   if (!detail?.account) return <p className="text-muted-foreground">{t("loading")}</p>;
 
   const owner = detail.owner;
-  const suspended = detail.account.status === "suspended";
   const waOn = detail.whatsapp?.status === "connected" || Boolean(detail.whatsapp?.has_token);
   const shopOn = Boolean(detail.shopify?.is_active || detail.shopify?.shop_domain);
   const selectedPkg = packages.find((p) => p.id === packageId);
@@ -180,7 +182,15 @@ export default function SuperAdminAccountDetailPage() {
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label={t("plan")} value={detail.subscription?.package_name ?? t("none")} hint={detail.subscription?.source ?? undefined} />
+        <StatCard
+          label={t("plan")}
+          value={detail.subscription?.package_name ?? t("none")}
+          hint={
+            detail.subscription
+              ? `${detail.subscription.source ?? ""} · ${t("periodStart")}: ${formatPlanDate(detail.subscription.current_period_start)} · ${t("periodEnd")}: ${formatPlanDate(detail.subscription.current_period_end)}`
+              : undefined
+          }
+        />
         <StatCard label={t("tokensThisMonth")} value={detail.tokens_this_month.toLocaleString()} />
         <StatCard label={t("membersCount")} value={String(detail.members.length)} />
         <StatCard
@@ -211,14 +221,25 @@ export default function SuperAdminAccountDetailPage() {
                   <Button onClick={() => void patch({ name })}>{t("rename")}</Button>
                 </div>
               </div>
-              <div className="flex items-center justify-between rounded-md border border-border p-3">
+              <div className="flex items-center justify-between gap-4 rounded-md border border-border p-3">
                 <div>
-                  <p className="text-sm font-medium">{t("suspended")}</p>
-                  <p className="text-xs text-muted-foreground">{t("suspendedHint")}</p>
+                  <p className="text-sm font-medium">{t("accountStatus")}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {detail.account.status === "hold"
+                      ? t("statusHoldHint")
+                      : detail.account.status === "suspended"
+                        ? t("statusBlockHint")
+                        : t("statusActiveHint")}
+                  </p>
                 </div>
-                <Switch
-                  checked={suspended}
-                  onCheckedChange={(on) => void patch({ status: on ? "suspended" : "active" })}
+                <AccountStatusSelect
+                  value={detail.account.status}
+                  labels={{
+                    active: t("statusActive"),
+                    hold: t("statusHold"),
+                    block: t("statusBlock"),
+                  }}
+                  onChange={(status) => void patch({ status })}
                 />
               </div>
               <div className="flex items-center justify-between rounded-md border border-border p-3">
@@ -445,7 +466,10 @@ export default function SuperAdminAccountDetailPage() {
             </CardHeader>
             <CardContent className="space-y-3">
               <p className="text-sm text-muted-foreground">
-                {t("periodEnd")}: {detail.subscription?.current_period_end ?? "—"}
+                {t("periodStart")}: {formatPlanDate(detail.subscription?.current_period_start)}
+              </p>
+              <p className="text-sm text-muted-foreground">
+                {t("periodEnd")}: {formatPlanDate(detail.subscription?.current_period_end)}
               </p>
               {(detail.billing_events ?? []).length === 0 ? (
                 <p className="text-sm text-muted-foreground">{t("noEvents")}</p>

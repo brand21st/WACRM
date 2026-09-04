@@ -5,7 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { ForbiddenError, UnauthorizedError } from "./account";
 import { isPlatformAdminUser } from "./platform-flag";
 
-export { isPlatformAdminUser } from "./platform-flag";
+export { isMerchantAccountOwner, isPlatformAdminUser } from "./platform-flag";
 
 export interface PlatformAdminContext {
   user: User;

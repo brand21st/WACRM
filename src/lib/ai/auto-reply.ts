@@ -316,6 +316,12 @@ export async function dispatchInboundToAiReply(
         whatsappCatalog,
         sendCatalog: catalogHolder,
         orderCards,
+        customerInterest: {
+          products: memoryForPrompt.facts.products,
+          preferences: memoryForPrompt.facts.preferences,
+          intent: memoryForPrompt.facts.intent,
+        },
+        customerText: queryText,
       },
     )
 
@@ -854,6 +860,8 @@ export function bindShopifyTools(
     whatsappCatalog?: boolean
     sendCatalog?: { value: boolean }
     orderCards?: ShopifyOrderCard[]
+    customerInterest?: import('@/lib/shopify').CustomerProductInterest
+    customerText?: string | null
   } = { imageTurn: false },
 ): { tools?: LlmToolDef[]; executeTool?: ExecuteLlmTool } {
   if (!shopify) return {}
@@ -878,13 +886,18 @@ export function bindShopifyTools(
           conversationId: opts.conversationId,
           nativeCommerce: opts.nativeCommerce,
           retailerIdSource: opts.retailerIdSource,
+          customerInterest: opts.customerInterest,
+          customerText: opts.customerText,
         },
         name,
         args,
       )
       const skipCards =
         opts.imageTurn &&
-        (name === 'search_products' || name === 'list_new_arrivals')
+        (name === 'search_products' ||
+          name === 'list_new_arrivals' ||
+          name === 'list_best_selling' ||
+          name === 'recommend_products')
       if (!skipCards && !result.sendCatalog) productCards.push(...result.cards)
       if (result.orderCards?.length && opts.orderCards) {
         opts.orderCards.push(...result.orderCards)
@@ -921,7 +934,7 @@ async function hydrateCardImages(
   return cards
 }
 
-const MAX_PRODUCT_CARDS = 3
+const MAX_PRODUCT_CARDS = 10
 const MAX_ORDER_CARDS = 3
 
 function stripReplyLinkUrls(

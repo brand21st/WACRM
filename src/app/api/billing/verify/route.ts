@@ -17,7 +17,7 @@ export async function POST(request: Request) {
     if (!subscriptionId || !paymentId || !signature) {
       return NextResponse.json({ error: 'Missing checkout fields' }, { status: 400 })
     }
-    const ok = verifyCheckoutSignature({ subscriptionId, paymentId, signature })
+    const ok = await verifyCheckoutSignature({ subscriptionId, paymentId, signature })
     if (!ok) {
       return NextResponse.json({ error: 'Invalid signature' }, { status: 400 })
     }

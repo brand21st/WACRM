@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server'
 
 import { toErrorResponse } from '@/lib/auth/account'
-import { requirePlatformAdmin } from '@/lib/auth/platform-admin'
+import { isAccountStatus } from '@/lib/auth/account-status'
+import { isMerchantAccountOwner, requirePlatformAdmin } from '@/lib/auth/platform-admin'
 import { startOfUtcMonth } from '@/lib/billing/entitlements'
 import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rate-limit'
 
@@ -20,7 +21,7 @@ export async function GET(request: Request) {
       .select('id, name, owner_user_id, status, ai_enabled, created_at')
       .order('created_at', { ascending: false })
       .limit(200)
-    if (status === 'active' || status === 'suspended') {
+    if (isAccountStatus(status)) {
       query = query.eq('status', status)
     }
     const { data: accounts, error } = await query
@@ -55,7 +56,7 @@ export async function GET(request: Request) {
       accountIds.length
         ? admin
             .from('account_subscriptions')
-            .select('account_id, status, billing_packages (name, slug)')
+            .select('account_id, status, current_period_start, current_period_end, billing_packages (name, slug)')
             .in('account_id', accountIds)
         : Promise.resolve({ data: [] as Record<string, unknown>[] }),
       accountIds.length
@@ -83,12 +84,23 @@ export async function GET(request: Request) {
         const row = s as {
           account_id: string
           status: string
+          current_period_start: string | null
+          current_period_end: string | null
           billing_packages: { name: string; slug: string } | { name: string; slug: string }[] | null
         }
         const pkg = Array.isArray(row.billing_packages)
           ? row.billing_packages[0]
           : row.billing_packages
-        return [row.account_id, { status: row.status, packageName: pkg?.name ?? null, slug: pkg?.slug ?? null }]
+        return [
+          row.account_id,
+          {
+            status: row.status,
+            packageName: pkg?.name ?? null,
+            slug: pkg?.slug ?? null,
+            periodStart: row.current_period_start ?? null,
+            periodEnd: row.current_period_end ?? null,
+          },
+        ]
       }),
     )
     const tokensByAccount = new Map<string, number>()
@@ -99,9 +111,8 @@ export async function GET(request: Request) {
       )
     }
 
-    const hideOwner = userId
     const list = rows
-      .filter((a) => a.owner_user_id !== hideOwner)
+      .filter((a) => isMerchantAccountOwner(a.owner_user_id, userId))
       .map((a) => {
         const owner = ownerByUser.get(a.owner_user_id)
         return {
@@ -117,6 +128,8 @@ export async function GET(request: Request) {
           shopify_connected: shopByAccount.get(a.id) === true,
           package_name: subByAccount.get(a.id)?.packageName ?? null,
           subscription_status: subByAccount.get(a.id)?.status ?? null,
+          period_start: subByAccount.get(a.id)?.periodStart ?? null,
+          period_end: subByAccount.get(a.id)?.periodEnd ?? null,
           tokens_30d: tokensByAccount.get(a.id) ?? 0,
         }
       })

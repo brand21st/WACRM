@@ -41,6 +41,15 @@ function periodEndIso(entity: RazorpayEntity | null): string | null {
   return new Date(entity.current_end * 1000).toISOString()
 }
 
+export function periodStartIso(entity: RazorpayEntity | null): string | null {
+  if (!entity?.current_start) return null
+  return new Date(entity.current_start * 1000).toISOString()
+}
+
+export function shouldClearAccountHold(mappedStatus: SubscriptionStatus): boolean {
+  return mappedStatus === 'active'
+}
+
 export function mapRazorpayStatus(eventType: string, entityStatus?: string): SubscriptionStatus {
   if (
     eventType === 'subscription.cancelled' ||
@@ -91,6 +100,7 @@ export async function fulfillRazorpayEvent(
   }
 
   const status = mapRazorpayStatus(eventType, entity?.status)
+  const periodStart = periodStartIso(entity)
   const patch: Record<string, unknown> = {
     status,
     source: 'checkout',
@@ -102,6 +112,7 @@ export async function fulfillRazorpayEvent(
         ? true
         : undefined,
   }
+  if (periodStart) patch.current_period_start = periodStart
   if (packageId) patch.package_id = packageId
   if (patch.cancel_at_period_end === undefined) {
     delete patch.cancel_at_period_end
@@ -119,14 +130,22 @@ export async function fulfillRazorpayEvent(
       .update(patch)
       .eq('account_id', accountId)
     if (error) throw error
-    return
+  } else {
+    if (!packageId) return
+    const { error } = await supabaseAdmin().from('account_subscriptions').insert({
+      account_id: accountId,
+      package_id: packageId,
+      ...patch,
+    })
+    if (error) throw error
   }
 
-  if (!packageId) return
-  const { error } = await supabaseAdmin().from('account_subscriptions').insert({
-    account_id: accountId,
-    package_id: packageId,
-    ...patch,
-  })
-  if (error) throw error
+  if (shouldClearAccountHold(status)) {
+    const { error: holdErr } = await supabaseAdmin()
+      .from('accounts')
+      .update({ status: 'active' })
+      .eq('id', accountId)
+      .eq('status', 'hold')
+    if (holdErr) throw holdErr
+  }
 }

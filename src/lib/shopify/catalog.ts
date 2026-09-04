@@ -103,7 +103,7 @@ export async function searchCatalogSnapshot(
 export async function listNewArrivalsSnapshot(
   db: SupabaseClient,
   accountId: string,
-  limit = 8,
+  limit = 10,
 ): Promise<ShopifyProductHit[]> {
   const run = async (includeBody: boolean) =>
     db
@@ -237,7 +237,7 @@ export async function searchProducts(
 export async function listNewArrivals(
   db: SupabaseClient,
   config: ShopifyStoreConfig,
-  limit = 8,
+  limit = 10,
 ): Promise<ShopifyProductHit[]> {
   if (catalogIsFresh(config)) {
     const local = await listNewArrivalsSnapshot(db, config.accountId, limit)
@@ -251,6 +251,23 @@ export async function listNewArrivals(
     })
   } catch (err) {
     console.warn('[shopify] live new arrivals failed, trying snapshot:', err)
+    return listNewArrivalsSnapshot(db, config.accountId, limit)
+  }
+}
+
+export async function listBestSelling(
+  db: SupabaseClient,
+  config: ShopifyStoreConfig,
+  limit = 10,
+): Promise<ShopifyProductHit[]> {
+  try {
+    return await searchProductsLive(config, 'status:active', {
+      first: limit,
+      sortKey: 'BEST_SELLING',
+      reverse: false,
+    })
+  } catch (err) {
+    console.warn('[shopify] live best selling failed, trying newest snapshot:', err)
     return listNewArrivalsSnapshot(db, config.accountId, limit)
   }
 }

@@ -1,6 +1,8 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { supabaseAdmin } from '@/lib/ai/admin-client'
 import { retrieveKnowledge } from '@/lib/ai/knowledge'
+import { buildConversationContext } from '@/lib/ai/context'
+import { latestUserMessage } from '@/lib/ai/query'
 import { loadShopifyConfig } from '@/lib/shopify'
 import { loadCommerceSettings } from '@/lib/shopify/commerce-config'
 import { nativeCommerceEnabled } from '@/lib/commerce/types'
@@ -201,6 +203,20 @@ export async function executeLiveAiTool(args: {
   const metaCatalogId = (
     commerce?.metaCatalogId ?? shopify.metaCatalogId
   )?.trim()
+  const contactMemory = call.contact_id
+    ? await loadContactMemory(db, args.accountId, call.contact_id).catch(() =>
+        emptyContactMemory(),
+      )
+    : emptyContactMemory()
+  const contextMessages = call.conversation_id
+    ? await buildConversationContext(db, call.conversation_id).catch(() => [])
+    : []
+  const toolHint =
+    (typeof args.arguments.query === 'string' && args.arguments.query.trim()) ||
+    (typeof args.arguments.description === 'string' &&
+      args.arguments.description.trim()) ||
+    ''
+  const customerText = latestUserMessage(contextMessages) || toolHint || null
   const bound = bindShopifyTools(
     db,
     shopify,
@@ -216,6 +232,12 @@ export async function executeLiveAiTool(args: {
       whatsappCatalog: Boolean(metaCatalogId),
       sendCatalog: catalogHolder,
       orderCards,
+      customerInterest: {
+        products: contactMemory.facts.products,
+        preferences: contactMemory.facts.preferences,
+        intent: contactMemory.facts.intent,
+      },
+      customerText,
     },
   )
   if (!bound.executeTool) {

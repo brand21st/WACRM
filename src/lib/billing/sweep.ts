@@ -18,7 +18,7 @@ export interface SweepSubscriptionRow {
 
 export type SweepAction =
   | { id: string; kind: 'expire' }
-  | { id: string; kind: 'renew'; current_period_end: string }
+  | { id: string; kind: 'renew'; current_period_start: string; current_period_end: string }
 
 function packageOf(row: SweepSubscriptionRow) {
   const pkg = row.billing_packages
@@ -46,6 +46,7 @@ export function planSweepAction(
     return {
       id: row.id,
       kind: 'renew',
+      current_period_start: end.toISOString(),
       current_period_end: addBillingPeriod(end, parseBillingInterval(pkg.interval)).toISOString(),
     }
   }
@@ -85,7 +86,10 @@ export async function runBillingSweep(
     }
     const { error: updateErr } = await admin
       .from('account_subscriptions')
-      .update({ current_period_end: action.current_period_end })
+      .update({
+        current_period_start: action.current_period_start,
+        current_period_end: action.current_period_end,
+      })
       .eq('id', action.id)
     if (updateErr) throw new Error(updateErr.message)
     renewed += 1

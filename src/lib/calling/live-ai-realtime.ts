@@ -277,6 +277,12 @@ export async function buildLiveAiRealtimeContext(args: {
       retailerIdSource: commerce?.retailerIdSource,
       whatsappCatalog,
       orderCards,
+      customerInterest: {
+        products: memory.stored?.facts.products ?? [],
+        preferences: memory.stored?.facts.preferences ?? [],
+        intent: memory.stored?.facts.intent ?? null,
+      },
+      customerText: queryText,
     },
   )
 

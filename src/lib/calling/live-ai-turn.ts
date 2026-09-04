@@ -225,6 +225,12 @@ export async function runLiveAiTurn(args: {
       whatsappCatalog,
       sendCatalog: catalogHolder,
       orderCards,
+      customerInterest: {
+        products: contactMemory.facts.products,
+        preferences: contactMemory.facts.preferences,
+        intent: contactMemory.facts.intent,
+      },
+      customerText: queryText,
     },
   )
 

@@ -12,7 +12,13 @@ export {
 } from './permalinks'
 export type { CartPermalinkItem } from './permalinks'
 export { shopifyPhoneMatchesContact, customerSearchQueries, toShopifyPhone } from './phone'
-export { searchProducts, listNewArrivals, getProductLive, hydrateListingImages, syncCatalog, MAX_CATALOG_PRODUCTS } from './catalog'
+export { searchProducts, listNewArrivals, listBestSelling, getProductLive, hydrateListingImages, syncCatalog, MAX_CATALOG_PRODUCTS } from './catalog'
+export {
+  collectInterestTerms,
+  listRecommendedProducts,
+  fetchAjaxRecommendations,
+} from './recommend'
+export type { CustomerProductInterest } from './recommend'
 export { SHOPIFY_CATALOG_WEBHOOK_TOPICS, SHOPIFY_PAGE_WEBHOOK_TOPICS, SHOPIFY_NOTIFICATION_WEBHOOK_TOPICS, SHOPIFY_WEBHOOK_TOPICS } from './webhook-topics'
 export {
   syncStoreContent,

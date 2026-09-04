@@ -20,6 +20,7 @@ describe('planSweepAction', () => {
     expect(planSweepAction(row({}), now)).toEqual({
       id: 'sub-1',
       kind: 'renew',
+      current_period_start: '2026-09-01T00:00:00.000Z',
       current_period_end: '2026-12-01T00:00:00.000Z',
     })
   })

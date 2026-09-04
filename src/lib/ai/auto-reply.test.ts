@@ -1919,5 +1919,97 @@ describe('dispatchInboundToAiReply — cart offer', () => {
     expect(h.engineSendProduct).not.toHaveBeenCalled()
     expect(h.engineSendProductList).not.toHaveBeenCalled()
   })
+
+  it('sends all 10 Shopify cards for interest-based recommendations', async () => {
+    h.loadAiConfig.mockResolvedValue(aiConfig({ fullAgentEnabled: true }))
+    h.buildConversationContext.mockResolvedValue([
+      { role: 'user', content: 'recommend something for me' },
+    ])
+    h.loadShopifyConfig.mockResolvedValue(shopifyRow)
+    h.loadContactMemory.mockResolvedValue({
+      profileSummary: '',
+      lastSessionSummary: '',
+      facts: {
+        intent: 'buy saree',
+        products: ['Pournami Red'],
+        preferences: ['size M'],
+        language: 'English',
+        language_code: 'en',
+        language_script: 'latin',
+        language_locked: true,
+        open_questions: [],
+      },
+      notes: [],
+      summarizedThroughAt: null,
+      messageCountAtSummary: 0,
+      conversationId: null,
+    })
+    h.executeShopifyTool.mockResolvedValue({
+      json: '{}',
+      cards: Array.from({ length: 10 }, (_, i) => ({
+        title: `Rec ${i + 1}`,
+        imageUrl: `https://cdn.example/rec-${i + 1}.jpg`,
+        productUrl: `https://shop.example/products/rec-${i + 1}`,
+        cartUrl: `https://shop.example/cart/${i + 1}:1`,
+        checkoutUrl: `https://shop.example/cart/${i + 1}:1?checkout`,
+        inStock: true,
+        caption: `Rec ${i + 1}`,
+      })),
+    })
+    h.generateReply.mockImplementation(async (args: { executeTool?: Function }) => {
+      if (args.executeTool) await args.executeTool('recommend_products', {})
+      return { text: 'Here are picks for you.', handoff: false }
+    })
+
+    await dispatchInboundToAiReply(ARGS)
+
+    expect(h.executeShopifyTool).toHaveBeenCalledWith(
+      expect.objectContaining({
+        customerInterest: expect.objectContaining({
+          products: ['Pournami Red'],
+          preferences: ['size M'],
+          intent: 'buy saree',
+        }),
+        customerText: 'recommend something for me',
+      }),
+      'recommend_products',
+      {},
+    )
+    expect(h.engineSendCtaUrl).toHaveBeenCalledTimes(10)
+  })
+
+  it('sends all 10 Shopify cards for a browse list', async () => {
+    h.loadAiConfig.mockResolvedValue(aiConfig({ fullAgentEnabled: true }))
+    h.buildConversationContext.mockResolvedValue([
+      { role: 'user', content: 'best selling' },
+    ])
+    h.loadShopifyConfig.mockResolvedValue(shopifyRow)
+    h.executeShopifyTool.mockResolvedValue({
+      json: '{}',
+      cards: Array.from({ length: 10 }, (_, i) => ({
+        title: `Bag ${i + 1}`,
+        imageUrl: `https://cdn.example/bag-${i + 1}.jpg`,
+        productUrl: `https://shop.example/products/bag-${i + 1}`,
+        cartUrl: `https://shop.example/cart/${i + 1}:1`,
+        checkoutUrl: `https://shop.example/cart/${i + 1}:1?checkout`,
+        inStock: true,
+        caption: `Bag ${i + 1}`,
+      })),
+    })
+    h.generateReply.mockImplementation(async (args: { executeTool?: Function }) => {
+      if (args.executeTool) await args.executeTool('list_best_selling', {})
+      return { text: 'Here are our bestsellers.', handoff: false }
+    })
+
+    await dispatchInboundToAiReply(ARGS)
+
+    expect(h.engineSendCtaUrl).toHaveBeenCalledTimes(10)
+    expect(h.engineSendCtaUrl).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        url: 'https://shop.example/cart/10:1?checkout',
+        displayText: 'Checkout NOW',
+      }),
+    )
+  })
 })
 

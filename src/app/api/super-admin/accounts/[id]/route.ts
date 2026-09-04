@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 
 import { toErrorResponse } from '@/lib/auth/account'
+import { isAccountStatus } from '@/lib/auth/account-status'
 import { requirePlatformAdmin } from '@/lib/auth/platform-admin'
 import { cancelRazorpaySubscription } from '@/lib/billing/razorpay'
 import { startOfUtcMonth } from '@/lib/billing/entitlements'
@@ -77,7 +78,7 @@ export async function GET(_request: Request, { params }: Params) {
       admin
         .from('account_subscriptions')
         .select(
-          'status, source, current_period_end, cancel_at_period_end, razorpay_subscription_id, package_id, billing_packages (id, name, slug)',
+          'status, source, current_period_start, current_period_end, cancel_at_period_end, razorpay_subscription_id, package_id, billing_packages (id, name, slug)',
         )
         .eq('account_id', id)
         .maybeSingle(),
@@ -127,6 +128,7 @@ export async function GET(_request: Request, { params }: Params) {
         ? {
             status: sub.data.status,
             source: sub.data.source,
+            current_period_start: sub.data.current_period_start,
             current_period_end: sub.data.current_period_end,
             cancel_at_period_end: sub.data.cancel_at_period_end,
             package_id: sub.data.package_id,
@@ -163,7 +165,7 @@ export async function PATCH(request: Request, { params }: Params) {
       }
       patch.name = name
     }
-    if (body.status === 'active' || body.status === 'suspended') {
+    if (isAccountStatus(body.status)) {
       patch.status = body.status
     }
     if (typeof body.ai_enabled === 'boolean') {
@@ -208,6 +210,7 @@ export async function PATCH(request: Request, { params }: Params) {
           source: 'comp',
           razorpay_subscription_id: null,
           cancel_at_period_end: false,
+          current_period_start: periodEnd ? new Date().toISOString() : null,
           current_period_end: periodEnd,
         },
         { onConflict: 'account_id' },
