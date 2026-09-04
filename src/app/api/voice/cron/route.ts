@@ -5,12 +5,9 @@ import { supabaseAdmin } from '@/lib/automations/admin-client'
 import { drainVoiceInboundJobs } from '@/lib/ai/voice-inbound-jobs'
 
 /**
- * Drain queued inbound voice notes (STT + spoken auto-reply).
- * Same `x-cron-secret` / `AUTOMATION_CRON_SECRET` as automations,
- * flows, broadcasts, and Shopify notifications.
- *
- * Hit this every 10–30s so overlapping customers get a reply without
- * holding Meta's webhook open for transcription.
+ * Optional fallback drain for inbound voice notes when Redis/BullMQ
+ * is down. Primary path is the `wacrm-worker` process (`ai-voice-inbound`).
+ * Same `x-cron-secret` / `AUTOMATION_CRON_SECRET` as automations.
  */
 export async function GET(request: Request) {
   const expected = process.env.AUTOMATION_CRON_SECRET

@@ -32,24 +32,31 @@ ENV NEXT_PUBLIC_SUPABASE_URL=$NEXT_PUBLIC_SUPABASE_URL \
     NEXT_PUBLIC_APP_LOCALE=$NEXT_PUBLIC_APP_LOCALE \
     NEXT_TELEMETRY_DISABLED=1
 
-RUN npm run build
+RUN npm run build && npm run build:worker
 
 # ---------------------------------------------------------------
-# Stage 3 — minimal runtime (standalone output)
+# Stage 3 — minimal runtime (standalone Next + bundled worker + PM2)
 # ---------------------------------------------------------------
 FROM node:20-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1 \
     PORT=3000 \
-    HOSTNAME=0.0.0.0
+    HOSTNAME=0.0.0.0 \
+    PM2_HOME=/tmp/.pm2
 
-RUN addgroup -S nextjs && adduser -S nextjs -G nextjs
+RUN addgroup -S nextjs && adduser -S nextjs -G nextjs \
+    && npm install -g pm2
 
 COPY --from=builder --chown=nextjs:nextjs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nextjs /app/.next/static ./.next/static
 COPY --from=builder --chown=nextjs:nextjs /app/public ./public
+COPY --from=builder --chown=nextjs:nextjs /app/dist/worker.js ./dist/worker.js
+COPY --from=builder --chown=nextjs:nextjs /app/ecosystem.config.cjs ./ecosystem.config.cjs
+COPY --from=builder --chown=nextjs:nextjs /app/node_modules/ffmpeg-static ./node_modules/ffmpeg-static
+
+RUN chmod +x /app/node_modules/ffmpeg-static/ffmpeg 2>/dev/null || true
 
 USER nextjs
 EXPOSE 3000
-CMD ["node", "server.js"]
+CMD ["pm2-runtime", "start", "ecosystem.config.cjs"]

@@ -71,3 +71,7 @@ testsprite_tests/tmp/config.json
 # Scratch / temp
 supabase/.temp/
 .tmp-coolify-query.py
+
+# BullMQ worker bundle / PM2
+/dist
+.pm2

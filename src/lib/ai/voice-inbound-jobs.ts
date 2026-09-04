@@ -22,8 +22,7 @@ export interface EnqueueVoiceInboundJobArgs {
   mimeType?: string | null
 }
 
-export interface VoiceInboundJobRow {
-  id: string
+export interface VoiceInboundWorkArgs {
   account_id: string
   conversation_id: string
   contact_id: string
@@ -32,6 +31,10 @@ export interface VoiceInboundJobRow {
   meta_message_id: string
   media_id: string
   mime_type: string | null
+}
+
+export interface VoiceInboundJobRow extends VoiceInboundWorkArgs {
+  id: string
   attempts: number
 }
 
@@ -133,75 +136,83 @@ export async function reclaimStaleVoiceJobs(
   }
 }
 
+/**
+ * STT + spoken auto-reply. Throws when transcription cannot complete
+ * so a queue worker can retry. LLM send failures are swallowed — the
+ * transcript is already persisted.
+ */
+export async function executeVoiceInboundWork(
+  db: SupabaseClient,
+  row: VoiceInboundWorkArgs,
+): Promise<void> {
+  const accessToken = await loadAccountAccessToken(db, row.account_id)
+  if (!accessToken) {
+    throw new Error('whatsapp access token unavailable')
+  }
+
+  const { data: message, error: msgErr } = await db
+    .from('messages')
+    .select('id, content_text')
+    .eq('id', row.message_id)
+    .maybeSingle()
+  if (msgErr || !message) {
+    throw new Error(msgErr?.message || 'message row missing')
+  }
+
+  let transcript =
+    typeof message.content_text === 'string' ? message.content_text.trim() : ''
+  if (!transcript) {
+    const text = await transcribeInboundVoiceNote({
+      accountId: row.account_id,
+      mediaId: row.media_id,
+      accessToken,
+      mimeType: row.mime_type,
+      contentText: null,
+      contentType: 'audio',
+      throwOnMediaError: true,
+    })
+    transcript = text?.trim() || ''
+    if (transcript) {
+      const { error: trErr } = await db
+        .from('messages')
+        .update({ content_text: transcript })
+        .eq('id', row.message_id)
+      if (trErr) {
+        console.error('[voice-jobs] persist transcript failed:', trErr.message)
+      } else {
+        await db
+          .from('conversations')
+          .update({ last_message_text: transcript })
+          .eq('id', row.conversation_id)
+      }
+    }
+  }
+
+  if (!transcript) {
+    throw new Error('transcription empty')
+  }
+
+  await dispatchInboundToAiReply({
+    accountId: row.account_id,
+    conversationId: row.conversation_id,
+    contactId: row.contact_id,
+    configOwnerUserId: row.user_id,
+    inboundContentType: 'audio',
+    inboundMetaMessageId: row.meta_message_id,
+  }).catch((err) => {
+    console.error(
+      '[voice-jobs] auto-reply failed:',
+      err instanceof Error ? err.message : err,
+    )
+  })
+}
+
 async function runVoiceInboundJob(
   db: SupabaseClient,
   row: VoiceInboundJobRow,
 ): Promise<boolean> {
   try {
-    const accessToken = await loadAccountAccessToken(db, row.account_id)
-    if (!accessToken) {
-      await failOrRetry(db, row, 'whatsapp access token unavailable')
-      return false
-    }
-
-    const { data: message, error: msgErr } = await db
-      .from('messages')
-      .select('id, content_text')
-      .eq('id', row.message_id)
-      .maybeSingle()
-    if (msgErr || !message) {
-      await failOrRetry(db, row, msgErr?.message || 'message row missing')
-      return false
-    }
-
-    let transcript =
-      typeof message.content_text === 'string' ? message.content_text.trim() : ''
-    if (!transcript) {
-      const text = await transcribeInboundVoiceNote({
-        accountId: row.account_id,
-        mediaId: row.media_id,
-        accessToken,
-        mimeType: row.mime_type,
-        contentText: null,
-        contentType: 'audio',
-        throwOnMediaError: true,
-      })
-      transcript = text?.trim() || ''
-      if (transcript) {
-        const { error: trErr } = await db
-          .from('messages')
-          .update({ content_text: transcript })
-          .eq('id', row.message_id)
-        if (trErr) {
-          console.error('[voice-jobs] persist transcript failed:', trErr.message)
-        } else {
-          await db
-            .from('conversations')
-            .update({ last_message_text: transcript })
-            .eq('id', row.conversation_id)
-        }
-      }
-    }
-
-    if (!transcript) {
-      await failOrRetry(db, row, 'transcription empty')
-      return false
-    }
-
-    await dispatchInboundToAiReply({
-      accountId: row.account_id,
-      conversationId: row.conversation_id,
-      contactId: row.contact_id,
-      configOwnerUserId: row.user_id,
-      inboundContentType: 'audio',
-      inboundMetaMessageId: row.meta_message_id,
-    }).catch((err) => {
-      console.error(
-        '[voice-jobs] auto-reply failed:',
-        err instanceof Error ? err.message : err,
-      )
-    })
-
+    await executeVoiceInboundWork(db, row)
     await db
       .from('voice_inbound_jobs')
       .update({

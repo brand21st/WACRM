@@ -6,6 +6,9 @@ const h = vi.hoisted(() => ({
   dispatchInboundToFlows: vi.fn(),
   dispatchInboundToAiReply: vi.fn(),
   enqueueVoiceInboundJob: vi.fn(),
+  enqueueAiChatReply: vi.fn(),
+  enqueueAiVoiceInbound: vi.fn(),
+  describeInboundImage: vi.fn(),
   transcribeInboundVoiceNote: vi.fn(),
   dispatchWebhookEvent: vi.fn(),
   loadAiConfig: vi.fn(),
@@ -98,6 +101,18 @@ vi.mock('@supabase/supabase-js', () => ({
                     }),
                   }),
                 }),
+              }),
+            }),
+          }
+        case 'accounts':
+          return {
+            select: () => ({
+              eq: () => ({
+                maybeSingle: () =>
+                  Promise.resolve({
+                    data: { status: 'active', ai_enabled: true },
+                    error: null,
+                  }),
               }),
             }),
           }
@@ -213,11 +228,18 @@ vi.mock('@/lib/ai/auto-reply', () => ({
 vi.mock('@/lib/ai/voice-inbound-jobs', () => ({
   enqueueVoiceInboundJob: h.enqueueVoiceInboundJob,
 }))
+vi.mock('@/lib/queue/enqueue', () => ({
+  enqueueAiChatReply: h.enqueueAiChatReply,
+  enqueueAiVoiceInbound: h.enqueueAiVoiceInbound,
+}))
 vi.mock('@/lib/ai/transcribe-inbound', () => ({
   transcribeInboundVoiceNote: h.transcribeInboundVoiceNote,
 }))
 vi.mock('@/lib/ai/config', () => ({
   loadAiConfig: h.loadAiConfig,
+}))
+vi.mock('@/lib/ai/describe-inbound-image', () => ({
+  describeInboundImage: h.describeInboundImage,
 }))
 vi.mock('@/lib/shopify/config', () => ({
   loadShopifyConfig: vi.fn(async () => null),
@@ -296,6 +318,9 @@ beforeEach(() => {
   h.dispatchInboundToFlows.mockResolvedValue({ consumed: false })
   h.dispatchInboundToAiReply.mockResolvedValue(undefined)
   h.enqueueVoiceInboundJob.mockResolvedValue(true)
+  h.enqueueAiChatReply.mockResolvedValue(true)
+  h.enqueueAiVoiceInbound.mockResolvedValue(true)
+  h.describeInboundImage.mockResolvedValue(null)
   h.transcribeInboundVoiceNote.mockResolvedValue(null)
   h.dispatchWebhookEvent.mockResolvedValue(undefined)
   h.loadAiConfig.mockResolvedValue(null)
@@ -372,6 +397,7 @@ describe('inbound webhook: idempotent insert (#367)', () => {
     expect(h.dispatchInboundToFlows).not.toHaveBeenCalled()
     expect(h.runAutomationsForTrigger).not.toHaveBeenCalled()
     expect(h.dispatchInboundToAiReply).not.toHaveBeenCalled()
+    expect(h.enqueueAiChatReply).not.toHaveBeenCalled()
     expect(h.dispatchWebhookEvent).not.toHaveBeenCalled()
   })
 })
@@ -386,17 +412,28 @@ describe('inbound webhook: first-inbound AI flag', () => {
     h.loadAiConfig.mockResolvedValue(aiOn)
     h.state.priorCustomerMsgCount = 0
     await runWebhook()
-    expect(h.dispatchInboundToAiReply).toHaveBeenCalledWith(
+    expect(h.enqueueAiChatReply).toHaveBeenCalledWith(
       expect.objectContaining({ isFirstInbound: true }),
     )
+    expect(h.dispatchInboundToAiReply).not.toHaveBeenCalled()
   })
 
   it('passes isFirstInbound false after the first customer message', async () => {
     h.loadAiConfig.mockResolvedValue(aiOn)
     h.state.priorCustomerMsgCount = 1
     await runWebhook()
-    expect(h.dispatchInboundToAiReply).toHaveBeenCalledWith(
+    expect(h.enqueueAiChatReply).toHaveBeenCalledWith(
       expect.objectContaining({ isFirstInbound: false }),
+    )
+    expect(h.dispatchInboundToAiReply).not.toHaveBeenCalled()
+  })
+
+  it('falls back to inline auto-reply when Redis enqueue fails', async () => {
+    h.loadAiConfig.mockResolvedValue(aiOn)
+    h.enqueueAiChatReply.mockResolvedValueOnce(false)
+    await runWebhook()
+    expect(h.dispatchInboundToAiReply).toHaveBeenCalledWith(
+      expect.objectContaining({ isFirstInbound: true, inboundContentType: 'text' }),
     )
   })
 })
@@ -459,6 +496,7 @@ describe('inbound webhook: template quick-reply buttons (#478)', () => {
     // The AI auto-reply must stay out of it — a button tap is not a
     // free-text question.
     expect(h.dispatchInboundToAiReply).not.toHaveBeenCalled()
+    expect(h.enqueueAiChatReply).not.toHaveBeenCalled()
   })
 
   it('falls back to the label when the template button carries no payload', async () => {
@@ -624,7 +662,7 @@ describe('inbound webhook: after() awaits automations (#368)', () => {
   })
 })
 
-describe('inbound webhook: voice notes are queued for cron', () => {
+describe('inbound webhook: voice notes are queued for the worker', () => {
   const AUDIO_MESSAGE = {
     id: 'wamid.AUD1',
     from: '15551230000',
@@ -645,7 +683,7 @@ describe('inbound webhook: voice notes are queued for cron', () => {
     })
   })
 
-  it('enqueues a job and does not transcribe or auto-reply inline', async () => {
+  it('enqueues a BullMQ job and does not transcribe or auto-reply inline', async () => {
     h.loadAiConfig.mockResolvedValue({
       autoReplyEnabled: true,
       fullAgentEnabled: false,
@@ -653,7 +691,7 @@ describe('inbound webhook: voice notes are queued for cron', () => {
 
     await runWebhook(AUDIO_MESSAGE)
 
-    expect(h.enqueueVoiceInboundJob).toHaveBeenCalledWith(
+    expect(h.enqueueAiVoiceInbound).toHaveBeenCalledWith(
       expect.objectContaining({
         accountId: 'acc-1',
         conversationId: 'conv-1',
@@ -665,12 +703,34 @@ describe('inbound webhook: voice notes are queued for cron', () => {
         mimeType: 'audio/ogg; codecs=opus',
       }),
     )
+    expect(h.enqueueVoiceInboundJob).not.toHaveBeenCalled()
     expect(h.transcribeInboundVoiceNote).not.toHaveBeenCalled()
     expect(h.dispatchInboundToAiReply).not.toHaveBeenCalled()
     expect(h.dispatchInboundToFlows).not.toHaveBeenCalled()
   })
 
-  it('falls back to inline STT + AI when enqueue fails', async () => {
+  it('falls back to Postgres jobs when Redis enqueue fails', async () => {
+    h.enqueueAiVoiceInbound.mockResolvedValueOnce(false)
+    h.loadAiConfig.mockResolvedValue({
+      autoReplyEnabled: true,
+      fullAgentEnabled: false,
+    })
+
+    await runWebhook(AUDIO_MESSAGE)
+
+    expect(h.enqueueVoiceInboundJob).toHaveBeenCalledWith(
+      expect.objectContaining({
+        accountId: 'acc-1',
+        messageId: 'msg-1',
+        mediaId: 'media-voice-1',
+      }),
+    )
+    expect(h.transcribeInboundVoiceNote).not.toHaveBeenCalled()
+    expect(h.dispatchInboundToAiReply).not.toHaveBeenCalled()
+  })
+
+  it('falls back to inline STT + AI when both queues fail', async () => {
+    h.enqueueAiVoiceInbound.mockResolvedValueOnce(false)
     h.enqueueVoiceInboundJob.mockResolvedValueOnce(false)
     h.transcribeInboundVoiceNote.mockResolvedValueOnce('hello from voice')
     h.loadAiConfig.mockResolvedValue({
@@ -692,7 +752,53 @@ describe('inbound webhook: voice notes are queued for cron', () => {
   it('does not enqueue on an idempotent Meta replay', async () => {
     h.state.messageUpsertResult = []
     await runWebhook(AUDIO_MESSAGE)
+    expect(h.enqueueAiVoiceInbound).not.toHaveBeenCalled()
     expect(h.enqueueVoiceInboundJob).not.toHaveBeenCalled()
+  })
+})
+
+describe('inbound webhook: image AI is queued for the worker', () => {
+  const IMAGE_MESSAGE = {
+    id: 'wamid.IMG-AI',
+    from: '15551230000',
+    timestamp: '1700000000',
+    type: 'image',
+    image: { id: 'img-1', mime_type: 'image/jpeg', caption: 'look' },
+  }
+
+  it('enqueues an image chat job and does not run vision inline', async () => {
+    h.loadAiConfig.mockResolvedValue({
+      autoReplyEnabled: true,
+      fullAgentEnabled: false,
+      provider: 'openai',
+      apiKey: 'sk-test',
+    })
+    await runWebhook(IMAGE_MESSAGE)
+    expect(h.enqueueAiChatReply).toHaveBeenCalledWith(
+      expect.objectContaining({
+        inboundContentType: 'image',
+        inboundMetaMessageId: 'wamid.IMG-AI',
+        inboundMediaId: 'img-1',
+      }),
+    )
+    expect(h.describeInboundImage).not.toHaveBeenCalled()
+    expect(h.dispatchInboundToAiReply).not.toHaveBeenCalled()
+  })
+
+  it('runs inline vision + dispatch when Redis enqueue fails', async () => {
+    h.loadAiConfig.mockResolvedValue({
+      autoReplyEnabled: true,
+      fullAgentEnabled: false,
+      provider: 'openai',
+      apiKey: 'sk-test',
+    })
+    h.enqueueAiChatReply.mockResolvedValueOnce(false)
+    h.describeInboundImage.mockResolvedValueOnce('a blue bag')
+    await runWebhook(IMAGE_MESSAGE)
+    expect(h.describeInboundImage).toHaveBeenCalled()
+    expect(h.dispatchInboundToAiReply).toHaveBeenCalledWith(
+      expect.objectContaining({ inboundContentType: 'image' }),
+    )
   })
 })
 

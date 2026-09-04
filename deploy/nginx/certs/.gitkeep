@@ -1,0 +1,3 @@
+# Optional TLS files. Mount fullchain.pem and privkey.pem here to enable
+# the 443 server block (see docs/docker.md). Coolify/Traefik in front of
+# Nginx on port 80 is the usual path — leave this directory empty then.

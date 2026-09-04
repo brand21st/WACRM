@@ -13,6 +13,7 @@ import { findExistingContact, isUniqueViolation } from '@/lib/contacts/dedupe'
 import { encodeCallPreview } from '@/lib/calls/preview'
 import { persistMetaCallRecording } from '@/lib/calling/persist-meta-recording'
 import { processCallRecording } from '@/lib/calling/process-recording'
+import { enqueueCallRecording } from '@/lib/queue/enqueue'
 import { normalizeOfferSdp } from '@/lib/calls/sdp'
 import { decrypt } from '@/lib/whatsapp/encryption'
 import { normalizePhone } from '@/lib/whatsapp/phone-utils'
@@ -338,13 +339,19 @@ async function handleRecordingAvailable(
   })
   if (!persisted) return
 
-  void processCallRecording({
+  const queued = await enqueueCallRecording({
     accountId: config.account_id,
     callId: persisted.callId,
-    settings: persisted.settings,
-  }).catch((err) => {
-    console.error('[calls webhook] post-recording pipeline', err)
   })
+  if (!queued) {
+    void processCallRecording({
+      accountId: config.account_id,
+      callId: persisted.callId,
+      settings: persisted.settings,
+    }).catch((err) => {
+      console.error('[calls webhook] post-recording pipeline', err)
+    })
+  }
 }
 
 function parseTerminateOutcome(raw: unknown): CallStatus {

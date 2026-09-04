@@ -35,6 +35,10 @@ import {
 } from '@/lib/commerce/payment'
 import { transcribeInboundVoiceNote } from '@/lib/ai/transcribe-inbound'
 import { enqueueVoiceInboundJob } from '@/lib/ai/voice-inbound-jobs'
+import {
+  enqueueAiChatReply,
+  enqueueAiVoiceInbound,
+} from '@/lib/queue/enqueue'
 import { dispatchWebhookEvent } from '@/lib/webhooks/deliver'
 import { mapPool } from '@/lib/concurrency'
 import {
@@ -964,21 +968,16 @@ async function processMessage(
     })
   }
 
-  // Speech-to-text + spoken auto-reply run off this request via
-  // `voice_inbound_jobs` (GET /api/voice/cron). Holding Meta's webhook
-  // open for overlapping OGG downloads + ElevenLabs used to 500 the
-  // lookaside CDN and skip the reply. Queue after insert so a replay
-  // that loses the insert race never double-queues. If enqueue itself
-  // fails, fall back to the old inline path so one DB blip does not
-  // drop the transcript.
+  // Speech-to-text + spoken auto-reply run on the BullMQ worker
+  // (`ai-voice-inbound`). Redis down → Postgres `voice_inbound_jobs`
+  // (GET /api/voice/cron). Both enqueue paths failing → inline STT.
   let queuedVoice = false
   if (
     contentType === 'audio' &&
     message.audio?.id &&
     insertedRows?.[0]?.id
   ) {
-    queuedVoice = await enqueueVoiceInboundJob({
-      db: supabaseAdmin(),
+    const voicePayload = {
       accountId,
       conversationId: conversation.id,
       contactId: contactRecord.id,
@@ -987,7 +986,14 @@ async function processMessage(
       metaMessageId: message.id,
       mediaId: message.audio.id,
       mimeType: mediaType,
-    })
+    }
+    queuedVoice = await enqueueAiVoiceInbound(voicePayload)
+    if (!queuedVoice) {
+      queuedVoice = await enqueueVoiceInboundJob({
+        db: supabaseAdmin(),
+        ...voicePayload,
+      })
+    }
     if (!queuedVoice) {
       const transcript = await transcribeInboundVoiceNote({
         accountId,
@@ -1020,13 +1026,6 @@ async function processMessage(
     console.error('[webhook] loadAiConfig failed:', err)
     return null
   })
-
-  const shopifyConfig = await loadShopifyConfig(supabaseAdmin(), accountId).catch(
-    (err) => {
-      console.error('[webhook] loadShopifyConfig failed:', err)
-      return null
-    },
-  )
 
   if (contentType === 'image' && aiConfig && insertedRows?.[0]?.id) {
     const humanOwns = Boolean(
@@ -1063,34 +1062,9 @@ async function processMessage(
       }
     }
 
-    const description = await describeInboundImage({
-      provider: aiConfig.provider,
-      apiKey: aiConfig.apiKey,
-      mediaUrl,
-      caption: contentText,
-      purpose: shopifyConfig ? 'shopping' : 'support',
-      mediaId: message.image?.id ?? null,
-      accessToken,
-    })
-    const nextText =
-      description ||
-      contentText?.trim() ||
-      '[Customer sent a product photo]'
-    if (nextText !== contentText) {
-      contentText = nextText
-      const { error: imgErr } = await supabaseAdmin()
-        .from('messages')
-        .update({ content_text: nextText })
-        .eq('id', insertedRows[0].id)
-      if (imgErr) {
-        console.error('[webhook] failed to persist image description:', imgErr)
-      } else {
-        await supabaseAdmin()
-          .from('conversations')
-          .update({ last_message_text: nextText })
-          .eq('id', conversation.id)
-      }
-    }
+    // Vision + auto-reply run on the BullMQ `ai-chat-reply` worker so
+    // this request is not held open for gpt-4o-mini. Redis down →
+    // inline describe below, after flows, in the AI fallback.
   }
 
   // If this contact was a recent broadcast recipient, flag the reply
@@ -1224,25 +1198,89 @@ async function processMessage(
     !commerceReplyHandled &&
     !queuedVoice &&
     aiConfig?.autoReplyEnabled &&
-    inboundText.trim() &&
+    (inboundText.trim() || contentType === 'image') &&
     (!interactiveReplyId || aiConfig.fullAgentEnabled) &&
     (!flowConsumed ||
       aiConfig.fullAgentEnabled ||
       contentType === 'audio')
-  if (shouldAiReply) {
-    await dispatchInboundToAiReply({
-      accountId,
-      conversationId: conversation.id,
-      contactId: contactRecord.id,
-      configOwnerUserId,
-      inboundContentType: inboundModality,
-      inboundMetaMessageId: message.id,
-      inboundMediaUrl: contentType === 'image' ? mediaUrl : undefined,
-      inboundMediaId:
-        contentType === 'image' ? (message.image?.id ?? null) : undefined,
-      inboundAccessToken: contentType === 'image' ? accessToken : undefined,
-      isFirstInbound: isFirstInboundMessage,
-    })
+  if (shouldAiReply && insertedRows?.[0]?.id) {
+    if (inboundModality === 'text' || inboundModality === 'image') {
+      const chatJob = {
+        accountId,
+        conversationId: conversation.id,
+        contactId: contactRecord.id,
+        configOwnerUserId,
+        messageId: insertedRows[0].id,
+        inboundContentType: inboundModality,
+        inboundMetaMessageId: message.id,
+        inboundMediaUrl: contentType === 'image' ? mediaUrl : undefined,
+        inboundMediaId:
+          contentType === 'image' ? (message.image?.id ?? null) : undefined,
+        inboundAccessToken: contentType === 'image' ? accessToken : undefined,
+        isFirstInbound: isFirstInboundMessage,
+      }
+      const queuedChat = await enqueueAiChatReply(chatJob)
+      if (!queuedChat) {
+        if (contentType === 'image' && aiConfig) {
+          const shopifyConfig = await loadShopifyConfig(
+            supabaseAdmin(),
+            accountId,
+          ).catch(() => null)
+          const description = await describeInboundImage({
+            provider: aiConfig.provider,
+            apiKey: aiConfig.apiKey,
+            mediaUrl,
+            caption: contentText,
+            purpose: shopifyConfig ? 'shopping' : 'support',
+            mediaId: message.image?.id ?? null,
+            accessToken,
+          })
+          const nextText =
+            description ||
+            contentText?.trim() ||
+            '[Customer sent a product photo]'
+          if (nextText !== contentText) {
+            contentText = nextText
+            const { error: imgErr } = await supabaseAdmin()
+              .from('messages')
+              .update({ content_text: nextText })
+              .eq('id', insertedRows[0].id)
+            if (imgErr) {
+              console.error('[webhook] failed to persist image description:', imgErr)
+            } else {
+              await supabaseAdmin()
+                .from('conversations')
+                .update({ last_message_text: nextText })
+                .eq('id', conversation.id)
+            }
+          }
+        }
+        await dispatchInboundToAiReply({
+          accountId,
+          conversationId: conversation.id,
+          contactId: contactRecord.id,
+          configOwnerUserId,
+          inboundContentType: inboundModality,
+          inboundMetaMessageId: message.id,
+          inboundMediaUrl: contentType === 'image' ? mediaUrl : undefined,
+          inboundMediaId:
+            contentType === 'image' ? (message.image?.id ?? null) : undefined,
+          inboundAccessToken: contentType === 'image' ? accessToken : undefined,
+          isFirstInbound: isFirstInboundMessage,
+        })
+      }
+    } else if (inboundModality === 'audio') {
+      // Voice queues already failed and inline STT filled the transcript.
+      await dispatchInboundToAiReply({
+        accountId,
+        conversationId: conversation.id,
+        contactId: contactRecord.id,
+        configOwnerUserId,
+        inboundContentType: 'audio',
+        inboundMetaMessageId: message.id,
+        isFirstInbound: isFirstInboundMessage,
+      })
+    }
   }
 
   // message.received webhook (public API). Awaited — not fire-and-forget

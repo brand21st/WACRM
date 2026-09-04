@@ -110,7 +110,7 @@ const nextConfig: NextConfig = {
 
   // ffmpeg-static ships a platform binary; ws talks to OpenAI Realtime.
   // Keep both outside the bundler so spawn/require resolve at runtime.
-  serverExternalPackages: ["ffmpeg-static", "ws"],
+  serverExternalPackages: ["ffmpeg-static", "ws", "bullmq", "ioredis"],
 
   /**
    * Cross-origin dev access (Next.js 16).

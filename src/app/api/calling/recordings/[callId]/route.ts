@@ -9,6 +9,7 @@ import {
   recordingObjectPath,
 } from '@/lib/calling/storage'
 import { processCallRecording } from '@/lib/calling/process-recording'
+import { enqueueCallRecording } from '@/lib/queue/enqueue'
 
 export async function POST(
   request: Request,
@@ -80,11 +81,14 @@ export async function POST(
       return NextResponse.json({ error: 'Failed to save recording' }, { status: 500 })
     }
 
-    after(() =>
-      processCallRecording({ accountId, callId, settings }).catch((err) => {
-        console.error('[calling] post-recording pipeline', err)
-      }),
-    )
+    const queued = await enqueueCallRecording({ accountId, callId })
+    if (!queued) {
+      after(() =>
+        processCallRecording({ accountId, callId, settings }).catch((err) => {
+          console.error('[calling] post-recording pipeline', err)
+        }),
+      )
+    }
 
     return NextResponse.json({ ok: true, recording_key: path })
   } catch (err) {

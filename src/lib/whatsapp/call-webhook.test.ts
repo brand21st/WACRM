@@ -7,6 +7,7 @@ const h = vi.hoisted(() => ({
   isUniqueViolation: vi.fn(() => false),
   persistRecording: vi.fn(),
   processRecording: vi.fn(),
+  enqueueCallRecording: vi.fn(),
   decrypt: vi.fn((value: string) => `plain:${value}`),
   calls: {
     existing: null as { id: string; status: string } | null,
@@ -40,6 +41,10 @@ vi.mock('@/lib/calling/persist-meta-recording', () => ({
 
 vi.mock('@/lib/calling/process-recording', () => ({
   processCallRecording: h.processRecording,
+}))
+
+vi.mock('@/lib/queue/enqueue', () => ({
+  enqueueCallRecording: h.enqueueCallRecording,
 }))
 
 vi.mock('@/lib/whatsapp/encryption', () => ({
@@ -203,6 +208,8 @@ describe('handleCallsWebhook', () => {
     h.callUpdates = []
     h.persistRecording.mockReset()
     h.processRecording.mockReset()
+    h.enqueueCallRecording.mockReset()
+    h.enqueueCallRecording.mockResolvedValue(true)
     currentSelectIsTerminate = false
   })
 
@@ -329,6 +336,33 @@ describe('handleCallsWebhook', () => {
         audio: { id: 'media-1', sha256: 'abc', mime_type: 'audio/ogg; codecs=opus' },
       }),
     )
+    expect(h.enqueueCallRecording).toHaveBeenCalledWith({
+      accountId: 'acc-1',
+      callId: 'call-row-1',
+    })
+    expect(h.processRecording).not.toHaveBeenCalled()
+  })
+
+  it('falls back to in-process recording work when Redis enqueue fails', async () => {
+    h.persistRecording.mockResolvedValue({
+      callId: 'call-row-1',
+      settings: { recording_enabled: true },
+    })
+    h.enqueueCallRecording.mockResolvedValueOnce(false)
+    h.processRecording.mockResolvedValue(undefined)
+    await handleCallsWebhook(
+      {
+        metadata: { phone_number_id: 'pn-1' },
+        calls: [
+          {
+            id: 'wacid.ABC',
+            event: 'call_recording_available',
+            call_recording: { audio: { id: 'media-1' } },
+          },
+        ],
+      },
+      db as never,
+    )
     await Promise.resolve()
     expect(h.processRecording).toHaveBeenCalledWith(
       expect.objectContaining({ accountId: 'acc-1', callId: 'call-row-1' }),
@@ -352,6 +386,7 @@ describe('handleCallsWebhook', () => {
     )
     expect(h.persistRecording).toHaveBeenCalledTimes(1)
     await Promise.resolve()
+    expect(h.enqueueCallRecording).not.toHaveBeenCalled()
     expect(h.processRecording).not.toHaveBeenCalled()
   })
 })
