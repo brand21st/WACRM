@@ -409,6 +409,10 @@
       "remainingAria": "{hours}시간 {minutes}분 남음",
       "noCustomerMessages": "고객 메시지 없음"
     },
+    "paidLabels": {
+      "whatsappPaid": "WhatsApp 결제완료",
+      "shopifyPaid": "Shopify 결제완료"
+    },
     "composer": {
       "draftHint": "✨로 AI 초안을 쓰거나, 마이크로 음성 메모를 보내세요",
       "recordVoiceNote": "음성 메모 녹음",

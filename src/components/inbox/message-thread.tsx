@@ -32,6 +32,7 @@ import { format, isToday, isYesterday } from "date-fns";
 import { useTranslations } from "next-intl";
 import { customerServiceExpiresAt } from "@/lib/inbox/session-window";
 import { SessionWindowBadge } from "./session-window-badge";
+import { CustomerPaidBadges } from "./customer-paid-badges";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -940,6 +941,11 @@ export function MessageThread({
             <h2 className="truncate text-sm font-semibold text-foreground">{displayName}</h2>
             <p className="truncate text-xs text-muted-foreground">{contact.phone}</p>
           </div>
+          <CustomerPaidBadges
+            waCommercePaidAt={contact.wa_commerce_paid_at}
+            shopifyPaidAt={contact.shopify_paid_at}
+            className="shrink-0"
+          />
           {messages.length > 0 && (
             <SessionWindowBadge
               expiresAt={expiresAt}

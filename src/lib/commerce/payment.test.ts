@@ -4,6 +4,7 @@ const lookup = vi.fn()
 const sendStatus = vi.fn()
 const createOrder = vi.fn()
 const markPaid = vi.fn()
+const markWhatsAppPaid = vi.fn()
 const engineOrderStatus = vi.fn()
 const engineText = vi.fn()
 
@@ -57,6 +58,10 @@ vi.mock('./checkout', () => ({
   insertInboxNote: vi.fn(),
 }))
 
+vi.mock('./paid-labels', () => ({
+  markContactWhatsAppPaid: (...args: unknown[]) => markWhatsAppPaid(...args),
+}))
+
 import { handleWhatsAppPaymentStatus } from './payment'
 import {
   ORDER_CONFIRMED_BODY,
@@ -70,6 +75,8 @@ describe('handleWhatsAppPaymentStatus', () => {
     sendStatus.mockReset()
     createOrder.mockReset()
     markPaid.mockReset()
+    markWhatsAppPaid.mockReset()
+    markWhatsAppPaid.mockResolvedValue(true)
     engineOrderStatus.mockReset()
     engineText.mockReset()
   })
@@ -113,6 +120,11 @@ describe('handleWhatsAppPaymentStatus', () => {
 
     expect(createOrder).toHaveBeenCalled()
     expect(markPaid).toHaveBeenCalled()
+    expect(markWhatsAppPaid).toHaveBeenCalledWith(
+      expect.anything(),
+      'acct-1',
+      'c-1',
+    )
     // Confirmed only after Shopify accepted the order.
     expect(createOrder.mock.invocationCallOrder[0]).toBeLessThan(
       engineOrderStatus.mock.invocationCallOrder[0],

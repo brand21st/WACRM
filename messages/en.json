@@ -409,6 +409,10 @@
       "remainingAria": "{hours} hours {minutes} minutes remaining",
       "noCustomerMessages": "No customer messages"
     },
+    "paidLabels": {
+      "whatsappPaid": "WhatsApp Paid",
+      "shopifyPaid": "Shopify Paid"
+    },
     "composer": {
       "draftHint": "Tap ✨ to draft with AI, or the mic to send a voice note",
       "recordVoiceNote": "Record a voice note",

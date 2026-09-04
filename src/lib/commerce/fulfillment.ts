@@ -22,7 +22,7 @@ import {
 import { paiseFromMajor } from './money'
 import type { CommerceOrderStatus } from './types'
 
-function tagsOf(body: Record<string, unknown>): string[] {
+export function shopifyWebhookOrderTags(body: Record<string, unknown>): string[] {
   const tags = body.tags
   if (typeof tags === 'string') {
     return tags.split(/[,\s]+/).map((t) => t.trim()).filter(Boolean)
@@ -43,7 +43,7 @@ export async function syncWhatsAppOrderFromShopify(args: {
   topic: string
   body: Record<string, unknown>
 }): Promise<void> {
-  const tags = tagsOf(args.body)
+  const tags = shopifyWebhookOrderTags(args.body)
   const orderGid = shopifyOrderGid(args.body)
   const orderName =
     typeof args.body.name === 'string' ? args.body.name : null
@@ -73,7 +73,7 @@ export async function syncWhatsAppOrderFromShopify(args: {
   }
 }
 
-async function findCommerceOrder(
+export async function findCommerceOrder(
   db: SupabaseClient,
   accountId: string,
   keys: {

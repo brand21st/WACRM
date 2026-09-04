@@ -110,6 +110,10 @@ export interface Contact {
   avatar_url?: string;
   created_at: string;
   updated_at: string;
+  /** First WhatsApp catalog payment captured. Write-once. */
+  wa_commerce_paid_at?: string | null;
+  /** First Shopify store checkout payment (not WhatsApp commerce). Write-once. */
+  shopify_paid_at?: string | null;
   /** Hydrated by queries that embed `contact_tags(tags(*))` (e.g. the
    *  Inbox conversation list, for tag filtering). Absent otherwise. */
   tags?: Tag[];

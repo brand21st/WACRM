@@ -22,6 +22,7 @@ import {
 } from './order-status'
 import { sanitizeReferenceId, sanitizeWebhookText } from './sanitize'
 import { insertInboxNote } from './checkout'
+import { markContactWhatsAppPaid } from './paid-labels'
 import type { CommerceBeneficiary, MappedCartLine } from './types'
 import type { AppliedCommerceDiscount } from './shopify-discount'
 
@@ -190,6 +191,15 @@ export async function handleWhatsAppPaymentStatus(args: {
       })
       .eq('id', order.id)
       .eq('status', 'pending')
+  }
+
+  const contactId = typeof order.contact_id === 'string' ? order.contact_id : null
+  if (contactId) {
+    try {
+      await markContactWhatsAppPaid(args.db, accountId, contactId)
+    } catch (err) {
+      console.error('[commerce] WhatsApp paid label failed:', err)
+    }
   }
 
   // Create (or finish marking paid) the Shopify order before telling

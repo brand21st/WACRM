@@ -16,6 +16,7 @@ import {
   StickyNote,
   Plus,
 } from "lucide-react";
+import { CustomerPaidBadges } from "./customer-paid-badges";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { format } from "date-fns";
@@ -198,6 +199,17 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
 
           {/* Divider */}
           <div className="my-4 border-t border-border" />
+
+          {(contact.wa_commerce_paid_at || contact.shopify_paid_at) && (
+            <>
+              <CustomerPaidBadges
+                waCommercePaidAt={contact.wa_commerce_paid_at}
+                shopifyPaidAt={contact.shopify_paid_at}
+                className="px-1"
+              />
+              <div className="my-4 border-t border-border" />
+            </>
+          )}
 
           {/* Tags */}
           <div>

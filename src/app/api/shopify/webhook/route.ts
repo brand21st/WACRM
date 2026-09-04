@@ -128,6 +128,20 @@ export async function POST(request: Request) {
     } catch (err) {
       console.warn(`[shopify/webhook] ${topic} WhatsApp order sync failed:`, err)
     }
+    if (topic === 'orders/paid') {
+      try {
+        const { markShopifyStorePaidFromWebhook } = await import(
+          '@/lib/commerce/paid-labels'
+        )
+        await markShopifyStorePaidFromWebhook({
+          db: supabase,
+          accountId: row.account_id,
+          body,
+        })
+      } catch (err) {
+        console.warn(`[shopify/webhook] ${topic} paid label failed:`, err)
+      }
+    }
   } else {
     console.info(
       `[shopify/webhook] ${topic} for ${shopDomain} (account ${row.account_id})`,

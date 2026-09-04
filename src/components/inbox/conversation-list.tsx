@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { InboxAiAgentPanel } from "./ai-agent-panel";
+import { CustomerPaidBadges } from "./customer-paid-badges";
 import { callListPreview } from "@/lib/calls/preview";
 
 interface ConversationListProps {
@@ -479,8 +480,15 @@ function ConversationItem({
       {/* Content */}
       <div className="min-w-0 flex-1">
         <div className="flex items-center justify-between gap-2">
-          <span className="truncate text-sm font-medium text-foreground">
-            {displayName}
+          <span className="flex min-w-0 items-center gap-1.5">
+            <span className="truncate text-sm font-medium text-foreground">
+              {displayName}
+            </span>
+            <CustomerPaidBadges
+              waCommercePaidAt={contact?.wa_commerce_paid_at}
+              shopifyPaidAt={contact?.shopify_paid_at}
+              className="shrink-0"
+            />
           </span>
           <span className="shrink-0 text-[10px] text-muted-foreground">{timeAgo}</span>
         </div>
