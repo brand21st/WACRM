@@ -121,7 +121,9 @@ describe('paidShopifyOrderCreateVariables', () => {
       customerId: 'gid://shopify/Customer/9',
     })
     expect(variables.order.email).toBe('ada@example.com')
-    expect(variables.order.customer).toEqual({ toSet: 'gid://shopify/Customer/9' })
+    expect(variables.order.customer).toEqual({
+      toAssociate: { id: 'gid://shopify/Customer/9' },
+    })
     expect(variables.options.sendReceipt).toBe(true)
   })
 })
@@ -167,6 +169,32 @@ describe('createPaidShopifyOrder', () => {
     expect(
       graphql.mock.calls[1][0].variables.order.shippingAddress.phone,
     ).toBeUndefined()
+  })
+
+  it('retries without a customer when Shopify rejects the customer input', async () => {
+    graphql
+      .mockRejectedValueOnce(
+        new Error(
+          'Variable $order of type OrderCreateOrderInput! was provided invalid value for customer.toSet (Field is not defined on OrderCreateCustomerInput)',
+        ),
+      )
+      .mockResolvedValueOnce({
+        orderCreate: {
+          userErrors: [],
+          order: { id: 'gid://shopify/Order/3', name: '#1003' },
+        },
+      })
+
+    const created = await createPaidShopifyOrder({
+      ...args,
+      customerId: 'gid://shopify/Customer/9',
+    })
+    expect(created).toEqual({ id: 'gid://shopify/Order/3', name: '#1003' })
+    expect(graphql).toHaveBeenCalledTimes(2)
+    expect(graphql.mock.calls[0][0].variables.order.customer).toEqual({
+      toAssociate: { id: 'gid://shopify/Customer/9' },
+    })
+    expect(graphql.mock.calls[1][0].variables.order.customer).toBeUndefined()
   })
 })
 

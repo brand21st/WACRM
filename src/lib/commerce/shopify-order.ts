@@ -102,7 +102,9 @@ export function paidShopifyOrderCreateVariables(
       note: `WhatsApp commerce ${args.referenceId}`,
       phone,
       ...(email ? { email } : {}),
-      ...(customerId ? { customer: { toSet: customerId } } : {}),
+      ...(customerId
+        ? { customer: { toAssociate: { id: customerId } } }
+        : {}),
       lineItems: args.lines.map((line) => ({
         variantId: variantGid(line.variantId),
         quantity: line.quantity,
@@ -158,7 +160,7 @@ export async function createPaidShopifyOrder(
   }
 
   let variables = paidShopifyOrderCreateVariables(args)
-  let payload = await orderCreateOnce(args.config, variables)
+  let payload = await orderCreateWithCustomerFallback(args.config, variables)
   let errors = payload?.userErrors?.filter((e) => e.message) ?? []
 
   // Payment is already captured. A bad WhatsApp phone or customer link
@@ -168,16 +170,14 @@ export async function createPaidShopifyOrder(
     orderCreateHasPhone(variables.order)
   ) {
     variables = withoutPhones(variables)
-    payload = await orderCreateOnce(args.config, variables)
+    payload = await orderCreateWithCustomerFallback(args.config, variables)
     errors = payload?.userErrors?.filter((e) => e.message) ?? []
   }
   if (
     errors.some((e) => isInvalidCustomerUserError(e.message)) &&
     variables.order.customer
   ) {
-    const { customer: _customer, ...orderRest } = variables.order
-    void _customer
-    variables = { ...variables, order: orderRest }
+    variables = withoutCustomer(variables)
     payload = await orderCreateOnce(args.config, variables)
     errors = payload?.userErrors?.filter((e) => e.message) ?? []
   }
@@ -214,6 +214,36 @@ async function orderCreateOnce(
     variables,
   })
   return data.orderCreate
+}
+
+async function orderCreateWithCustomerFallback(
+  config: ShopifyStoreConfig,
+  variables: { order: Record<string, unknown>; options: Record<string, unknown> },
+) {
+  try {
+    return await orderCreateOnce(config, variables)
+  } catch (err) {
+    if (!isInvalidCustomerGraphqlError(err) || !variables.order.customer) {
+      throw err
+    }
+    return orderCreateOnce(config, withoutCustomer(variables))
+  }
+}
+
+export function withoutCustomer(variables: {
+  order: Record<string, unknown>
+  options: Record<string, unknown>
+}): { order: Record<string, unknown>; options: Record<string, unknown> } {
+  const { customer: _customer, ...order } = variables.order
+  void _customer
+  return { options: variables.options, order }
+}
+
+export function isInvalidCustomerGraphqlError(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err)
+  return /customer\.(toSet|toAssociate|toUpsert)|Field is not defined on OrderCreateCustomerInput/i.test(
+    message,
+  )
 }
 
 export function isInvalidPhoneUserError(message: string | undefined): boolean {
