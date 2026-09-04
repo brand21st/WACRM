@@ -119,7 +119,9 @@ Do not require `.env.local` on the server. Full checklist:
   `.env.local.example`). `/api/voice/cron` is an optional fallback if
   Redis is unavailable — it is no longer required when the worker is
   running.
-- Nginx config lives in `deploy/nginx/`. The webhook location disables
-  proxy buffering so Meta's POST is not held in Nginx while Node
-  persists the message. Do not rate-limit `/api/whatsapp/webhook`.
-  Compose healthchecks use `GET /api/health` (no auth).
+- Nginx config lives in `deploy/nginx/` and is **baked into the nginx
+  image** (Coolify cannot bind-mount git files as regular files).
+  The webhook location disables proxy buffering so Meta's POST is not
+  held in Nginx while Node persists the message. Do not rate-limit
+  `/api/whatsapp/webhook`. Compose healthchecks use `GET /api/health`
+  (no auth).

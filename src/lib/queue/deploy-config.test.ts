@@ -48,6 +48,11 @@ describe('docker-compose Coolify contract', () => {
     expect(compose).not.toMatch(/["']6379["']/)
   })
 
+  it('builds nginx from the image instead of bind-mounting git files', () => {
+    expect(compose).toContain('context: ./deploy/nginx')
+    expect(compose).not.toMatch(/nginx\.conf:\/etc\/nginx/)
+  })
+
   it('exposes nginx to Coolify Traefik without binding host 80', () => {
     expect(compose).toMatch(/expose:\s*\n\s+- ['"]80['"]/)
     expect(compose).not.toMatch(/['"]80:80['"]/)
