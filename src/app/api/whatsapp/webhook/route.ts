@@ -996,9 +996,15 @@ async function processMessage(
     })
   }
 
-  // Speech-to-text + spoken auto-reply run on the BullMQ worker
-  // (`ai-voice-inbound`). Redis down → Postgres `voice_inbound_jobs`
-  // (GET /api/voice/cron). Both enqueue paths failing → inline STT.
+  const aiConfig = await loadAiConfig(supabaseAdmin(), accountId).catch((err) => {
+    console.error('[webhook] loadAiConfig failed:', err)
+    return null
+  })
+
+  // Speech-to-text + spoken auto-reply. Full-agent runs inline in this
+  // `after()` block so a missing BullMQ worker cannot drop the note.
+  // Otherwise: Redis worker → Postgres `voice_inbound_jobs` cron →
+  // inline STT with the bytes already mirrored from Meta.
   let queuedVoice = false
   if (
     contentType === 'audio' &&
@@ -1015,12 +1021,14 @@ async function processMessage(
       mediaId: message.audio.id,
       mimeType: mediaType,
     }
-    queuedVoice = await enqueueAiVoiceInbound(voicePayload)
-    if (!queuedVoice) {
-      queuedVoice = await enqueueVoiceInboundJob({
-        db: supabaseAdmin(),
-        ...voicePayload,
-      })
+    if (!aiConfig?.fullAgentEnabled) {
+      queuedVoice = await enqueueAiVoiceInbound(voicePayload)
+      if (!queuedVoice) {
+        queuedVoice = await enqueueVoiceInboundJob({
+          db: supabaseAdmin(),
+          ...voicePayload,
+        })
+      }
     }
     if (!queuedVoice) {
       const transcript = await transcribeInboundVoiceNote({
@@ -1046,14 +1054,25 @@ async function processMessage(
             .update({ last_message_text: transcript })
             .eq('id', conversation.id)
         }
+      } else if (aiConfig?.fullAgentEnabled) {
+        // Keep the turn alive so the agent can ask the customer to
+        // repeat instead of going silent when STT returns nothing.
+        contentText = contentText?.trim() || '[Customer sent a voice note]'
+        const { error: phErr } = await supabaseAdmin()
+          .from('messages')
+          .update({ content_text: contentText })
+          .eq('id', insertedRows[0].id)
+        if (phErr) {
+          console.error('[webhook] failed to persist voice placeholder:', phErr)
+        } else {
+          await supabaseAdmin()
+            .from('conversations')
+            .update({ last_message_text: contentText })
+            .eq('id', conversation.id)
+        }
       }
     }
   }
-
-  const aiConfig = await loadAiConfig(supabaseAdmin(), accountId).catch((err) => {
-    console.error('[webhook] loadAiConfig failed:', err)
-    return null
-  })
 
   if (contentType === 'image' && aiConfig && insertedRows?.[0]?.id) {
     const humanOwns = Boolean(

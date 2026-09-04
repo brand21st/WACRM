@@ -741,6 +741,26 @@ describe('inbound webhook: voice notes are queued for the worker', () => {
     expect(h.dispatchInboundToAiReply).not.toHaveBeenCalled()
   })
 
+  it('runs the fully automated agent inline so a missing voice worker cannot drop the note', async () => {
+    h.loadAiConfig.mockResolvedValue({
+      autoReplyEnabled: true,
+      fullAgentEnabled: true,
+    })
+    h.transcribeInboundVoiceNote.mockResolvedValueOnce('please send the blue set')
+
+    await runWebhook(AUDIO_MESSAGE)
+
+    expect(h.enqueueAiVoiceInbound).not.toHaveBeenCalled()
+    expect(h.enqueueVoiceInboundJob).not.toHaveBeenCalled()
+    expect(h.transcribeInboundVoiceNote).toHaveBeenCalled()
+    expect(h.dispatchInboundToAiReply).toHaveBeenCalledWith(
+      expect.objectContaining({
+        inboundContentType: 'audio',
+        inboundMetaMessageId: 'wamid.AUD1',
+      }),
+    )
+  })
+
   it('falls back to inline STT + AI when both queues fail', async () => {
     h.enqueueAiVoiceInbound.mockResolvedValueOnce(false)
     h.enqueueVoiceInboundJob.mockResolvedValueOnce(false)

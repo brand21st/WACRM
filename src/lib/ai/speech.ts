@@ -1,4 +1,4 @@
-import type { AiConfig } from './types'
+import { AiError, type AiConfig } from './types'
 import { hasSpeechKey } from './voice'
 import {
   speechToText as elevenLabsStt,
@@ -25,6 +25,7 @@ import {
 import { prepareIndicSpeechText } from './speech-text'
 import { sarvamCodeFromIso } from './language-lock'
 import { DEFAULT_SARVAM_PACE } from './voice'
+import { canUseOpenAiSpeech, openaiSpeechToText, openaiTextToSpeech } from './openai-speech'
 
 const INDIC_SARVAM_PACE = 0.9
 
@@ -62,12 +63,18 @@ export interface SynthesizeResult {
 
 /** True when STT can run for this config. */
 export function canTranscribe(config: AiConfig): boolean {
-  return config.sttEnabled && hasSpeechKey(config)
+  return (
+    config.sttEnabled &&
+    (hasSpeechKey(config) || canUseOpenAiSpeech(config))
+  )
 }
 
 /** True when TTS can run for this config. */
 export function canSpeak(config: AiConfig): boolean {
-  return config.ttsEnabled && hasSpeechKey(config)
+  return (
+    config.ttsEnabled &&
+    (hasSpeechKey(config) || canUseOpenAiSpeech(config))
+  )
 }
 
 export async function transcribeSpeech(args: TranscribeArgs): Promise<string> {
@@ -82,12 +89,27 @@ export async function transcribeSpeech(args: TranscribeArgs): Promise<string> {
       languageCode: hint ? sarvamCodeFromIso(hint) : 'unknown',
     })
   }
-  return elevenLabsStt({
-    apiKey: config.elevenlabsApiKey!,
-    audio: args.audio,
-    mimeType: args.mimeType,
-    fileName: args.fileName,
-    ...(hint ? { languageCode: hint } : {}),
+  if (config.elevenlabsApiKey) {
+    return elevenLabsStt({
+      apiKey: config.elevenlabsApiKey,
+      audio: args.audio,
+      mimeType: args.mimeType,
+      fileName: args.fileName,
+      ...(hint ? { languageCode: hint } : {}),
+    })
+  }
+  if (canUseOpenAiSpeech(config)) {
+    return openaiSpeechToText({
+      apiKey: config.apiKey,
+      audio: args.audio,
+      mimeType: args.mimeType,
+      fileName: args.fileName,
+      languageHint: hint || null,
+    })
+  }
+  throw new AiError('No speech-to-text provider is configured.', {
+    code: 'missing_speech_key',
+    status: 400,
   })
 }
 
@@ -118,22 +140,36 @@ export async function synthesizeSpeech(
         (args.whatsapp ? SARVAM_TTS_MIME_OPUS : SARVAM_TTS_MIME_MP3),
     }
   }
-  const elevenLanguage =
-    args.languageHint ?? detectElevenLabsLanguage(text) ?? null
-  const spoken = await elevenLabsTts({
-    apiKey: config.elevenlabsApiKey!,
-    voiceId: effectiveVoiceId(config.elevenlabsVoiceId),
-    text,
-    ...(args.modelId ? { modelId: args.modelId } : {}),
-    ...(elevenLanguage ? { languageCode: elevenLanguage } : {}),
-    ...(args.whatsapp
-      ? { outputFormat: ELEVENLABS_WHATSAPP_VOICE_FORMAT }
-      : {}),
-  })
-  return {
-    bytes: spoken.bytes,
-    mimeType:
-      spoken.mimeType ||
-      (args.whatsapp ? ELEVENLABS_WHATSAPP_VOICE_MIME : ELEVENLABS_TTS_MIME),
+  if (config.elevenlabsApiKey) {
+    const elevenLanguage =
+      args.languageHint ?? detectElevenLabsLanguage(text) ?? null
+    const spoken = await elevenLabsTts({
+      apiKey: config.elevenlabsApiKey,
+      voiceId: effectiveVoiceId(config.elevenlabsVoiceId),
+      text,
+      ...(args.modelId ? { modelId: args.modelId } : {}),
+      ...(elevenLanguage ? { languageCode: elevenLanguage } : {}),
+      ...(args.whatsapp
+        ? { outputFormat: ELEVENLABS_WHATSAPP_VOICE_FORMAT }
+        : {}),
+    })
+    return {
+      bytes: spoken.bytes,
+      mimeType:
+        spoken.mimeType ||
+        (args.whatsapp ? ELEVENLABS_WHATSAPP_VOICE_MIME : ELEVENLABS_TTS_MIME),
+    }
   }
+  if (canUseOpenAiSpeech(config)) {
+    return openaiTextToSpeech({
+      apiKey: config.apiKey,
+      text,
+      voice: config.realtimeVoice,
+      whatsapp: args.whatsapp,
+    })
+  }
+  throw new AiError('No text-to-speech provider is configured.', {
+    code: 'missing_speech_key',
+    status: 400,
+  })
 }

@@ -7,6 +7,8 @@ const h = vi.hoisted(() => ({
   elevenLabsTts: vi.fn(),
   sarvamStt: vi.fn(),
   sarvamTts: vi.fn(),
+  openaiStt: vi.fn(),
+  openaiTts: vi.fn(),
 }))
 
 vi.mock('@/lib/elevenlabs/stt', () => ({ speechToText: h.elevenLabsStt }))
@@ -18,6 +20,16 @@ vi.mock('@/lib/elevenlabs/tts', () => ({
 }))
 vi.mock('@/lib/sarvam/stt', () => ({ speechToText: h.sarvamStt }))
 vi.mock('@/lib/sarvam/tts', () => ({ textToSpeech: h.sarvamTts }))
+vi.mock('@/lib/ai/openai-speech', async () => {
+  const actual = await vi.importActual<typeof import('@/lib/ai/openai-speech')>(
+    '@/lib/ai/openai-speech',
+  )
+  return {
+    ...actual,
+    openaiSpeechToText: h.openaiStt,
+    openaiTextToSpeech: h.openaiTts,
+  }
+})
 
 function config(overrides: Partial<AiConfig> = {}): AiConfig {
   return {
@@ -50,6 +62,11 @@ beforeEach(() => {
   })
   h.sarvamTts.mockReset().mockResolvedValue({
     bytes: new Uint8Array([8]),
+    mimeType: 'audio/ogg',
+  })
+  h.openaiStt.mockReset().mockResolvedValue('hello from openai')
+  h.openaiTts.mockReset().mockResolvedValue({
+    bytes: new Uint8Array([7]),
     mimeType: 'audio/ogg',
   })
 })
@@ -235,7 +252,10 @@ describe('speech dispatch', () => {
   })
 
   it('canTranscribe/canSpeak follow the selected provider key', () => {
-    expect(canTranscribe(config({ elevenlabsApiKey: null }))).toBe(false)
+    expect(
+      canTranscribe(config({ elevenlabsApiKey: null, apiKey: '' })),
+    ).toBe(false)
+    expect(canTranscribe(config({ elevenlabsApiKey: null }))).toBe(true)
     expect(
       canSpeak(
         config({
@@ -245,5 +265,26 @@ describe('speech dispatch', () => {
         }),
       ),
     ).toBe(true)
+  })
+
+  it('falls back to OpenAI speech when ElevenLabs is unset', async () => {
+    const cfg = config({ elevenlabsApiKey: null })
+    const text = await transcribeSpeech({
+      config: cfg,
+      audio: AUDIO,
+      mimeType: 'audio/ogg',
+    })
+    expect(text).toBe('hello from openai')
+    expect(h.elevenLabsStt).not.toHaveBeenCalled()
+    expect(h.openaiStt).toHaveBeenCalled()
+
+    const spoken = await synthesizeSpeech({
+      config: cfg,
+      text: 'Hello',
+      whatsapp: true,
+    })
+    expect(spoken.bytes).toEqual(new Uint8Array([7]))
+    expect(h.elevenLabsTts).not.toHaveBeenCalled()
+    expect(h.openaiTts).toHaveBeenCalled()
   })
 })
