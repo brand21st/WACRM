@@ -43,6 +43,12 @@ export function shopifyWebhookOrderNumericId(
     if (nestedId) return nestedId
   }
 
+  const fulfillmentOrder = asRecord(body.fulfillment_order)
+  if (fulfillmentOrder) {
+    const foOrderId = numericId(fulfillmentOrder.order_id)
+    if (foOrderId) return foOrderId
+  }
+
   return numericId(body.order_id)
 }
 

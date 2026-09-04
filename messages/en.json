@@ -1975,7 +1975,7 @@
       "submitAllPartial": "Submitted {ok} presets. {failed} failed — try again or use Quick add.",
       "triggers": {
         "new_order": "New order",
-        "processing": "Processing (paid)",
+        "processing": "Processing (fulfillment)",
         "checkout_abandoned": "Checkout abandoned",
         "partially_fulfilled": "Partially fulfilled",
         "fulfilled": "Fulfilled / shipped",
@@ -1988,10 +1988,10 @@
       },
       "triggerHints": {
         "new_order": "When a Shopify order is created",
-        "processing": "When the order is paid and not yet fulfilled",
+        "processing": "When Shopify fulfillment is in progress (packing), not when the order is paid",
         "checkout_abandoned": "Checkout started, then still unpaid after the wait",
         "partially_fulfilled": "When only part of the order has shipped",
-        "fulfilled": "When a fulfillment is created",
+        "fulfilled": "When a fulfillment is marked shipped",
         "tracking": "When tracking is added or updated",
         "delivered": "When Shopify marks the shipment delivered",
         "after_delivered": "Follow-up template, N days after delivered",

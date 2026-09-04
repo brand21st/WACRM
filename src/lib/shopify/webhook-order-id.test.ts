@@ -39,6 +39,14 @@ describe('shopifyWebhookOrderNumericId', () => {
     ).toBe('')
   })
 
+  it('uses nested fulfillment_order.order_id', () => {
+    expect(
+      shopifyWebhookOrderNumericId({
+        fulfillment_order: { id: 88, order_id: 1001, status: 'in_progress' },
+      }),
+    ).toBe('1001')
+  })
+
   it('keeps a real Order GID', () => {
     expect(
       shopifyWebhookOrderGid({

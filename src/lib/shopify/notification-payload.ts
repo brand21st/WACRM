@@ -218,19 +218,53 @@ function resourceId(body: Record<string, unknown>, fallbackKeys: string[]): stri
   return str(id)
 }
 
-function isOrderFulfilled(body: Record<string, unknown>): boolean {
-  return str(body.fulfillment_status).toLowerCase() === 'fulfilled'
+function fulfillmentResource(
+  body: Record<string, unknown>,
+): Record<string, unknown> {
+  return asRecord(body.fulfillment_order) ?? body
+}
+
+function fulfillmentStatus(body: Record<string, unknown>): string {
+  return str(fulfillmentResource(body).status).toLowerCase()
+}
+
+/** REST fulfillment still packing — not yet a shipped `success` fulfillment. */
+export function isFulfillmentProcessing(body: Record<string, unknown>): boolean {
+  return ['pending', 'open', 'in_progress', 'processing'].includes(
+    fulfillmentStatus(body),
+  )
+}
+
+/** Fulfillment order has started packing (admin "In progress"). */
+export function isFulfillmentOrderProcessing(
+  body: Record<string, unknown>,
+): boolean {
+  return ['in_progress', 'processing'].includes(fulfillmentStatus(body))
+}
+
+function processingAction(body: Record<string, unknown>): NotificationAction {
+  const resource = fulfillmentResource(body)
+  const id = resourceId(resource, ['id']) || resourceId(body, ['id'])
+  const orderId =
+    shopifyWebhookOrderNumericId(resource) ||
+    shopifyWebhookOrderNumericId(body)
+  return {
+    kind: 'send',
+    trigger: 'processing',
+    resourceId: `fulfillment-processing:${orderId || id}`,
+    fields: fulfillmentFields(resource),
+  }
 }
 
 function isPartialFulfillment(body: Record<string, unknown>): boolean {
   const status = str(body.status).toLowerCase()
-  const fulfillmentStatus = str(body.fulfillment_status).toLowerCase()
+  const itemFulfillmentStatus = str(body.fulfillment_status).toLowerCase()
   const orderStatus = str(
     nested(body, ['order', 'fulfillment_status']),
   ).toLowerCase()
   return (
     status === 'partial' ||
-    fulfillmentStatus === 'partial' ||
+    itemFulfillmentStatus === 'partial' ||
     orderStatus === 'partial'
   )
 }
@@ -437,17 +471,10 @@ export function notificationActionsForTopic(
         },
       ]
     }
-    case 'orders/paid': {
-      if (isOrderFulfilled(body)) return []
-      return [
-        {
-          kind: 'send',
-          trigger: 'processing',
-          resourceId: `order-paid:${resourceId(body, ['id'])}`,
-          fields: orderFields(body),
-        },
-      ]
-    }
+    case 'orders/paid':
+      // Processing is fulfillment-in-progress, not payment. Keep the topic
+      // subscribed for commerce sync; do not WhatsApp on pay.
+      return []
     case 'orders/cancelled': {
       return [
         {
@@ -500,6 +527,7 @@ export function notificationActionsForTopic(
       ]
     }
     case 'fulfillments/create': {
+      if (isFulfillmentProcessing(body)) return [processingAction(body)]
       const fields = fulfillmentFields(body)
       const partial = isPartialFulfillment(body)
       return [
@@ -512,6 +540,7 @@ export function notificationActionsForTopic(
       ]
     }
     case 'fulfillments/update': {
+      if (isFulfillmentProcessing(body)) return [processingAction(body)]
       const fields = fulfillmentFields(body)
       if (!fields.tracking_number && !fields.tracking_url) return []
       return [
@@ -522,6 +551,11 @@ export function notificationActionsForTopic(
           fields,
         },
       ]
+    }
+    case 'fulfillment_orders/fulfillment_request_accepted':
+    case 'fulfillment_orders/moved': {
+      if (!isFulfillmentOrderProcessing(body)) return []
+      return [processingAction(body)]
     }
     case 'fulfillment_events/create': {
       if (fulfillmentEventStatus(body) !== 'delivered') return []

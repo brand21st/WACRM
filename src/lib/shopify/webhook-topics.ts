@@ -22,6 +22,8 @@ export const SHOPIFY_NOTIFICATION_WEBHOOK_TOPICS = [
   'checkouts/update',
   'fulfillments/create',
   'fulfillments/update',
+  'fulfillment_orders/fulfillment_request_accepted',
+  'fulfillment_orders/moved',
   'fulfillment_events/create',
   'refunds/create',
   'returns/request',

@@ -1975,7 +1975,7 @@
       "submitAllPartial": "프리셋 {ok}개를 제출했습니다. {failed}개는 실패했습니다. 다시 시도하거나 Quick add를 사용하세요.",
       "triggers": {
         "new_order": "신규 주문",
-        "processing": "처리 중 (결제 완료)",
+        "processing": "처리 중 (출고 준비)",
         "checkout_abandoned": "결제 이탈",
         "partially_fulfilled": "부분 출고",
         "fulfilled": "출고 / 배송 시작",
@@ -1988,10 +1988,10 @@
       },
       "triggerHints": {
         "new_order": "Shopify 주문이 생성될 때",
-        "processing": "결제됐지만 아직 출고되지 않았을 때",
+        "processing": "Shopify 풀필먼트가 처리 중(패킹)일 때. 결제 완료 시점이 아닙니다",
         "checkout_abandoned": "결제를 시작했다가 대기 시간 후에도 미결제",
         "partially_fulfilled": "주문의 일부만 출고됐을 때",
-        "fulfilled": "풀필먼트가 생성될 때",
+        "fulfilled": "풀필먼트가 출고 완료로 표시될 때",
         "tracking": "운송장 정보가 추가되거나 바뀔 때",
         "delivered": "Shopify가 배송 완료로 표시할 때",
         "after_delivered": "배송 완료 N일 후 후속 템플릿",

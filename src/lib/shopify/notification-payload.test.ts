@@ -81,23 +81,12 @@ describe('notificationActionsForTopic', () => {
     expect(actions[0]?.cancelIds).toContain('chk_1')
   })
 
-  it('sends processing on orders/paid when unfulfilled', () => {
-    const actions = notificationActionsForTopic('orders/paid', {
-      id: 1001,
-      name: '#1001',
-      fulfillment_status: null,
-      customer: CUSTOMER,
-    })
-    expect(actions).toEqual([
-      expect.objectContaining({ kind: 'send', trigger: 'processing' }),
-    ])
-  })
-
-  it('skips processing when the order is already fulfilled', () => {
+  it('does not send processing on orders/paid', () => {
     expect(
       notificationActionsForTopic('orders/paid', {
         id: 1001,
-        fulfillment_status: 'fulfilled',
+        name: '#1001',
+        fulfillment_status: null,
         customer: CUSTOMER,
       }),
     ).toEqual([])
@@ -195,6 +184,40 @@ describe('notificationActionsForTopic', () => {
     expect(actions[0]?.fields.order_id).toBe('1001')
   })
 
+  it('sends processing on fulfillments/create when status is pending', () => {
+    const actions = notificationActionsForTopic('fulfillments/create', {
+      id: 55,
+      order_id: 1001,
+      status: 'pending',
+      destination: { phone: '+14155550123' },
+    })
+    expect(actions).toEqual([
+      expect.objectContaining({
+        kind: 'send',
+        trigger: 'processing',
+        resourceId: 'fulfillment-processing:1001',
+      }),
+    ])
+  })
+
+  it('sends processing on fulfillments/create when status is open', () => {
+    const actions = notificationActionsForTopic('fulfillments/create', {
+      id: 55,
+      order_id: 1001,
+      status: 'open',
+    })
+    expect(actions.map((a) => a.trigger)).toEqual(['processing'])
+  })
+
+  it('sends fulfilled on fulfillments/create when status is success', () => {
+    const actions = notificationActionsForTopic('fulfillments/create', {
+      id: 55,
+      order_id: 1001,
+      status: 'success',
+    })
+    expect(actions.map((a) => a.trigger)).toEqual(['fulfilled'])
+  })
+
   it('sends partially_fulfilled on fulfillments/create when status is partial', () => {
     const actions = notificationActionsForTopic('fulfillments/create', {
       id: 56,
@@ -204,6 +227,65 @@ describe('notificationActionsForTopic', () => {
       destination: { phone: '+14155550123' },
     })
     expect(actions.map((a) => a.trigger)).toEqual(['partially_fulfilled'])
+  })
+
+  it('sends processing on fulfillments/update when still pending', () => {
+    const actions = notificationActionsForTopic('fulfillments/update', {
+      id: 55,
+      order_id: 1001,
+      status: 'pending',
+    })
+    expect(actions.map((a) => a.trigger)).toEqual(['processing'])
+  })
+
+  it('sends processing when a fulfillment order is accepted in progress', () => {
+    const actions = notificationActionsForTopic(
+      'fulfillment_orders/fulfillment_request_accepted',
+      {
+        id: 88,
+        order_id: 1001,
+        status: 'in_progress',
+      },
+    )
+    expect(actions).toEqual([
+      expect.objectContaining({
+        kind: 'send',
+        trigger: 'processing',
+        resourceId: 'fulfillment-processing:1001',
+      }),
+    ])
+  })
+
+  it('reads nested fulfillment_order status for processing', () => {
+    const actions = notificationActionsForTopic(
+      'fulfillment_orders/fulfillment_request_accepted',
+      {
+        fulfillment_order: {
+          id: 88,
+          order_id: 1001,
+          status: 'in_progress',
+        },
+      },
+    )
+    expect(actions.map((a) => a.trigger)).toEqual(['processing'])
+  })
+
+  it('skips fulfillment orders that are only assigned (open)', () => {
+    expect(
+      notificationActionsForTopic(
+        'fulfillment_orders/fulfillment_request_accepted',
+        { id: 88, order_id: 1001, status: 'open' },
+      ),
+    ).toEqual([])
+  })
+
+  it('sends processing when a fulfillment order moves to in_progress', () => {
+    const actions = notificationActionsForTopic('fulfillment_orders/moved', {
+      id: 88,
+      order_id: 1001,
+      status: 'in_progress',
+    })
+    expect(actions.map((a) => a.trigger)).toEqual(['processing'])
   })
 
   it('sends tracking on fulfillments/update when tracking appears', () => {
@@ -308,6 +390,12 @@ describe('webhook topics', () => {
       'orders/partially_fulfilled',
     )
     expect(SHOPIFY_NOTIFICATION_WEBHOOK_TOPICS).toContain('checkouts/update')
+    expect(SHOPIFY_NOTIFICATION_WEBHOOK_TOPICS).toContain(
+      'fulfillment_orders/fulfillment_request_accepted',
+    )
+    expect(SHOPIFY_NOTIFICATION_WEBHOOK_TOPICS).toContain(
+      'fulfillment_orders/moved',
+    )
     expect(isShopifyNotificationTopic('orders/create')).toBe(true)
     expect(isShopifyNotificationTopic('products/create')).toBe(false)
     expect(SHOPIFY_WEBHOOK_TOPICS).toEqual(
