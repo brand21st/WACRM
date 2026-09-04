@@ -13,6 +13,7 @@ import {
 } from './language-lock'
 import { generateOpenAi } from './providers/openai'
 import { generateAnthropic } from './providers/anthropic'
+import { joinShoppingReply, splitShoppingReply } from './shopping-voice'
 
 const REWRITE_MAX_TOKENS = 256
 const REWRITE_TIMEOUT_MS = 15_000
@@ -64,8 +65,19 @@ function rewriteSystemPrompt(
     address +
     ` Write prices as the amount plus ${currency} — never ₹, Rs, Rs., or INR. ` +
     `Write product names in title case, never ALL-CAPS catalog slugs. ` +
+    `If the draft has a VOICE_MESSAGE: or Voice message: block, keep that heading and rewrite both the chat lines and the spoken block. Do not drop the heading. ` +
     `Output only the rewritten message text.`
   )
+}
+
+function preserveVoiceBlock(original: string, rewritten: string): string {
+  const before = splitShoppingReply(original)
+  const next = rewritten.trim()
+  if (!next) return original
+  if (!before.voiceText) return next
+  const after = splitShoppingReply(next)
+  if (!after.voiceText || !after.chatText.trim()) return original
+  return joinShoppingReply(after.chatText, after.voiceText)
 }
 
 export function shouldRewriteSpoken(args: {
@@ -118,7 +130,8 @@ export async function spokenRewrite(args: {
         ? await generateAnthropic(providerArgs)
         : await generateOpenAi(providerArgs)
     const text = result.text.trim()
-    return text || args.draft
+    if (!text) return args.draft
+    return preserveVoiceBlock(draft, text)
   } catch {
     return args.draft
   }

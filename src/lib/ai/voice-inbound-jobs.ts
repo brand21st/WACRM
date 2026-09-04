@@ -5,6 +5,7 @@ import { mapPool } from '@/lib/concurrency'
 import { decrypt } from '@/lib/whatsapp/encryption'
 import { transcribeInboundVoiceNote } from '@/lib/ai/transcribe-inbound'
 import { dispatchInboundToAiReply } from '@/lib/ai/auto-reply'
+import { INBOUND_VOICE_PLACEHOLDER } from '@/lib/ai/voice'
 
 export const VOICE_JOB_STALE_MS = 5 * 60_000
 export const VOICE_JOB_MAX_ATTEMPTS = 5
@@ -189,7 +190,19 @@ export async function executeVoiceInboundWork(
   }
 
   if (!transcript) {
-    throw new Error('transcription empty')
+    transcript = INBOUND_VOICE_PLACEHOLDER
+    const { error: phErr } = await db
+      .from('messages')
+      .update({ content_text: transcript })
+      .eq('id', row.message_id)
+    if (phErr) {
+      console.error('[voice-jobs] persist voice placeholder failed:', phErr.message)
+    } else {
+      await db
+        .from('conversations')
+        .update({ last_message_text: transcript })
+        .eq('id', row.conversation_id)
+    }
   }
 
   await dispatchInboundToAiReply({

@@ -21,7 +21,11 @@ import { logAiUsage } from './usage'
 import { latestUserMessage } from './query'
 import { engineSendText, engineSendMedia, engineSendTypingIndicator, engineSendInteractiveButtons, engineSendCtaUrl, engineSendCatalogMessage } from '@/lib/flows/meta-send'
 import { checkRateLimit, RATE_LIMITS } from '@/lib/rate-limit'
-import { resolveReplyChannels, type InboundModality } from './voice'
+import {
+  INBOUND_VOICE_PLACEHOLDER,
+  resolveReplyChannels,
+  type InboundModality,
+} from './voice'
 import { canSpeak as ttsReady, synthesizeSpeech } from './speech'
 import { prepareIndicSpeechText, stripUrlsForSpeech } from './speech-text'
 import { splitShoppingReply } from './shopping-voice'
@@ -179,7 +183,10 @@ export async function dispatchInboundToAiReply(
       return
 
     const messages = await buildConversationContext(db, conversationId)
-    if (messages.length === 0) return
+    if (messages.length === 0) {
+      if (inboundContentType !== 'audio') return
+      messages.push({ role: 'user', content: INBOUND_VOICE_PLACEHOLDER })
+    }
 
     // Account-wide throttle on the shared BYO key. The per-conversation
     // cap bounds one thread; this bounds a burst across many threads.
@@ -544,18 +551,22 @@ export async function dispatchInboundToAiReply(
       productCards.length > 0 &&
       !catalogRequested &&
       !cartOffer
-    const shoppingVoice =
-      isProductRec && ttsReady(config) && config.voiceReplyMode !== 'text'
+    const hasVoiceScript = Boolean(voiceText)
+    const compiledVoice =
+      ttsReady(config) &&
+      config.voiceReplyMode !== 'text' &&
+      (hasVoiceScript || wantsAudio)
 
     const languageHint =
       replyLanguage?.code ??
       detectSpokenIndicTarget(latestUserMessage(messages))?.elevenlabs
-    const spokenSource = voiceText || (shoppingVoice ? textForCustomer : replyText)
+    const spokenSource = voiceText || (compiledVoice ? textForCustomer : replyText)
     const spokenText = prepareIndicSpeechText(
       stripUrlsForSpeech(spokenSource),
       languageHint,
     )
     const canSpeak = ttsReady(config) && Boolean(spokenText)
+    const speakAfterText = hasVoiceScript && compiledVoice
 
     const sendShoppingAudio = async () => {
       if (!canSpeak) return false
@@ -604,14 +615,14 @@ export async function dispatchInboundToAiReply(
         messages,
         shopify: Boolean(shopify),
         wantsText: true,
-        wantsAudio: shoppingVoice || wantsAudio,
+        wantsAudio: compiledVoice || wantsAudio,
         audioSent: false,
         productCards,
         orderCards,
         chatButtonMode: 'nav',
       })
       if (handedOff) return
-      if (shoppingVoice) await sendShoppingAudio()
+      if (compiledVoice) await sendShoppingAudio()
       try {
         await sendOrderCards(sendArgs, orderCards)
       } catch (err) {
@@ -621,7 +632,7 @@ export async function dispatchInboundToAiReply(
     }
 
     let audioSent = false
-    if (wantsAudio && canSpeak) {
+    if (compiledVoice && canSpeak && !speakAfterText) {
       audioSent = await sendShoppingAudio()
     }
 
@@ -635,7 +646,7 @@ export async function dispatchInboundToAiReply(
       messages,
       shopify: Boolean(shopify),
       wantsText,
-      wantsAudio,
+      wantsAudio: compiledVoice || wantsAudio,
       audioSent,
       productCards,
       orderCards,
@@ -646,17 +657,20 @@ export async function dispatchInboundToAiReply(
     if (catalogRequested && metaCatalogId) {
       await sendWhatsAppCatalogMessage(sendArgs, textForCustomer)
       await sendOrderCards(sendArgs, orderCards)
+      if (speakAfterText) await sendShoppingAudio()
       return
     }
 
     if (cartOffer) {
       await sendCartOffer(sendArgs, cartOffer)
       await sendOrderCards(sendArgs, orderCards)
+      if (speakAfterText) await sendShoppingAudio()
       return
     }
 
     await sendProductCards(sendArgs, productCards, shopify)
     await sendOrderCards(sendArgs, orderCards)
+    if (speakAfterText) await sendShoppingAudio()
   } catch (err) {
     console.error('[ai auto-reply] dispatch failed:', err)
   }

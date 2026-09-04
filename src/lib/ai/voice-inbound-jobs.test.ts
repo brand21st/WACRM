@@ -22,7 +22,6 @@ import {
   drainVoiceInboundJobs,
   enqueueVoiceInboundJob,
   reclaimStaleVoiceJobs,
-  VOICE_JOB_MAX_ATTEMPTS,
   VOICE_JOB_STALE_MS,
 } from './voice-inbound-jobs'
 
@@ -294,19 +293,19 @@ describe('drainVoiceInboundJobs', () => {
     expect(transcribeInboundVoiceNote).not.toHaveBeenCalled()
   })
 
-  it('reschedules on empty transcription and fails after max attempts', async () => {
+  it('still auto-replies when transcription is empty', async () => {
     transcribeInboundVoiceNote.mockResolvedValue(null)
-    const { db, jobs } = makeDb({
-      jobs: [{ ...SAMPLE_JOB, attempts: VOICE_JOB_MAX_ATTEMPTS - 1 }],
-    })
+    const { db, jobs } = makeDb({ jobs: [{ ...SAMPLE_JOB }] })
     const result = await drainVoiceInboundJobs(db, 20)
-    expect(result.failed).toBe(1)
-    expect(jobs[0].status).toBe('failed')
-    expect(jobs[0].error).toBe('transcription empty')
+    expect(result).toEqual({ processed: 1, failed: 0 })
+    expect(dispatchInboundToAiReply).toHaveBeenCalledWith(
+      expect.objectContaining({ inboundContentType: 'audio' }),
+    )
+    expect(jobs[0].status).toBe('completed')
   })
 
-  it('reschedules a first STT miss as pending with backoff', async () => {
-    transcribeInboundVoiceNote.mockResolvedValue(null)
+  it('reschedules a media error so BullMQ/cron can retry', async () => {
+    transcribeInboundVoiceNote.mockRejectedValue(new Error('whatsapp access token unavailable'))
     const { db, jobs } = makeDb({ jobs: [{ ...SAMPLE_JOB }] })
     await drainVoiceInboundJobs(db, 20)
     expect(jobs[0].status).toBe('pending')

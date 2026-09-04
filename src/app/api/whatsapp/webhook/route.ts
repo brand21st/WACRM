@@ -36,6 +36,7 @@ import {
   isPaymentStatus,
 } from '@/lib/commerce/payment'
 import { transcribeInboundVoiceNote } from '@/lib/ai/transcribe-inbound'
+import { INBOUND_VOICE_PLACEHOLDER } from '@/lib/ai/voice'
 import { enqueueVoiceInboundJob } from '@/lib/ai/voice-inbound-jobs'
 import {
   enqueueAiChatReply,
@@ -1054,10 +1055,10 @@ async function processMessage(
             .update({ last_message_text: transcript })
             .eq('id', conversation.id)
         }
-      } else if (aiConfig?.fullAgentEnabled) {
-        // Keep the turn alive so the agent can ask the customer to
+      } else {
+        // Keep the turn alive so auto-reply can ask the customer to
         // repeat instead of going silent when STT returns nothing.
-        contentText = contentText?.trim() || '[Customer sent a voice note]'
+        contentText = contentText?.trim() || INBOUND_VOICE_PLACEHOLDER
         const { error: phErr } = await supabaseAdmin()
           .from('messages')
           .update({ content_text: contentText })
@@ -1245,7 +1246,7 @@ async function processMessage(
     !commerceReplyHandled &&
     !queuedVoice &&
     aiConfig?.autoReplyEnabled &&
-    (inboundText.trim() || contentType === 'image') &&
+    (inboundText.trim() || contentType === 'image' || contentType === 'audio') &&
     (!interactiveReplyId || aiConfig.fullAgentEnabled) &&
     (!flowConsumed ||
       aiConfig.fullAgentEnabled ||

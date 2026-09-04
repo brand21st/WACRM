@@ -7,6 +7,9 @@ export const DEFAULT_ELEVENLABS_VOICE_ID = 'JBFqnCBsd6RMkjVDRZzb'
 export type InboundModality = 'text' | 'audio' | 'image'
 export type ReplyChannel = 'text' | 'audio'
 
+/** Persisted when STT returns nothing so auto-reply still has a turn. */
+export const INBOUND_VOICE_PLACEHOLDER = '[Customer sent a voice note]'
+
 const VOICE_REPLY_MODES: ReadonlySet<string> = new Set([
   'same',
   'text',

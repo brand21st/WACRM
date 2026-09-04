@@ -11,6 +11,14 @@ describe('splitShoppingReply', () => {
     expect(split.voiceText).not.toMatch(/VOICE_MESSAGE/)
   })
 
+  it('accepts Voice message: as the spoken-script heading', () => {
+    const split = splitShoppingReply(
+      'Shipping is two days.\n\nVoice message:\nShipping takes about two days.',
+    )
+    expect(split.chatText).toBe('Shipping is two days.')
+    expect(split.voiceText).toBe('Shipping takes about two days.')
+  })
+
   it('returns the full text when there is no voice block', () => {
     expect(splitShoppingReply('It is washable.')).toEqual({
       chatText: 'It is washable.',

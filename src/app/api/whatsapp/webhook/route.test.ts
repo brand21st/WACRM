@@ -781,6 +781,25 @@ describe('inbound webhook: voice notes are queued for the worker', () => {
     )
   })
 
+  it('still auto-replies when inline STT is empty', async () => {
+    h.enqueueAiVoiceInbound.mockResolvedValueOnce(false)
+    h.enqueueVoiceInboundJob.mockResolvedValueOnce(false)
+    h.transcribeInboundVoiceNote.mockResolvedValueOnce(null)
+    h.loadAiConfig.mockResolvedValue({
+      autoReplyEnabled: true,
+      fullAgentEnabled: false,
+    })
+
+    await runWebhook(AUDIO_MESSAGE)
+
+    expect(h.dispatchInboundToAiReply).toHaveBeenCalledWith(
+      expect.objectContaining({
+        inboundContentType: 'audio',
+        inboundMetaMessageId: 'wamid.AUD1',
+      }),
+    )
+  })
+
   it('does not enqueue on an idempotent Meta replay', async () => {
     h.state.messageUpsertResult = []
     await runWebhook(AUDIO_MESSAGE)

@@ -635,6 +635,19 @@ describe('dispatchInboundToAiReply — eligibility gates', () => {
     expect(h.generateReply).not.toHaveBeenCalled()
     expect(h.engineSendText).not.toHaveBeenCalled()
   })
+
+  it('still replies to an inbound voice note when context is empty', async () => {
+    h.loadAiConfig.mockResolvedValue(
+      aiConfig({ elevenlabsApiKey: 'xi-test' }),
+    )
+    h.buildConversationContext.mockResolvedValue([])
+    await dispatchInboundToAiReply({ ...ARGS, inboundContentType: 'audio' })
+    expect(h.generateReply).toHaveBeenCalled()
+    expect(h.synthesizeSpeech).toHaveBeenCalled()
+    expect(h.engineSendMedia).toHaveBeenCalledWith(
+      expect.objectContaining({ voice: true }),
+    )
+  })
 })
 
 describe('dispatchInboundToAiReply — handoff', () => {
@@ -2095,6 +2108,53 @@ describe('dispatchInboundToAiReply — cart offer', () => {
       expect.objectContaining({ voice: true }),
     )
     expect(voiceOrder).toBeGreaterThan(textOrder)
+  })
+
+  it('sends a voice note when GPT includes VOICE_MESSAGE on a text turn', async () => {
+    h.loadAiConfig.mockResolvedValue(
+      aiConfig({ elevenlabsApiKey: 'xi-test', voiceReplyMode: 'same' }),
+    )
+    h.generateReply.mockResolvedValue({
+      text: 'Shipping is two days.\n\nVOICE_MESSAGE:\nShipping takes about two days.',
+      handoff: false,
+    })
+
+    await dispatchInboundToAiReply(ARGS)
+
+    expect(h.engineSendText).toHaveBeenCalledWith(
+      expect.objectContaining({ text: 'Shipping is two days.' }),
+    )
+    expect(h.engineSendText.mock.calls[0][0].text).not.toMatch(/VOICE_MESSAGE/)
+    expect(h.synthesizeSpeech).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: expect.stringMatching(/Shipping takes about two days/),
+        whatsapp: true,
+      }),
+    )
+    expect(h.engineSendMedia).toHaveBeenCalledWith(
+      expect.objectContaining({ voice: true }),
+    )
+  })
+
+  it('sends a voice note when GPT uses Voice message: on a text turn', async () => {
+    h.loadAiConfig.mockResolvedValue(
+      aiConfig({ elevenlabsApiKey: 'xi-test', voiceReplyMode: 'same' }),
+    )
+    h.generateReply.mockResolvedValue({
+      text: 'Yes, that size is in stock.\n\nVoice message:\nYes, that size is available.',
+      handoff: false,
+    })
+
+    await dispatchInboundToAiReply(ARGS)
+
+    expect(h.engineSendText).toHaveBeenCalledWith(
+      expect.objectContaining({ text: 'Yes, that size is in stock.' }),
+    )
+    expect(h.synthesizeSpeech).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: expect.stringMatching(/that size is available/),
+      }),
+    )
   })
 
   it('does not send a shopping voice note when reply mode is text', async () => {

@@ -181,4 +181,33 @@ describe('spokenRewrite', () => {
     })
     expect(out).toBe(draft)
   })
+
+  it('keeps VOICE_MESSAGE when the rewrite drops the heading', async () => {
+    h.generateOpenAi.mockResolvedValue({
+      text: 'chat only, no spoken block',
+      usage: null,
+    })
+    const draft =
+      'First card is the pick.\n\nVOICE_MESSAGE:\nFirst option is my pick.'
+    const out = await spokenRewrite({
+      config: config(),
+      draft,
+      customerText: 'ethra und alle',
+    })
+    expect(out).toBe(draft)
+  })
+
+  it('rejoins a rewritten chat plus spoken block', async () => {
+    h.generateOpenAi.mockResolvedValue({
+      text: 'ഇതാണ് നല്ലത്.\n\nVOICE_MESSAGE:\nഇത് എടുക്കാം.',
+      usage: null,
+    })
+    const out = await spokenRewrite({
+      config: config(),
+      draft: 'This is the match.\n\nVOICE_MESSAGE:\nTake this one.',
+      customerText: 'ethra und alle',
+    })
+    expect(out).toMatch(/VOICE_MESSAGE:/)
+    expect(out).toMatch(/ഇത് എടുക്കാം/)
+  })
 })
