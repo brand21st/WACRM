@@ -46,6 +46,8 @@
     "roleAgent": "상담원",
     "roleViewer": "뷰어",
     "closeMenu": "메뉴 닫기",
+    "collapseMenu": "메뉴 접기",
+    "expandMenu": "메뉴 펼치기",
     "defaultUser": "사용자",
     "defaultAvatar": "아바타",
     "menuProfile": "프로필",
@@ -71,6 +73,8 @@
     "voiceAgent": "보이스 에이전트",
     "settings": "설정",
     "openMenu": "메뉴 열기",
+    "collapseMenu": "메뉴 접기",
+    "expandMenu": "메뉴 펼치기",
     "openAccountMenu": "계정 메뉴 열기",
     "defaultUser": "사용자",
     "defaultAvatar": "아바타",
@@ -118,6 +122,8 @@
     "aiHandoff": "AI가 상담원 연결을 요청했습니다. 음소거를 해제하거나 상담원 연결을 누르세요."
   },
   "Calling": {
+    "sectionTitle": "WhatsApp 통화",
+    "sectionDesc": "수신 WhatsApp 통화 — 분석, 설정, AI.",
     "analyticsTitle": "통화 분석",
     "analyticsDesc": "수신 WhatsApp 통화량, 결과, 상담원 성과입니다.",
     "callingDisabled": "수신 통화가 꺼져 있습니다. 통화 설정에서 켜세요.",

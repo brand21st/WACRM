@@ -46,6 +46,8 @@
     "roleAgent": "Agent",
     "roleViewer": "Viewer",
     "closeMenu": "Close menu",
+    "collapseMenu": "Collapse menu",
+    "expandMenu": "Expand menu",
     "defaultUser": "User",
     "defaultAvatar": "Avatar",
     "menuProfile": "Profile",
@@ -71,6 +73,8 @@
     "voiceAgent": "Voice Agent",
     "settings": "Settings",
     "openMenu": "Open menu",
+    "collapseMenu": "Collapse menu",
+    "expandMenu": "Expand menu",
     "openAccountMenu": "Open account menu",
     "defaultUser": "User",
     "defaultAvatar": "Avatar",
@@ -118,6 +122,8 @@
     "aiHandoff": "The AI asked a teammate to take over. Unmute or tap Take over."
   },
   "Calling": {
+    "sectionTitle": "WhatsApp Calling",
+    "sectionDesc": "Inbound WhatsApp calls — analytics, settings, and AI.",
     "analyticsTitle": "Call analytics",
     "analyticsDesc": "Inbound WhatsApp call volume, outcomes, and agent performance.",
     "callingDisabled": "Inbound calling is off. Enable it in Call settings.",

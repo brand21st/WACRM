@@ -15,6 +15,7 @@ import {
   GitBranch,
   LayoutDashboard,
   LogOut,
+  Menu,
   MessageSquare,
   Radio,
   Settings,
@@ -100,20 +101,7 @@ interface NavItem {
 const navItems: NavItem[] = [
   { href: "/dashboard", labelKey: "dashboard", icon: LayoutDashboard },
   { href: "/inbox", labelKey: "inbox", icon: MessageSquare },
-  {
-    href: "/calling",
-    labelKey: "whatsappCalling",
-    icon: Phone,
-    children: [
-      { href: "/calling", labelKey: "callingAnalytics" },
-      { href: "/calling/settings", labelKey: "callingSettings" },
-      { href: "/calling/recording", labelKey: "callingRecording" },
-      { href: "/calling/transcription", labelKey: "callingTranscription" },
-      { href: "/calling/ai", labelKey: "callingAi" },
-      { href: "/calling/live-ai", labelKey: "callingLiveAi" },
-      { href: "/calling/forwarding", labelKey: "callingForwarding" },
-    ],
-  },
+  { href: "/calling", labelKey: "whatsappCalling", icon: Phone },
   { href: "/notifications", labelKey: "notifications", icon: Bell },
   { href: "/contacts", labelKey: "contacts", icon: Users },
   { href: "/pipelines", labelKey: "pipelines", icon: GitBranch },
@@ -139,24 +127,29 @@ interface SidebarProps {
   /** Controlled on mobile by the Header's hamburger button. Ignored on lg+. */
   open?: boolean;
   onClose?: () => void;
+  /** Desktop-only icon rail. Labels stay visible in the mobile drawer. */
+  collapsed?: boolean;
+  onToggleCollapsed?: () => void;
 }
 
 import { useTranslations } from "next-intl";
 
 function childIsActive(pathname: string, href: string): boolean {
-  if (href === "/agents" || href === "/calling") return pathname === href;
+  if (href === "/agents") return pathname === href;
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
-export function Sidebar({ open = false, onClose }: SidebarProps) {
+export function Sidebar({
+  open = false,
+  onClose,
+  collapsed = false,
+  onToggleCollapsed,
+}: SidebarProps) {
   const t = useTranslations("Sidebar");
   const pathname = usePathname();
   const { profile, profileLoading, account, accountRole, signOut } = useAuth();
   const [agentsOpen, setAgentsOpen] = useState(() =>
     pathname.startsWith("/agents"),
-  );
-  const [callingOpen, setCallingOpen] = useState(() =>
-    pathname.startsWith("/calling"),
   );
   const totalUnread = useTotalUnread();
   const unreadNotifications = useUnreadNotifications();
@@ -183,7 +176,6 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
 
   useEffect(() => {
     if (pathname.startsWith("/agents")) setAgentsOpen(true);
-    if (pathname.startsWith("/calling")) setCallingOpen(true);
   }, [pathname]);
 
   // Lock body scroll and allow Escape to close while the drawer is open on
@@ -225,34 +217,75 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
           "fixed inset-y-0 left-0 z-40 flex h-full w-64 flex-col border-r border-border bg-card",
           "transition-transform duration-200 ease-out will-change-transform",
           open ? "translate-x-0" : "-translate-x-full",
-          // Desktop: static, always visible — reset all the mobile framing.
-          "lg:static lg:z-0 lg:w-60 lg:translate-x-0 lg:transition-none",
+          // Desktop: static flex child — width animates between the
+          // full nav and the icon rail. Transform is reset so the
+          // mobile slide doesn't leak.
+          "lg:static lg:z-0 lg:translate-x-0 lg:will-change-auto lg:transition-[width] lg:duration-200",
+          collapsed ? "lg:w-16" : "lg:w-60",
         )}
         aria-label="Primary"
       >
-        {/* Logo row. On mobile we put a close button here; on desktop the
-            close button is hidden since the sidebar is always-visible. */}
-        <div className="flex h-14 shrink-0 items-center justify-between gap-2 border-b border-border px-4">
-          <Link href="/dashboard" className="flex items-center gap-2">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-              <MessageSquare className="h-4 w-4" />
-            </div>
-            <span className="text-sm font-semibold text-foreground">
-              {t("title")}
-            </span>
-          </Link>
+        {/* Logo + desktop burger under it. Mobile keeps the close X
+            on the logo row; the header hamburger still opens the drawer. */}
+        <div
+          className={cn(
+            "flex shrink-0 flex-col border-b border-border",
+            collapsed && "lg:items-center",
+          )}
+        >
+          <div
+            className={cn(
+              "flex h-14 items-center justify-between gap-2 px-4",
+              collapsed && "lg:h-12 lg:justify-center lg:px-0",
+            )}
+          >
+            <Link
+              href="/dashboard"
+              className="flex items-center gap-2"
+              title={t("title")}
+            >
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+                <MessageSquare className="h-4 w-4" />
+              </div>
+              <span
+                className={cn(
+                  "text-sm font-semibold text-foreground",
+                  collapsed && "lg:hidden",
+                )}
+              >
+                {t("title")}
+              </span>
+            </Link>
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label={t("closeMenu")}
+              className="flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground lg:hidden"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
           <button
             type="button"
-            onClick={onClose}
-            aria-label={t("closeMenu")}
-            className="flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground lg:hidden"
+            onClick={onToggleCollapsed}
+            aria-label={collapsed ? t("expandMenu") : t("collapseMenu")}
+            aria-expanded={!collapsed}
+            className={cn(
+              "mb-2 hidden h-10 w-10 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground lg:flex",
+              collapsed ? "self-center" : "ml-4 self-start",
+            )}
           >
-            <X className="h-5 w-5" />
+            <Menu className="h-5 w-5" />
           </button>
         </div>
 
         {/* Main navigation */}
-        <nav className="flex-1 overflow-y-auto px-3 py-4">
+        <nav
+          className={cn(
+            "flex-1 overflow-y-auto px-3 py-4",
+            collapsed && "lg:px-2",
+          )}
+        >
           <ul className="flex flex-col gap-1">
             {navItems.map((item) => {
               const isGroupActive =
@@ -269,62 +302,73 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
               const showNotificationBadge =
                 item.href === "/notifications" && unreadNotifications > 0;
 
+              const label = t(item.labelKey as string);
+
               if (item.children?.length) {
                 const expanded =
-                  item.href === "/agents"
-                    ? agentsOpen
-                    : item.href === "/calling"
-                      ? callingOpen
-                      : isGroupActive;
+                  item.href === "/agents" ? agentsOpen : isGroupActive;
                 return (
                   <li key={item.href}>
-                    <button
-                      type="button"
-                      aria-expanded={expanded}
-                      onClick={() => {
-                        if (item.href === "/agents") setAgentsOpen((open) => !open);
-                        if (item.href === "/calling") setCallingOpen((open) => !open);
-                      }}
+                    <Link
+                      href={item.href}
+                      title={label}
+                      aria-label={label}
                       className={cn(
-                        "flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors lg:py-2",
+                        "hidden items-center justify-center rounded-lg py-2 text-sm font-medium transition-colors",
+                        collapsed && "lg:flex",
                         isGroupActive
                           ? "bg-primary/10 text-primary"
                           : "text-muted-foreground hover:bg-muted hover:text-foreground",
                       )}
                     >
                       <item.icon className="h-4 w-4" />
-                      <span className="flex-1 text-left">
-                        {t(item.labelKey as string)}
-                      </span>
-                      <ChevronDown
+                    </Link>
+                    <div className={cn(collapsed && "lg:hidden")}>
+                      <button
+                        type="button"
+                        aria-expanded={expanded}
+                        onClick={() => {
+                          if (item.href === "/agents") setAgentsOpen((open) => !open);
+                        }}
                         className={cn(
-                          "h-4 w-4 shrink-0 transition-transform",
-                          expanded ? "rotate-0" : "-rotate-90",
+                          "flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors lg:py-2",
+                          isGroupActive
+                            ? "bg-primary/10 text-primary"
+                            : "text-muted-foreground hover:bg-muted hover:text-foreground",
                         )}
-                      />
-                    </button>
-                    {expanded ? (
-                      <ul className="mt-1 ml-4 flex flex-col gap-0.5 border-l border-border pl-2">
-                        {item.children.map((child) => {
-                          const childActive = childIsActive(pathname, child.href);
-                          return (
-                            <li key={child.href}>
-                              <Link
-                                href={child.href}
-                                className={cn(
-                                  "flex items-center rounded-lg px-3 py-2 text-sm font-medium transition-colors lg:py-1.5",
-                                  childActive
-                                    ? "bg-primary/10 text-primary"
-                                    : "text-muted-foreground hover:bg-muted hover:text-foreground",
-                                )}
-                              >
-                                {t(child.labelKey as string)}
-                              </Link>
-                            </li>
-                          );
-                        })}
-                      </ul>
-                    ) : null}
+                      >
+                        <item.icon className="h-4 w-4" />
+                        <span className="flex-1 text-left">{label}</span>
+                        <ChevronDown
+                          className={cn(
+                            "h-4 w-4 shrink-0 transition-transform",
+                            expanded ? "rotate-0" : "-rotate-90",
+                          )}
+                        />
+                      </button>
+                      {expanded ? (
+                        <ul className="mt-1 ml-4 flex flex-col gap-0.5 border-l border-border pl-2">
+                          {item.children.map((child) => {
+                            const childActive = childIsActive(pathname, child.href);
+                            return (
+                              <li key={child.href}>
+                                <Link
+                                  href={child.href}
+                                  className={cn(
+                                    "flex items-center rounded-lg px-3 py-2 text-sm font-medium transition-colors lg:py-1.5",
+                                    childActive
+                                      ? "bg-primary/10 text-primary"
+                                      : "text-muted-foreground hover:bg-muted hover:text-foreground",
+                                  )}
+                                >
+                                  {t(child.labelKey as string)}
+                                </Link>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      ) : null}
+                    </div>
                   </li>
                 );
               }
@@ -333,20 +377,30 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
                 <li key={item.href}>
                   <Link
                     href={item.href}
+                    title={label}
+                    aria-label={label}
                     className={cn(
                       // Taller on mobile so fingers can hit the row reliably (≥44px).
-                      "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors lg:py-2",
+                      "relative flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors lg:py-2",
+                      collapsed && "lg:justify-center lg:gap-0 lg:px-0",
                       isGroupActive
                         ? "bg-primary/10 text-primary"
                         : "text-muted-foreground hover:bg-muted hover:text-foreground",
                     )}
                   >
-                    <item.icon className="h-4 w-4" />
-                    <span className="flex-1">{t(item.labelKey as string)}</span>
+                    <item.icon className="h-4 w-4 shrink-0" />
+                    <span
+                      className={cn("flex-1", collapsed && "lg:hidden")}
+                    >
+                      {label}
+                    </span>
                     {item.beta && (
                       <span
                         aria-label={t("beta")}
-                        className="rounded-full border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-amber-300"
+                        className={cn(
+                          "rounded-full border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-amber-300",
+                          collapsed && "lg:hidden",
+                        )}
                       >
                         {t("beta")}
                       </span>
@@ -354,7 +408,10 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
                     {showUnreadDot && (
                       <span
                         aria-label={t("unreadConversations", { count: totalUnread })}
-                        className="relative flex h-2 w-2"
+                        className={cn(
+                          "relative flex h-2 w-2",
+                          collapsed && "lg:absolute lg:right-1 lg:top-1",
+                        )}
                       >
                         <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary opacity-75" />
                         <span className="relative inline-flex h-2 w-2 rounded-full bg-primary" />
@@ -363,7 +420,10 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
                     {showNotificationBadge && (
                       <span
                         aria-label={t("unreadNotifications", { count: unreadNotifications })}
-                        className="flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold text-primary-foreground"
+                        className={cn(
+                          "flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold text-primary-foreground",
+                          collapsed && "lg:absolute lg:right-0 lg:top-0 lg:h-4 lg:min-w-4",
+                        )}
                       >
                         {unreadNotifications > 9 ? "9+" : unreadNotifications}
                       </span>
@@ -383,15 +443,20 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
                 <li key={item.href}>
                   <Link
                     href={item.href}
+                    title={t(item.labelKey as string)}
+                    aria-label={t(item.labelKey as string)}
                     className={cn(
                       "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors lg:py-2",
+                      collapsed && "lg:justify-center lg:gap-0 lg:px-0",
                       isActive
                         ? "bg-primary/10 text-primary"
                         : "text-muted-foreground hover:bg-muted hover:text-foreground",
                     )}
                   >
-                    <item.icon className="h-4 w-4" />
-                    {t(item.labelKey as string)}
+                    <item.icon className="h-4 w-4 shrink-0" />
+                    <span className={cn(collapsed && "lg:hidden")}>
+                      {t(item.labelKey as string)}
+                    </span>
                   </Link>
                 </li>
               );
@@ -400,7 +465,12 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
         </nav>
 
         {/* User section */}
-        <div className="shrink-0 border-t border-border p-3">
+        <div
+          className={cn(
+            "shrink-0 border-t border-border p-3",
+            collapsed && "lg:px-1",
+          )}
+        >
           {/* Account name display — surfaced only when the account
               name differs from the user's own name (see
               `showAccountStrip`). For a default solo account the two
@@ -408,7 +478,12 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
               below; for renamed or shared accounts it tells the user
               which account they're acting in. */}
           {showAccountStrip && account?.name ? (
-            <div className="mb-2 flex items-center gap-2 px-3 text-xs text-muted-foreground">
+            <div
+              className={cn(
+                "mb-2 flex items-center gap-2 px-3 text-xs text-muted-foreground",
+                collapsed && "lg:hidden",
+              )}
+            >
               <UsersRound className="size-3.5 shrink-0" />
               {/* `title=` exposes the full name on hover when it
                   gets truncated (long account names + narrow
@@ -437,7 +512,12 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
             </div>
           ) : null}
           <DropdownMenu>
-            <DropdownMenuTrigger className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left transition-colors hover:bg-muted/60 focus:bg-muted/60 focus:outline-none data-popup-open:bg-muted/60">
+            <DropdownMenuTrigger
+              className={cn(
+                "flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left transition-colors hover:bg-muted/60 focus:bg-muted/60 focus:outline-none data-popup-open:bg-muted/60",
+                collapsed && "lg:justify-center lg:gap-0 lg:px-0",
+              )}
+            >
               <Avatar className="size-8 shrink-0">
                 {profile?.avatar_url ? (
                   <AvatarImage
@@ -451,7 +531,9 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
                     "U"}
                 </AvatarFallback>
               </Avatar>
-              <div className="min-w-0 flex-1">
+              <div
+                className={cn("min-w-0 flex-1", collapsed && "lg:hidden")}
+              >
                 <p className="truncate text-sm font-medium text-foreground">
                   {profile?.full_name ?? t("defaultUser")}
                 </p>
