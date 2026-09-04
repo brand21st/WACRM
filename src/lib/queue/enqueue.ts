@@ -1,4 +1,4 @@
-import { Queue } from 'bullmq'
+import { Queue, type QueueOptions } from 'bullmq'
 
 import type {
   AiChatReplyJob,
@@ -8,10 +8,22 @@ import type {
 import { DEFAULT_JOB_OPTIONS, QUEUE_NAMES } from '@/lib/queue/names'
 import { getBullmqConnection } from '@/lib/queue/redis'
 
+/**
+ * BullMQ v6 derives `add`'s name and data types from a conditional on
+ * the first type argument. That conditional never resolves while the
+ * payload is still a naked type parameter (as in `addJob` below), so
+ * every argument is pinned here instead of left to default.
+ */
+type JobQueue<T> = Queue<T, unknown, string, T, unknown, string>
+
 type QueueMap = {
-  aiChatReply: Queue<AiChatReplyJob, unknown, string>
-  aiVoiceInbound: Queue<AiVoiceInboundJob, unknown, string>
-  callRecording: Queue<CallRecordingJob, unknown, string>
+  aiChatReply: JobQueue<AiChatReplyJob>
+  aiVoiceInbound: JobQueue<AiVoiceInboundJob>
+  callRecording: JobQueue<CallRecordingJob>
+}
+
+function createQueue<T>(name: string, opts: QueueOptions): JobQueue<T> {
+  return new Queue<T, unknown, string, T, unknown, string>(name, opts)
 }
 
 let queues: QueueMap | null = null
@@ -27,15 +39,12 @@ function getQueues(): QueueMap | null {
   if (!queues) {
     const opts = { connection, defaultJobOptions: DEFAULT_JOB_OPTIONS }
     queues = {
-      aiChatReply: new Queue<AiChatReplyJob, unknown, string>(
-        QUEUE_NAMES.aiChatReply,
-        opts,
-      ),
-      aiVoiceInbound: new Queue<AiVoiceInboundJob, unknown, string>(
+      aiChatReply: createQueue<AiChatReplyJob>(QUEUE_NAMES.aiChatReply, opts),
+      aiVoiceInbound: createQueue<AiVoiceInboundJob>(
         QUEUE_NAMES.aiVoiceInbound,
         opts,
       ),
-      callRecording: new Queue<CallRecordingJob, unknown, string>(
+      callRecording: createQueue<CallRecordingJob>(
         QUEUE_NAMES.callRecording,
         opts,
       ),
@@ -50,7 +59,7 @@ export function resetQueuesForTests(): void {
 }
 
 async function addJob<T>(
-  queue: Queue<T, unknown, string> | undefined,
+  queue: JobQueue<T> | undefined,
   name: string,
   data: T,
   jobId: string,
