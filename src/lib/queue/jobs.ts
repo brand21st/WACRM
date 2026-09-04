@@ -14,6 +14,37 @@ export interface AiChatReplyJob {
   isFirstInbound?: boolean
 }
 
+export function aiChatReplyJob(args: {
+  accountId: string
+  conversationId: string
+  contactId: string
+  configOwnerUserId: string
+  messageId: string
+  inboundContentType: Exclude<InboundModality, 'audio'>
+  inboundMetaMessageId: string
+  isFirstInbound: boolean
+  inboundMediaUrl?: string | null
+  inboundMediaId?: string | null
+  inboundAccessToken?: string | null
+}): AiChatReplyJob {
+  const job: AiChatReplyJob = {
+    accountId: args.accountId,
+    conversationId: args.conversationId,
+    contactId: args.contactId,
+    configOwnerUserId: args.configOwnerUserId,
+    messageId: args.messageId,
+    inboundContentType: args.inboundContentType,
+    inboundMetaMessageId: args.inboundMetaMessageId,
+    isFirstInbound: args.isFirstInbound,
+  }
+  if (args.inboundContentType === 'image') {
+    job.inboundMediaUrl = args.inboundMediaUrl ?? null
+    job.inboundMediaId = args.inboundMediaId ?? null
+    job.inboundAccessToken = args.inboundAccessToken ?? null
+  }
+  return job
+}
+
 export interface AiVoiceInboundJob {
   accountId: string
   conversationId: string

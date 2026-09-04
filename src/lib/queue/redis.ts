@@ -1,4 +1,4 @@
-import type { RedisOptions } from 'ioredis'
+import type { ConnectionOptions } from 'bullmq'
 
 /**
  * BullMQ connection options (not a shared ioredis instance).
@@ -14,7 +14,7 @@ export function isRedisConfigured(): boolean {
   return Boolean(getRedisUrl())
 }
 
-export function parseRedisUrl(url: string): RedisOptions | null {
+export function parseRedisUrl(url: string): ConnectionOptions | null {
   let parsed: URL
   try {
     parsed = new URL(url)
@@ -27,7 +27,15 @@ export function parseRedisUrl(url: string): RedisOptions | null {
   const port = parsed.port ? Number(parsed.port) : 6379
   if (!Number.isFinite(port) || port <= 0) return null
 
-  const opts: RedisOptions = {
+  const opts: {
+    host: string
+    port: number
+    maxRetriesPerRequest: null
+    username?: string
+    password?: string
+    tls?: Record<string, never>
+    db?: number
+  } = {
     host: parsed.hostname || '127.0.0.1',
     port,
     maxRetriesPerRequest: null,
@@ -40,7 +48,7 @@ export function parseRedisUrl(url: string): RedisOptions | null {
   return opts
 }
 
-export function getBullmqConnection(): RedisOptions | null {
+export function getBullmqConnection(): ConnectionOptions | null {
   const url = getRedisUrl()
   if (!url) return null
   const opts = parseRedisUrl(url)

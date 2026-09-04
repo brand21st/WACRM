@@ -9,9 +9,9 @@ import { DEFAULT_JOB_OPTIONS, QUEUE_NAMES } from '@/lib/queue/names'
 import { getBullmqConnection } from '@/lib/queue/redis'
 
 type QueueMap = {
-  aiChatReply: Queue
-  aiVoiceInbound: Queue
-  callRecording: Queue
+  aiChatReply: Queue<AiChatReplyJob, unknown, string>
+  aiVoiceInbound: Queue<AiVoiceInboundJob, unknown, string>
+  callRecording: Queue<CallRecordingJob, unknown, string>
 }
 
 let queues: QueueMap | null = null
@@ -27,9 +27,18 @@ function getQueues(): QueueMap | null {
   if (!queues) {
     const opts = { connection, defaultJobOptions: DEFAULT_JOB_OPTIONS }
     queues = {
-      aiChatReply: new Queue(QUEUE_NAMES.aiChatReply, opts),
-      aiVoiceInbound: new Queue(QUEUE_NAMES.aiVoiceInbound, opts),
-      callRecording: new Queue(QUEUE_NAMES.callRecording, opts),
+      aiChatReply: new Queue<AiChatReplyJob, unknown, string>(
+        QUEUE_NAMES.aiChatReply,
+        opts,
+      ),
+      aiVoiceInbound: new Queue<AiVoiceInboundJob, unknown, string>(
+        QUEUE_NAMES.aiVoiceInbound,
+        opts,
+      ),
+      callRecording: new Queue<CallRecordingJob, unknown, string>(
+        QUEUE_NAMES.callRecording,
+        opts,
+      ),
     }
   }
   return queues
@@ -40,10 +49,10 @@ export function resetQueuesForTests(): void {
   queues = null
 }
 
-async function addJob(
-  queue: Queue | undefined,
+async function addJob<T>(
+  queue: Queue<T, unknown, string> | undefined,
   name: string,
-  data: object,
+  data: T,
   jobId: string,
 ): Promise<boolean> {
   if (!queue) return false

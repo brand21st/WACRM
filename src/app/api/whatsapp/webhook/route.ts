@@ -39,7 +39,7 @@ import {
   enqueueAiChatReply,
   enqueueAiVoiceInbound,
 } from '@/lib/queue/enqueue'
-import type { AiChatReplyJob } from '@/lib/queue/jobs'
+import { aiChatReplyJob } from '@/lib/queue/jobs'
 import { dispatchWebhookEvent } from '@/lib/webhooks/deliver'
 import { mapPool } from '@/lib/concurrency'
 import {
@@ -1206,9 +1206,8 @@ async function processMessage(
       contentType === 'audio')
   if (shouldAiReply && insertedRows?.[0]?.id) {
     if (inboundModality === 'text' || inboundModality === 'image') {
-      const inboundContentType: AiChatReplyJob['inboundContentType'] =
-        inboundModality === 'image' ? 'image' : 'text'
-      const chatJob: AiChatReplyJob = {
+      const inboundContentType = inboundModality === 'image' ? 'image' : 'text'
+      const chatJob = aiChatReplyJob({
         accountId,
         conversationId: conversation.id,
         contactId: contactRecord.id,
@@ -1216,22 +1215,22 @@ async function processMessage(
         messageId: String(insertedRows[0].id),
         inboundContentType,
         inboundMetaMessageId: message.id,
-        inboundMediaUrl: contentType === 'image' ? mediaUrl : undefined,
-        inboundMediaId:
-          contentType === 'image' ? (message.image?.id ?? null) : undefined,
-        inboundAccessToken: contentType === 'image' ? accessToken : undefined,
         isFirstInbound: isFirstInboundMessage,
-      }
+        inboundMediaUrl: mediaUrl,
+        inboundMediaId: message.image?.id ?? null,
+        inboundAccessToken: accessToken,
+      })
       const queuedChat = await enqueueAiChatReply(chatJob)
       if (!queuedChat) {
-        if (contentType === 'image' && aiConfig) {
+        const visionConfig = aiConfig
+        if (contentType === 'image' && visionConfig) {
           const shopifyConfig = await loadShopifyConfig(
             supabaseAdmin(),
             accountId,
           ).catch(() => null)
           const description = await describeInboundImage({
-            provider: aiConfig.provider,
-            apiKey: aiConfig.apiKey,
+            provider: visionConfig.provider,
+            apiKey: visionConfig.apiKey,
             mediaUrl,
             caption: contentText,
             purpose: shopifyConfig ? 'shopping' : 'support',
@@ -1263,12 +1262,13 @@ async function processMessage(
           conversationId: conversation.id,
           contactId: contactRecord.id,
           configOwnerUserId,
-          inboundContentType: inboundModality,
+          inboundContentType,
           inboundMetaMessageId: message.id,
-          inboundMediaUrl: contentType === 'image' ? mediaUrl : undefined,
+          inboundMediaUrl: inboundContentType === 'image' ? mediaUrl : null,
           inboundMediaId:
-            contentType === 'image' ? (message.image?.id ?? null) : undefined,
-          inboundAccessToken: contentType === 'image' ? accessToken : undefined,
+            inboundContentType === 'image' ? (message.image?.id ?? null) : null,
+          inboundAccessToken:
+            inboundContentType === 'image' ? accessToken : null,
           isFirstInbound: isFirstInboundMessage,
         })
       }
