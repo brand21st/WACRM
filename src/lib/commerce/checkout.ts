@@ -5,6 +5,7 @@ import { isMissingDbRelation } from '@/lib/shopify/config-db'
 import {
   engineSendAddressMessage,
   engineSendInteractiveButtons,
+  engineSendInteractiveList,
   engineSendOrderDetails,
   engineSendText,
 } from '@/lib/flows/meta-send'
@@ -27,10 +28,16 @@ import {
   parseAddressMessageReply,
 } from './address-form'
 import {
-  loadSavedAddresses,
+  getSavedAddress,
+  loadSavedAddressRows,
   rememberSavedAddress,
   touchSavedAddress,
 } from './saved-addresses'
+import {
+  ADDRESS_PICKER_BUTTON_LABEL,
+  parseSavedAddressPickerReply,
+  savedAddressPickerRows,
+} from './address-picker'
 import {
   CONFIRM_BUTTON_TITLE,
   EDIT_BUTTON_TITLE,
@@ -131,6 +138,7 @@ export async function handleInboundWhatsAppOrder(args: {
       userId: args.userId,
       conversationId: args.conversationId,
       contactId: args.contactId,
+      referenceId,
       values: addressFormValuesFromBeneficiary(null, args.contactPhone),
     })
     return 'awaiting_address'
@@ -196,10 +204,10 @@ async function askToConfirmAddress(args: {
  * form gives us structured fields instead of parsing free text, so it's
  * always the first attempt.
  *
- * Addresses this contact has used before are offered as `saved_addresses`
- * so WhatsApp shows a picker; the customer can still add a new one.
- * `values` is only sent when there are no saved addresses to choose
- * from — prefilling alongside the picker pre-empts the choice.
+ * Addresses this contact has used before are offered as a list message.
+ * Meta's native `saved_addresses` picker is skipped: WhatsApp on iPhone
+ * often never shows it, while Android does. "Add new" still opens the
+ * India address form. Prefill `values` are only sent on that form.
  */
 async function askForDeliveryAddress(args: {
   db: SupabaseClient
@@ -207,27 +215,54 @@ async function askForDeliveryAddress(args: {
   userId: string
   conversationId: string
   contactId: string
+  referenceId: string
   values?: AddressMessageValues
   validationErrors?: AddressMessageValues
+  skipPicker?: boolean
 }): Promise<void> {
   // A re-ask carrying inline errors is a correction of one specific
   // submission, so it keeps that submission's values and drops the picker.
   const correcting = Boolean(
     args.validationErrors && Object.keys(args.validationErrors).length > 0,
   )
-  const savedAddresses = correcting
-    ? []
-    : await loadSavedAddresses(args.db, args.accountId, args.contactId)
+  const savedRows =
+    correcting || args.skipPicker
+      ? []
+      : await loadSavedAddressRows(args.db, args.accountId, args.contactId)
+  if (savedRows.length > 0) {
+    try {
+      await engineSendInteractiveList({
+        accountId: args.accountId,
+        userId: args.userId,
+        conversationId: args.conversationId,
+        contactId: args.contactId,
+        bodyText: ADDRESS_PICKER_BODY,
+        buttonLabel: ADDRESS_PICKER_BUTTON_LABEL,
+        sections: [
+          {
+            title: 'Saved',
+            rows: savedAddressPickerRows({
+              referenceId: args.referenceId,
+              addresses: savedRows,
+            }),
+          },
+        ],
+        aiGenerated: true,
+      })
+      return
+    } catch (err) {
+      console.warn('[commerce] saved address list send failed:', err)
+    }
+  }
   try {
     await engineSendAddressMessage({
       accountId: args.accountId,
       userId: args.userId,
       conversationId: args.conversationId,
       contactId: args.contactId,
-      bodyText: savedAddresses.length > 0 ? ADDRESS_PICKER_BODY : ADDRESS_FORM_BODY,
-      values: savedAddresses.length > 0 ? undefined : args.values,
+      bodyText: ADDRESS_FORM_BODY,
+      values: args.values,
       validationErrors: args.validationErrors,
-      savedAddresses,
       aiGenerated: true,
     })
     return
@@ -291,6 +326,7 @@ export async function completeCommerceAddressFromForm(args: {
       userId: args.userId,
       conversationId: args.conversationId,
       contactId: args.contactId,
+      referenceId: pending.reference_id,
       values: submission.values,
       validationErrors: submission.validationErrors,
     })
@@ -372,6 +408,83 @@ async function storeAddressAndConfirm(args: {
 }
 
 /**
+ * Handle a tap on the saved-address list (or Add new). Native
+ * `saved_addresses` on address_message is skipped because iPhone
+ * WhatsApp often never shows that picker.
+ */
+export async function handleSavedAddressPickerReply(args: {
+  db: SupabaseClient
+  accountId: string
+  userId: string
+  conversationId: string
+  contactId: string
+  contactPhone: string | null
+  replyId: string | null
+}): Promise<boolean> {
+  const reply = parseSavedAddressPickerReply(args.replyId)
+  if (!reply) return false
+
+  const { data: order } = await args.db
+    .from('whatsapp_commerce_orders')
+    .select('id, reference_id, line_items, status, awaiting_address')
+    .eq('account_id', args.accountId)
+    .eq('reference_id', reply.referenceId)
+    .maybeSingle()
+  if (!order || order.status !== 'pending') return false
+  if (!order.awaiting_address) return true
+
+  if (reply.action === 'new') {
+    await askForDeliveryAddress({
+      db: args.db,
+      accountId: args.accountId,
+      userId: args.userId,
+      conversationId: args.conversationId,
+      contactId: args.contactId,
+      referenceId: reply.referenceId,
+      values: addressFormValuesFromBeneficiary(null, args.contactPhone),
+      skipPicker: true,
+    })
+    return true
+  }
+
+  const saved = await getSavedAddress({
+    db: args.db,
+    accountId: args.accountId,
+    contactId: args.contactId,
+    savedAddressId: reply.savedAddressId,
+  })
+  if (!saved) {
+    await askForDeliveryAddress({
+      db: args.db,
+      accountId: args.accountId,
+      userId: args.userId,
+      conversationId: args.conversationId,
+      contactId: args.contactId,
+      referenceId: reply.referenceId,
+      values: addressFormValuesFromBeneficiary(null, args.contactPhone),
+      skipPicker: true,
+    })
+    return true
+  }
+
+  await touchSavedAddress({
+    db: args.db,
+    accountId: args.accountId,
+    savedAddressId: saved.id,
+  })
+  return storeAddressAndConfirm({
+    db: args.db,
+    accountId: args.accountId,
+    userId: args.userId,
+    conversationId: args.conversationId,
+    contactId: args.contactId,
+    order,
+    beneficiary: saved.beneficiary,
+    formValues: saved.formValues,
+  })
+}
+
+/**
  * Handle a Confirm / Change tap on the address confirmation message.
  * Returns false when the tap isn't ours, so ordinary interactive replies
  * still reach flows and automations.
@@ -417,6 +530,7 @@ export async function handleAddressConfirmationReply(args: {
       userId: args.userId,
       conversationId: args.conversationId,
       contactId: args.contactId,
+      referenceId: order.reference_id,
       values: addressFormValuesFromBeneficiary(
         (order.beneficiary as CommerceBeneficiary) ?? null,
         args.contactPhone,
@@ -446,6 +560,7 @@ export async function handleAddressConfirmationReply(args: {
       userId: args.userId,
       conversationId: args.conversationId,
       contactId: args.contactId,
+      referenceId: order.reference_id,
       values: addressFormValuesFromBeneficiary(null, args.contactPhone),
     })
     return true

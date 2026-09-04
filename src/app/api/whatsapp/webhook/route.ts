@@ -24,6 +24,7 @@ import {
   handleDiscountCodeReply,
   handleInboundWhatsAppOrder,
   handleReceiptEmailReply,
+  handleSavedAddressPickerReply,
 } from '@/lib/commerce/checkout'
 import {
   addressFormPreviewText,
@@ -942,6 +943,20 @@ async function processMessage(
       conversationId: conversation.id,
       contactId: contactRecord.id,
       responseJson: addressFormReply.response_json,
+    })
+  }
+
+  // Saved-address list tap. iPhone never showed Meta's native picker,
+  // so checkout offers a list message instead.
+  if (!commerceReplyHandled && interactiveReplyId) {
+    commerceReplyHandled = await handleSavedAddressPickerReply({
+      db: supabaseAdmin(),
+      accountId,
+      userId: configOwnerUserId,
+      conversationId: conversation.id,
+      contactId: contactRecord.id,
+      contactPhone: contactRecord.phone ?? senderPhone,
+      replyId: interactiveReplyId,
     })
   }
 

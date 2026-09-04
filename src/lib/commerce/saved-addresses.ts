@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import type { AddressMessageValues } from '@/lib/whatsapp/meta-api'
 import { isMissingDbRelation } from '@/lib/shopify/config-db'
 import { addressFormValuesFromBeneficiary } from './address-form'
+import { isSavedAddressRowId } from './address-picker'
 import { isCompleteBeneficiary } from './order-details'
 import type { CommerceBeneficiary } from './types'
 
@@ -132,7 +133,7 @@ export async function touchSavedAddress(args: {
   // The id round-trips through Meta, so treat anything that isn't one of
   // our own row ids as unknown rather than letting Postgres reject the
   // uuid cast.
-  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
+  if (!isSavedAddressRowId(id)) {
     return
   }
   const { error } = await args.db
@@ -142,5 +143,36 @@ export async function touchSavedAddress(args: {
     .eq('account_id', args.accountId)
   if (error && !isMissingDbRelation(error, 'contact_saved_addresses')) {
     console.warn('[commerce] touch saved address failed:', error)
+  }
+}
+
+export async function getSavedAddress(args: {
+  db: SupabaseClient
+  accountId: string
+  contactId: string
+  savedAddressId: string
+}): Promise<SavedAddressRow | null> {
+  const id = args.savedAddressId.trim()
+  if (!isSavedAddressRowId(id)) return null
+  const { data, error } = await args.db
+    .from('contact_saved_addresses')
+    .select('id, beneficiary, form_values')
+    .eq('id', id)
+    .eq('account_id', args.accountId)
+    .eq('contact_id', args.contactId)
+    .maybeSingle()
+  if (error) {
+    if (!isMissingDbRelation(error, 'contact_saved_addresses')) {
+      console.warn('[commerce] load saved address failed:', error)
+    }
+    return null
+  }
+  if (!data?.id) return null
+  const beneficiary = data.beneficiary as CommerceBeneficiary
+  if (!isCompleteBeneficiary(beneficiary)) return null
+  return {
+    id: String(data.id),
+    beneficiary,
+    formValues: (data.form_values ?? {}) as AddressMessageValues,
   }
 }
