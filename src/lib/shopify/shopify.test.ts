@@ -9,7 +9,7 @@ import {
   parseCartPermalink,
   storePageUrl,
 } from './permalinks'
-import { shopifyPhoneMatchesContact, customerSearchQueries } from './phone'
+import { shopifyPhoneMatchesContact, customerSearchQueries, toShopifyPhone } from './phone'
 import { shoppingOrSupportPrompt } from '@/lib/ai/describe-inbound-image'
 import { mapGqlProduct } from './map-product'
 import { rankProductsByDescription, tokensFromDescription } from './rank'
@@ -103,6 +103,13 @@ describe('shopify phone matching', () => {
   it('builds customer search queries', () => {
     expect(customerSearchQueries('918848772371')).toContain('phone:918848772371')
     expect(customerSearchQueries('918848772371')).toContain('phone:+918848772371')
+  })
+
+  it('formats WhatsApp digits as E.164 for orderCreate', () => {
+    expect(toShopifyPhone('918129760955')).toBe('+918129760955')
+    expect(toShopifyPhone('+91 81297 60955')).toBe('+918129760955')
+    expect(toShopifyPhone('9198')).toBeUndefined()
+    expect(toShopifyPhone(null)).toBeUndefined()
   })
 })
 

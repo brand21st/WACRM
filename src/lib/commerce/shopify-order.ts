@@ -1,4 +1,5 @@
 import { shopifyGraphql, ShopifyError } from '@/lib/shopify/client'
+import { toShopifyPhone } from '@/lib/shopify/phone'
 import type { ShopifyStoreConfig } from '@/lib/shopify/types'
 import { numericShopifyId } from '@/lib/shopify/retailer-id'
 import type { CommerceBeneficiary, MappedCartLine } from './types'
@@ -63,6 +64,7 @@ export function shopifyMoneyFromPaise(paise: number): string {
 export function paidShopifyOrderCreateVariables(
   args: CreatePaidShopifyOrderArgs,
 ): { order: Record<string, unknown>; options: Record<string, unknown> } {
+  const phone = toShopifyPhone(args.phone)
   const shipping = args.beneficiary
     ? {
         firstName: firstName(args.beneficiary.name),
@@ -73,7 +75,7 @@ export function paidShopifyOrderCreateVariables(
         province: args.beneficiary.state,
         countryCode: 'IN' as const,
         zip: args.beneficiary.postal_code,
-        phone: args.phone || undefined,
+        phone,
       }
     : undefined
 
@@ -86,7 +88,7 @@ export function paidShopifyOrderCreateVariables(
       financialStatus: 'PENDING',
       tags: [WHATSAPP_COMMERCE_TAG, args.referenceId],
       note: `WhatsApp commerce ${args.referenceId}`,
-      phone: args.phone || undefined,
+      phone,
       lineItems: args.lines.map((line) => ({
         variantId: variantGid(line.variantId),
         quantity: line.quantity,
@@ -128,20 +130,21 @@ export async function createPaidShopifyOrder(
     )
   }
 
-  const data = await shopifyGraphql<{
-    orderCreate?: {
-      userErrors?: { field?: string[] | null; message?: string }[]
-      order?: { id?: string; name?: string } | null
-    }
-  }>({
-    shopDomain: args.config.shopDomain,
-    accessToken: args.config.accessToken,
-    query: ORDER_CREATE_MUTATION,
-    variables: paidShopifyOrderCreateVariables(args),
-  })
+  let variables = paidShopifyOrderCreateVariables(args)
+  let payload = await orderCreateOnce(args.config, variables)
+  let errors = payload?.userErrors?.filter((e) => e.message) ?? []
 
-  const payload = data.orderCreate
-  const errors = payload?.userErrors?.filter((e) => e.message) ?? []
+  // Payment is already captured. A bad WhatsApp phone must not block the
+  // Shopify order — drop the number and retry once.
+  if (
+    errors.some((e) => isInvalidPhoneUserError(e.message)) &&
+    orderCreateHasPhone(variables.order)
+  ) {
+    variables = withoutPhones(variables)
+    payload = await orderCreateOnce(args.config, variables)
+    errors = payload?.userErrors?.filter((e) => e.message) ?? []
+  }
+
   if (errors.length > 0) {
     throw new ShopifyError(
       errors.map((e) => e.message).join('; ') || 'Shopify orderCreate failed',
@@ -156,6 +159,52 @@ export async function createPaidShopifyOrder(
   }
 
   return { id, name }
+}
+
+async function orderCreateOnce(
+  config: ShopifyStoreConfig,
+  variables: { order: Record<string, unknown>; options: Record<string, unknown> },
+) {
+  const data = await shopifyGraphql<{
+    orderCreate?: {
+      userErrors?: { field?: string[] | null; message?: string }[]
+      order?: { id?: string; name?: string } | null
+    }
+  }>({
+    shopDomain: config.shopDomain,
+    accessToken: config.accessToken,
+    query: ORDER_CREATE_MUTATION,
+    variables,
+  })
+  return data.orderCreate
+}
+
+export function isInvalidPhoneUserError(message: string | undefined): boolean {
+  return /phone is invalid/i.test(message ?? '')
+}
+
+export function orderCreateHasPhone(order: Record<string, unknown>): boolean {
+  if (typeof order.phone === 'string' && order.phone.trim()) return true
+  const shipping = order.shippingAddress as Record<string, unknown> | undefined
+  return typeof shipping?.phone === 'string' && Boolean(shipping.phone.trim())
+}
+
+export function withoutPhones(variables: {
+  order: Record<string, unknown>
+  options: Record<string, unknown>
+}): { order: Record<string, unknown>; options: Record<string, unknown> } {
+  const order = omitPhoneField(variables.order)
+  const shipping = order.shippingAddress as Record<string, unknown> | undefined
+  if (shipping) {
+    order.shippingAddress = omitPhoneField(shipping)
+  }
+  return { options: variables.options, order }
+}
+
+function omitPhoneField(record: Record<string, unknown>): Record<string, unknown> {
+  const next = { ...record }
+  delete next.phone
+  return next
 }
 
 /**

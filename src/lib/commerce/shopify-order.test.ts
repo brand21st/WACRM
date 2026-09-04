@@ -20,6 +20,7 @@ import {
   WHATSAPP_PAYMENT_GATEWAY,
   createPaidShopifyOrder,
   isAlreadyPaidUserError,
+  isInvalidPhoneUserError,
   markShopifyOrderAsPaid,
   paidShopifyOrderCreateVariables,
   shopifyMoneyFromPaise,
@@ -43,7 +44,7 @@ const config: ShopifyStoreConfig = {
 const args = {
   config,
   referenceId: 'wac_1',
-  phone: '9198',
+  phone: '918129760955',
   beneficiary: {
     name: 'Ada Lovelace',
     address_line1: '12 MG',
@@ -71,6 +72,10 @@ describe('paidShopifyOrderCreateVariables', () => {
   it('creates the order as pending with a WhatsApp SALE transaction', () => {
     const variables = paidShopifyOrderCreateVariables(args)
     expect(variables.order.financialStatus).toBe('PENDING')
+    expect(variables.order.phone).toBe('+918129760955')
+    expect(
+      (variables.order.shippingAddress as { phone?: string }).phone,
+    ).toBe('+918129760955')
     expect(variables.order.transactions).toEqual([
       {
         kind: 'SALE',
@@ -108,6 +113,28 @@ describe('createPaidShopifyOrder', () => {
       gateway: WHATSAPP_PAYMENT_GATEWAY,
     })
   })
+
+  it('retries without a phone when Shopify rejects the WhatsApp number', async () => {
+    graphql
+      .mockResolvedValueOnce({
+        orderCreate: { userErrors: [{ message: 'Phone is invalid' }], order: null },
+      })
+      .mockResolvedValueOnce({
+        orderCreate: {
+          userErrors: [],
+          order: { id: 'gid://shopify/Order/2', name: '#1002' },
+        },
+      })
+
+    const created = await createPaidShopifyOrder(args)
+    expect(created).toEqual({ id: 'gid://shopify/Order/2', name: '#1002' })
+    expect(graphql).toHaveBeenCalledTimes(2)
+    expect(graphql.mock.calls[0][0].variables.order.phone).toBe('+918129760955')
+    expect(graphql.mock.calls[1][0].variables.order.phone).toBeUndefined()
+    expect(
+      graphql.mock.calls[1][0].variables.order.shippingAddress.phone,
+    ).toBeUndefined()
+  })
 })
 
 describe('markShopifyOrderAsPaid', () => {
@@ -143,5 +170,12 @@ describe('isAlreadyPaidUserError', () => {
   it('matches Shopify already-paid copy', () => {
     expect(isAlreadyPaidUserError('Order cannot be marked as paid.')).toBe(true)
     expect(isAlreadyPaidUserError('Not found')).toBe(false)
+  })
+})
+
+describe('isInvalidPhoneUserError', () => {
+  it('matches Shopify phone validation copy', () => {
+    expect(isInvalidPhoneUserError('Phone is invalid')).toBe(true)
+    expect(isInvalidPhoneUserError('variant not found')).toBe(false)
   })
 })

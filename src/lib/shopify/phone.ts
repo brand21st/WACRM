@@ -1,4 +1,18 @@
-import { normalizePhone, phonesMatch } from '@/lib/whatsapp/phone-utils'
+import { isValidE164, normalizePhone, phonesMatch } from '@/lib/whatsapp/phone-utils'
+
+/**
+ * Shopify `orderCreate` mailing-address and order phones must be E.164
+ * (`+9198…`). WhatsApp contacts are stored digits-only (`9198…`), which
+ * Shopify rejects as "Phone is invalid" and then never creates the order.
+ */
+export function toShopifyPhone(phone: string | null | undefined): string | undefined {
+  if (!phone?.trim()) return undefined
+  const digits = normalizePhone(phone)
+  if (!digits) return undefined
+  const e164 = `+${digits}`
+  if (!isValidE164(e164)) return undefined
+  return e164
+}
 
 /** True when any Shopify-side phone matches the WhatsApp contact. */
 export function shopifyPhoneMatchesContact(
