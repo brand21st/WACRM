@@ -76,6 +76,7 @@ export {
   wantsProductOrder,
   formatProductFocusNote,
   formatProductFocusPrompt,
+  looksLikeNativeCartTalk,
   scopeMessagesToProductFocus,
   cardMatchesProductFocus,
   shouldClearDraftFocus,

@@ -144,6 +144,7 @@ describe('buildSystemPrompt', () => {
     expect(prompt).not.toMatch(/call search_products with those words/)
     expect(prompt).not.toMatch(/send every catalog-matched product/)
     expect(prompt).toMatch(/Do not call search_products, list_new_arrivals/)
+    expect(prompt).toMatch(/Do not mention a WhatsApp cart/)
   })
 
   it('tells the model to use native WhatsApp cart when commerce is on', () => {

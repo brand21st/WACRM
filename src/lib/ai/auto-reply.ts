@@ -75,6 +75,7 @@ import {
   cardMatchesProductFocus,
   clearProductFocus,
   formatProductFocusNote,
+  looksLikeNativeCartTalk,
   parseProductFocus,
   saveProductFocus,
   scopeMessagesToProductFocus,
@@ -456,7 +457,6 @@ export async function dispatchInboundToAiReply(
         apiKey: config.provider === 'openai' ? config.apiKey : null,
         conversationId,
         cartOffer: cartOfferHolder,
-        nativeCommerce,
         retailerIdSource: commerce?.retailerIdSource,
         whatsappCatalog,
         sendCatalog: catalogHolder,
@@ -468,6 +468,7 @@ export async function dispatchInboundToAiReply(
         },
         customerText: queryText,
         focusedHandle: productFocus?.handle ?? null,
+        nativeCommerce: nativeCommerce && !productFocus,
       },
     )
 
@@ -613,7 +614,7 @@ export async function dispatchInboundToAiReply(
       messages,
       knowledge,
       shopify: Boolean(shopify),
-      nativeCommerce,
+      nativeCommerce: nativeCommerce && !productFocus,
       whatsappCatalog,
       photoMatches,
       customerName,
@@ -656,7 +657,7 @@ export async function dispatchInboundToAiReply(
       cartOffer = buildCartOffer(shopify.primaryDomain, items)
     }
 
-    if (nativeCommerce && confirmTap && !text?.trim()) {
+    if (nativeCommerce && !productFocus && confirmTap && !text?.trim()) {
       await engineSendText({
         ...sendArgs,
         text: 'Add the items to your WhatsApp cart, then tap Send order. I’ll send a Review and Pay bill in this chat.',
@@ -681,13 +682,15 @@ export async function dispatchInboundToAiReply(
       confirmTap && cartOffer && (!(chatText ?? '').trim() || handoff)
         ? cartOfferFallbackText(cartOffer.items)
         : chatText || voiceText || text
-    const textForCustomer =
-      stripReplyLinkUrls(
-        replyText,
-        productCards,
-        orderCards,
-        [cartOffer?.cartUrl, cartOffer?.checkoutUrl],
-      ).trim() || FULL_AGENT_FALLBACK_REPLY
+    const rawCustomerText = stripReplyLinkUrls(
+      replyText,
+      productCards,
+      orderCards,
+      [cartOffer?.cartUrl, cartOffer?.checkoutUrl],
+    ).trim()
+    const textForCustomer = productFocus && looksLikeNativeCartTalk(rawCustomerText)
+      ? ''
+      : rawCustomerText || FULL_AGENT_FALLBACK_REPLY
 
     const catalogBrowseAsk = wantsWhatsAppCatalog({
       customerText: queryText,
@@ -829,7 +832,7 @@ export async function dispatchInboundToAiReply(
               sendArgs,
               textForCustomer,
               confirmTap,
-              nativeCommerce,
+              nativeCommerce: false,
               retailerIdSource: commerce?.retailerIdSource,
               compiledVoice,
               sendShoppingAudio,
@@ -903,7 +906,7 @@ export async function dispatchInboundToAiReply(
         confirmTap,
         continueChatTap,
         focusedOrderIntent,
-        nativeCommerce,
+        nativeCommerce: false,
         retailerIdSource: commerce?.retailerIdSource,
         compiledVoice,
         sendShoppingAudio,

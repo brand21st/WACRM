@@ -35,8 +35,11 @@ const VIEW_URL = /(?:^|\n)\s*View:\s*(\S+)/i
 const PRODUCT_PATH = /https?:\/\/[^\s]+\/products\/[^/?#\s]+/i
 const CART_PATH = /https?:\/\/[^\s]+\/cart\/[^/?#\s]+/i
 
+const NATIVE_CART_TALK =
+  /\b\d+\s+items?\b|\bin your cart\b|\byour cart\b|\bcart-ൽ\b|\bcart-il\b|\badd to cart\b|\bsend order\b|\breview and pay\b|\bwhatsapp catalog\b/i
+
 const ORDER_INTENT =
-  /\b(order|buy(?:ing)?|bought|purchase|checkout|cart|book(?:ing)?|wanna buy|want(?:s)? to (?:buy|order|purchase)|want this|need this|need to (?:buy|order)|take (?:this|it|one)|i(?:'|’)?ll (?:take|buy)|i will (?:take|buy)|can i (?:buy|order)|add to cart|send (?:me )?(?:the )?(?:link|checkout)|i want (?:this|it|one|to (?:order|buy|purchase)))\b|വാങ്ങ|ഓർഡർ|खरीद|ऑर्डर|வாங்க/i
+  /\b(order|buy(?:ing)?|bought|purchase|checkout|cart|book(?:ing)?|wanna buy|cheyanam|cheyyanam|want(?:s)? to (?:buy|order|purchase)|want this|need this|need to (?:buy|order)|take (?:this|it|one)|i(?:'|’)?ll (?:take|buy)|i will (?:take|buy)|can i (?:buy|order)|add to cart|send (?:me )?(?:the )?(?:link|checkout)|i want (?:this|it|one|to (?:order|buy|purchase)))\b|വാങ്ങ|ഓർഡർ|खरीद|ऑर्डर|வாங்க/i
 
 export function parseProductFocus(raw: unknown): ProductFocus | null {
   if (!raw || typeof raw !== 'object') return null
@@ -157,9 +160,14 @@ export function formatProductFocusPrompt(focus: {
     `The inbox agent selected this Shopify product as the reply target: ${label}. ` +
     'This is the only product you may discuss or send. ' +
     'Do not search the catalog. Do not recommend, list, or send any other products. ' +
+    'Do not mention a WhatsApp cart, how many items are in a cart, Add to cart, Send order, or Review and Pay. ' +
     'Do not mention checkout or cart links until the customer says they want to order it. ' +
-    'If they want to order, collect color and size needs — variant lists and Confirm order / Continue chat buttons are sent separately.'
+    'If they want to order, collect color and size needs — variant lists and Confirm order / Continue chat buttons are sent separately. Checkout NOW is sent after they confirm.'
   )
+}
+
+export function looksLikeNativeCartTalk(text: string | null | undefined): boolean {
+  return NATIVE_CART_TALK.test(text ?? '')
 }
 
 const PRODUCT_CARD_HINT =
@@ -186,6 +194,7 @@ export function scopeMessagesToProductFocus<T extends { content: string }>(
 ): T[] {
   return messages.filter((message) => {
     if (message.content.startsWith('Replying to product:')) return true
+    if (looksLikeNativeCartTalk(message.content)) return false
     if (!isShopifyProductCardText(message.content)) return true
     return messageMatchesProductFocus(message.content, focus)
   })

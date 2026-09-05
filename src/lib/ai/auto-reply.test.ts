@@ -3011,6 +3011,45 @@ describe('dispatchInboundToAiReply — agent product focus', () => {
     expect(h.engineSendInteractiveButtons).not.toHaveBeenCalled()
   })
 
+  it('sends variant lists for a Malayalam buy line instead of a WhatsApp cart summary', async () => {
+    h.loadCommerceSettings.mockResolvedValue({
+      metaCatalogId: 'cat-1',
+      metaCatalogAutoSync: false,
+      lastMetaCatalogSyncAt: null,
+      metaCatalogItemCount: 3,
+      retailerIdSource: 'sku',
+      waPaymentConfigurationName: 'razorpay_prod',
+      razorpayKeyId: null,
+      hasRazorpaySecret: false,
+      hasRazorpayWebhookSecret: false,
+      shipBeneficiary: null,
+    })
+    h.buildConversationContext.mockResolvedValue([
+      {
+        role: 'assistant',
+        content: 'There are now 3 items in your cart. Add to cart, then Send order.',
+      },
+      { role: 'user', content: 'Enikk ithu purchase cheyanam' },
+    ])
+    h.generateReply.mockResolvedValue({
+      text: 'There are now 3 items in your cart. Add this in the WhatsApp catalog, then Send order. Review and Pay will appear here.',
+      handoff: false,
+    })
+
+    await dispatchInboundToAiReply(ARGS)
+
+    expect(h.engineSendInteractiveList).toHaveBeenCalledWith(
+      expect.objectContaining({
+        buttonLabel: 'Choose color',
+        bodyText: 'Choose a color for Pournami.',
+      }),
+    )
+    expect(h.engineSendText).not.toHaveBeenCalledWith(
+      expect.objectContaining({ text: expect.stringMatching(/3 items/i) }),
+    )
+    expect(h.engineSendCtaUrl).not.toHaveBeenCalled()
+  })
+
   it('sends variant lists then Confirm order / Continue chat on order intent', async () => {
     h.buildConversationContext.mockResolvedValue([
       { role: 'user', content: 'I want to order this' },
@@ -3064,6 +3103,18 @@ describe('dispatchInboundToAiReply — agent product focus', () => {
   })
 
   it('sends the variant checkout card on Confirm order', async () => {
+    h.loadCommerceSettings.mockResolvedValue({
+      metaCatalogId: 'cat-1',
+      metaCatalogAutoSync: false,
+      lastMetaCatalogSyncAt: null,
+      metaCatalogItemCount: 3,
+      retailerIdSource: 'sku',
+      waPaymentConfigurationName: 'razorpay_prod',
+      razorpayKeyId: null,
+      hasRazorpaySecret: false,
+      hasRazorpayWebhookSecret: false,
+      shipBeneficiary: null,
+    })
     h.state.conv = {
       assigned_agent_id: null,
       ai_autoreply_disabled: false,

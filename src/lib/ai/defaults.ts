@@ -248,8 +248,9 @@ export function buildSystemPrompt(args: {
   } else if (shopify && focused) {
     parts.push(
       'Shopify is connected. Use get_product only if you need live price or stock for the pinned product. ' +
-        'Do not call search_products, list_new_arrivals, list_best_selling, recommend_products, match_product_from_photo, or send_whatsapp_catalog. ' +
-        'Do not paste checkout, cart, or Buy now URLs — buttons are sent separately. ' +
+        'Do not call search_products, list_new_arrivals, list_best_selling, recommend_products, match_product_from_photo, send_whatsapp_catalog, or offer_cart. ' +
+        'Do not mention a WhatsApp cart, item counts, Add to cart, Send order, or Review and Pay. ' +
+        'Do not paste checkout, cart, or Buy now URLs — variant lists and Checkout NOW are sent separately. ' +
         'For business questions (shipping, delivery, returns), call search_store_info. ' +
         'Never invent catalog items, SKUs, prices, stock, or policies.',
     )

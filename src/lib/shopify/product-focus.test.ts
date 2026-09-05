@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   cardMatchesProductFocus,
   formatProductFocusNote,
+  looksLikeNativeCartTalk,
   parseProductFocus,
   productFocusFromMessage,
   scopeMessagesToProductFocus,
@@ -107,11 +108,20 @@ describe('wantsProductOrder', () => {
       'wants to purchase',
       'വാങ്ങണം',
       'ऑर्डर करना है',
+      'Enikk ithu purchase cheyanam',
     ]) {
       expect(wantsProductOrder(line), line).toBe(true)
     }
     expect(wantsProductOrder('[Customer sent a voice note]')).toBe(false)
     expect(wantsProductOrder('how much is shipping?')).toBe(false)
+  })
+
+  it('detects WhatsApp cart-summary talk', () => {
+    expect(looksLikeNativeCartTalk('There are now 3 items in your cart.')).toBe(true)
+    expect(looksLikeNativeCartTalk('Add to cart, then Send order. Review and Pay.')).toBe(
+      true,
+    )
+    expect(looksLikeNativeCartTalk('Choose a color for Pournami.')).toBe(false)
   })
 })
 
@@ -152,6 +162,22 @@ describe('scopeMessagesToProductFocus', () => {
     expect(scoped.map((m) => m.content)).toEqual([
       'Pournami\n499 INR\nStock in\nView: https://shop.example/products/pournami-red',
       'tell me more about this',
+    ])
+  })
+
+  it('drops WhatsApp cart-summary replies so the model does not repeat them', () => {
+    const scoped = scopeMessagesToProductFocus(
+      [
+        {
+          role: 'assistant',
+          content: 'നിങ്ങളുടെ cart-ൽ ഇപ്പോൾ 3 items ഉണ്ട്. Add to cart ചെയ്യൂ.',
+        },
+        { role: 'user', content: 'Enikk ithu purchase cheyanam' },
+      ],
+      focus,
+    )
+    expect(scoped.map((m) => m.content)).toEqual([
+      'Enikk ithu purchase cheyanam',
     ])
   })
 
