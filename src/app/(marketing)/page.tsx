@@ -17,10 +17,31 @@ import FinalCTA from "@/components/marketing/FinalCTA";
 import Footer from "@/components/marketing/Footer";
 import WhatsAppWidget from "@/components/marketing/WhatsAppWidget";
 import CalendlyModal from "@/components/marketing/CalendlyModal";
+import VideoModal from "@/components/marketing/VideoModal";
 
 export default function LandingPage() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [demoModalOpen, setDemoModalOpen] = useState(false);
+  const [videoModal, setVideoModal] = useState<{
+    isOpen: boolean;
+    src: string;
+    title: string;
+    poster?: string;
+  }>({
+    isOpen: false,
+    src: "/videos/other_variant.mp4",
+    title: "Boost Shopify Sales with AI WhatsApp Calling",
+    poster: "/videos/thumb_other_variant.jpg",
+  });
+
+  const handlePlayVideo = (video: { src: string; title: string; poster?: string }) => {
+    setVideoModal({
+      isOpen: true,
+      src: video.src,
+      title: video.title,
+      poster: video.poster,
+    });
+  };
 
   return (
     <main>
@@ -31,10 +52,19 @@ export default function LandingPage() {
       <Header onMenuToggle={(open) => setIsMenuOpen(open)} />
 
       {/* Hero Section */}
-      <Hero onOpenDemo={() => setDemoModalOpen(true)} />
+      <Hero
+        onOpenDemo={() => setDemoModalOpen(true)}
+        onWatchVideo={() =>
+          handlePlayVideo({
+            src: "/videos/other_variant.mp4",
+            title: "Boost Shopify Sales with AI WhatsApp Calling",
+            poster: "/videos/thumb_other_variant.jpg",
+          })
+        }
+      />
 
       {/* 5 Core Shopify + WhatsApp Conversion Features */}
-      <ShopifyConversionFeatures />
+      <ShopifyConversionFeatures onPlayVideo={handlePlayVideo} />
 
       {/* Conversion Funnel Journey Flow */}
       <SalesJourneyBanner />
@@ -73,6 +103,15 @@ export default function LandingPage() {
       <CalendlyModal
         isOpen={demoModalOpen}
         onClose={() => setDemoModalOpen(false)}
+      />
+
+      {/* Lightbox Video Player Modal */}
+      <VideoModal
+        isOpen={videoModal.isOpen}
+        videoSrc={videoModal.src}
+        title={videoModal.title}
+        poster={videoModal.poster}
+        onClose={() => setVideoModal((prev) => ({ ...prev, isOpen: false }))}
       />
     </main>
   );
