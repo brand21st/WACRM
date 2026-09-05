@@ -18,8 +18,7 @@ interface PricingPlan {
   name: string;
   subtitle: string;
   badge?: string;
-  badgeType?: "popular" | "best-value";
-  description: string;
+  badgeType?: "popular";
   price: string;
   period: string;
   pillLabel: string;
@@ -32,23 +31,25 @@ const pricingPlans: PricingPlan[] = [
   {
     id: "starter",
     name: "STARTER",
-    subtitle: "Perfect to get started",
-    description: "Ideal for new Shopify stores getting started with WhatsApp.",
-    price: "₹1,599",
+    subtitle: "Perfect to get started with WhatsApp automation.",
+    price: "₹3,500",
     period: "/ month",
-    pillLabel: "Starting Plan",
+    pillLabel: "Text AI Reply",
     ctaText: "Start Now",
     ctaHref: APP_SIGNUP,
     features: [
       { id: "accounts", name: "WhatsApp Account Limit", value: "1" },
       { id: "members", name: "Team Members", value: "1" },
       { id: "contacts", name: "Contact Limit", value: "1,000" },
+      { id: "ai_text", name: "AI Reply (Text Only)", isIncluded: true },
+      { id: "recommendations", name: "Product Recommendations", isIncluded: true },
+      { id: "checkout", name: "Direct Shopify Checkout", isIncluded: true },
       { id: "templates", name: "Template Messages", value: "100" },
-      { id: "ai", name: "AI Features", isExcluded: true },
       { id: "commerce", name: "WhatsApp Commerce", isExcluded: true },
-      { id: "voice", name: "Voice Cloning", isExcluded: true },
+      { id: "ai_voice", name: "AI Voice Reply", isExcluded: true },
+      { id: "voice_cloning", name: "Voice Cloning", isExcluded: true },
       { id: "calls", name: "Call Recordings", isExcluded: true },
-      { id: "workflows", name: "Automation Workflows", value: "Limited" },
+      { id: "workflows", name: "Automation Workflows", value: "Basic" },
       { id: "analytics", name: "Analytics & Reports", value: "Basic" },
       { id: "support", name: "Support", value: "Standard" },
     ],
@@ -56,23 +57,25 @@ const pricingPlans: PricingPlan[] = [
   {
     id: "growth",
     name: "GROWTH",
-    subtitle: "WhatsApp Commerce + AI",
+    subtitle: "Advanced AI features with Voice Reply & more.",
     badge: "MOST POPULAR",
     badgeType: "popular",
-    description: "Grow your store with WhatsApp Commerce and powerful AI features.",
-    price: "₹3,500",
+    price: "₹6,500",
     period: "/ month",
-    pillLabel: "Everything in Starter, plus",
+    pillLabel: "AI + Voice Reply",
     ctaText: "Start Now",
     ctaHref: APP_SIGNUP,
     features: [
       { id: "accounts", name: "WhatsApp Account Limit", value: "3" },
       { id: "members", name: "Team Members", value: "3" },
       { id: "contacts", name: "Contact Limit", value: "10,000" },
+      { id: "ai_text", name: "AI Reply (Text)", isIncluded: true },
+      { id: "ai_voice", name: "AI Voice Reply", isIncluded: true },
+      { id: "voice_cloning", name: "Voice Cloning", isIncluded: true },
+      { id: "recommendations", name: "Product Recommendations", isIncluded: true },
+      { id: "checkout", name: "Direct Shopify Checkout", isIncluded: true },
       { id: "templates", name: "Template Messages", value: "Unlimited" },
-      { id: "ai", name: "AI Features", isIncluded: true },
       { id: "commerce", name: "WhatsApp Commerce", isIncluded: true },
-      { id: "voice", name: "Voice Cloning", isExcluded: true },
       { id: "calls", name: "Call Recordings", isIncluded: true },
       { id: "workflows", name: "Automation Workflows", value: "Advanced" },
       { id: "analytics", name: "Analytics & Reports", value: "Advanced" },
@@ -82,23 +85,23 @@ const pricingPlans: PricingPlan[] = [
   {
     id: "pro",
     name: "PRO",
-    subtitle: "All Features + Own Voice Cloning",
-    badge: "BEST VALUE",
-    badgeType: "best-value",
-    description: "Complete WhatsApp automation with own voice cloning and all advanced features.",
-    price: "₹12,500",
+    subtitle: "Complete automation with all features.",
+    price: "₹24,999",
     period: "/ month",
-    pillLabel: "Everything in Growth, plus",
+    pillLabel: "All Features + Voice Cloning",
     ctaText: "Start Now",
     ctaHref: APP_SIGNUP,
     features: [
       { id: "accounts", name: "WhatsApp Account Limit", value: "Unlimited" },
       { id: "members", name: "Team Members", value: "Unlimited" },
       { id: "contacts", name: "Contact Limit", value: "Unlimited" },
+      { id: "ai_text", name: "AI Reply (Text)", isIncluded: true },
+      { id: "ai_voice", name: "AI Voice Reply", isIncluded: true },
+      { id: "voice_cloning", name: "Voice Cloning", isIncluded: true },
+      { id: "recommendations", name: "Product Recommendations", isIncluded: true },
+      { id: "checkout", name: "Direct Shopify Checkout", isIncluded: true },
       { id: "templates", name: "Template Messages", value: "Unlimited" },
-      { id: "ai", name: "AI Features", isIncluded: true },
       { id: "commerce", name: "WhatsApp Commerce", isIncluded: true },
-      { id: "voice", name: "Voice Cloning (Your Own Voice)", isIncluded: true },
       { id: "calls", name: "Call Recordings", isIncluded: true },
       { id: "workflows", name: "Automation Workflows", value: "Advanced" },
       { id: "analytics", name: "Analytics & Reports", value: "Advanced" },
@@ -131,7 +134,7 @@ function getFeatureIcon(id: string) {
           <line x1="2" y1="10" x2="22" y2="10" />
         </svg>
       );
-    case "templates":
+    case "ai_text":
       return (
         <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
@@ -140,27 +143,52 @@ function getFeatureIcon(id: string) {
           <line x1="16" y1="17" x2="8" y2="17" />
         </svg>
       );
-    case "ai":
+    case "recommendations":
       return (
         <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z" />
-          <path d="m9 12 2 2 4-4" />
+          <polyline points="9 11 12 14 22 4" />
+          <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
+        </svg>
+      );
+    case "checkout":
+      return (
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="9" cy="21" r="1" />
+          <circle cx="20" cy="21" r="1" />
+          <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6" />
+        </svg>
+      );
+    case "templates":
+      return (
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <rect x="3" y="3" width="18" height="18" rx="2" />
+          <line x1="7" y1="8" x2="17" y2="8" />
+          <line x1="7" y1="12" x2="17" y2="12" />
+          <line x1="7" y1="16" x2="13" y2="16" />
         </svg>
       );
     case "commerce":
       return (
         <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z" />
+          <path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z" />
           <line x1="3" y1="6" x2="21" y2="6" />
           <path d="M16 10a4 4 0 0 1-8 0" />
         </svg>
       );
-    case "voice":
+    case "ai_voice":
       return (
         <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
           <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
           <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
+        </svg>
+      );
+    case "voice_cloning":
+      return (
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M3 11v3a1 1 0 0 0 1 1h2l4 4V5L6 9H4a1 1 0 0 0-1 1z" />
+          <path d="M14 8c1.5 1.5 1.5 6.5 0 8" />
+          <path d="M17 5c3 3.5 3 10.5 0 14" />
         </svg>
       );
     case "calls":
@@ -202,26 +230,73 @@ function getFeatureIcon(id: string) {
 function getPlanHeaderIcon(id: string) {
   if (id === "starter") {
     return (
-      <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+      <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="#008744" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
         <line x1="22" y1="2" x2="11" y2="13" />
-        <polygon points="22 2 15 22 11 13 2 9 22 2" />
+        <polygon points="22 2 15 22 11 13 2 9 22 2" fill="#008744" />
       </svg>
     );
   }
   if (id === "growth") {
     return (
-      <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+      <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="#008744" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
         <polyline points="23 6 13.5 15.5 8.5 10.5 1 18" />
         <polyline points="17 6 23 6 23 12" />
       </svg>
     );
   }
   return (
-    <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+    <svg viewBox="0 0 24 24" width="22" height="22" fill="#008744" stroke="#008744" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
       <path d="m2 4 3 12h14l3-12-6 7-4-7-4 7-6-7zm3 16h14" />
     </svg>
   );
 }
+
+const trustFeatures = [
+  {
+    id: "setup",
+    title: "Easy Setup",
+    subtitle: "Get started in minutes",
+    icon: (
+      <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="#008744" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+        <path d="m9 12 2 2 4-4" />
+      </svg>
+    ),
+  },
+  {
+    id: "security",
+    title: "Secure & Reliable",
+    subtitle: "Enterprise-grade security",
+    icon: (
+      <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="#008744" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+        <path d="m9 12 2 2 4-4" />
+      </svg>
+    ),
+  },
+  {
+    id: "support",
+    title: "24/7 Priority Support",
+    subtitle: "We're here for you anytime",
+    icon: (
+      <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="#008744" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M3 18v-6a9 9 0 0 1 18 0v6" />
+        <path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z" />
+      </svg>
+    ),
+  },
+  {
+    id: "pricing",
+    title: "No Hidden Charges",
+    subtitle: "Transparent pricing",
+    icon: (
+      <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="#008744" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z" />
+        <circle cx="7" cy="7" r="1.5" fill="#008744" />
+      </svg>
+    ),
+  },
+];
 
 export default function PricingSection() {
   return (
@@ -241,28 +316,16 @@ export default function PricingSection() {
         <div className="vachat-pricing-grid">
           {pricingPlans.map((plan) => {
             const isPopular = plan.badgeType === "popular";
-            const isBestValue = plan.badgeType === "best-value";
 
             return (
               <div
                 key={plan.id}
-                className={`vachat-pricing-card ${isPopular ? "featured" : ""} ${isBestValue ? "best-value-card" : ""}`}
+                className={`vachat-pricing-card ${isPopular ? "featured" : ""}`}
               >
-                {/* Floating Top Badge */}
+                {/* Floating Top Badge (Growth only) */}
                 {plan.badge && (
-                  <div
-                    className={`vachat-plan-badge ${
-                      isPopular ? "badge-popular" : "badge-best-value"
-                    }`}
-                  >
-                    {isPopular && (
-                      <span className="badge-icon-star">★</span>
-                    )}
-                    {isBestValue && (
-                      <svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor" className="badge-icon-crown">
-                        <path d="m2 4 3 12h14l3-12-6 7-4-7-4 7-6-7zm3 16h14" />
-                      </svg>
-                    )}
+                  <div className="vachat-plan-badge badge-popular">
+                    <span className="badge-icon-star">★</span>
                     <span>{plan.badge}</span>
                   </div>
                 )}
@@ -272,14 +335,11 @@ export default function PricingSection() {
                   <div className="vachat-plan-icon-wrap">
                     {getPlanHeaderIcon(plan.id)}
                   </div>
-                  <div>
+                  <div className="vachat-plan-title-wrap">
                     <h3 className="vachat-plan-name">{plan.name}</h3>
                     <p className="vachat-plan-sublabel">{plan.subtitle}</p>
                   </div>
                 </div>
-
-                {/* Plan Description */}
-                <p className="vachat-plan-desc">{plan.description}</p>
 
                 {/* Price Display */}
                 <div className="vachat-plan-price-box">
@@ -329,7 +389,7 @@ export default function PricingSection() {
                   <a href={plan.ctaHref} className="vachat-pricing-btn">
                     <span>{plan.ctaText}</span>
                     <span className="vachat-btn-arrow">
-                      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="#059669" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="#008744" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
                         <line x1="5" y1="12" x2="19" y2="12" />
                         <polyline points="12 5 19 12 12 19" />
                       </svg>
@@ -343,28 +403,17 @@ export default function PricingSection() {
 
         {/* Bottom Trust Strip */}
         <div className="vachat-pricing-trust">
-          <div className="vachat-trust-item">
-            <span className="vachat-trust-icon">
-              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#10b981" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="2" y="5" width="20" height="14" rx="2" />
-                <line x1="2" y1="10" x2="22" y2="10" />
-              </svg>
-            </span>
-            <span>No Setup Fees</span>
-          </div>
-
-          <span className="vachat-trust-sep">|</span>
-
-          <div className="vachat-trust-item">
-            <span className="vachat-trust-icon">
-              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#10b981" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="23 4 23 10 17 10" />
-                <polyline points="1 20 1 14 7 14" />
-                <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
-              </svg>
-            </span>
-            <span>Cancel Anytime</span>
-          </div>
+          {trustFeatures.map((item) => (
+            <div key={item.id} className="vachat-trust-item">
+              <div className="vachat-trust-icon">
+                {item.icon}
+              </div>
+              <div className="vachat-trust-info">
+                <span className="vachat-trust-title">{item.title}</span>
+                <span className="vachat-trust-subtitle">{item.subtitle}</span>
+              </div>
+            </div>
+          ))}
         </div>
       </div>
     </section>

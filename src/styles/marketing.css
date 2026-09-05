@@ -2188,13 +2188,13 @@
 }
 
 .vachat-pricing-card.featured {
-  border: 2px solid #00c265;
-  box-shadow: 0 6px 24px -2px rgba(0, 194, 101, 0.18);
+  border: 2px solid #008744;
+  box-shadow: 0 6px 28px -2px rgba(0, 135, 68, 0.16);
 }
 
 .vachat-pricing-card.featured:hover {
   transform: translateY(-4px);
-  box-shadow: 0 14px 36px -4px rgba(0, 194, 101, 0.26);
+  box-shadow: 0 14px 36px -4px rgba(0, 135, 68, 0.26);
 }
 
 .vachat-pricing-card.best-value-card {
@@ -2215,20 +2215,20 @@
   align-items: center;
   gap: 5px;
   white-space: nowrap;
-  box-shadow: 0 3px 10px rgba(5, 150, 105, 0.32);
+  box-shadow: 0 3px 10px rgba(0, 122, 61, 0.35);
   z-index: 5;
 }
 
 .badge-popular {
   left: 50%;
   transform: translateX(-50%);
-  background-color: #059669;
+  background-color: #007a3d;
   color: #ffffff;
 }
 
 .badge-best-value {
   right: 24px;
-  background-color: #059669;
+  background-color: #007a3d;
   color: #ffffff;
 }
 
@@ -2247,47 +2247,44 @@
   display: flex;
   align-items: center;
   gap: 14px;
-  margin-bottom: 14px;
+  margin-bottom: 12px;
 }
 
 .vachat-plan-icon-wrap {
   width: 48px;
   height: 48px;
   border-radius: 50%;
-  background: #e8f8f0;
-  color: #059669;
+  background: #e6f7f0;
+  color: #008744;
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
 }
 
+.vachat-plan-title-wrap {
+  flex: 1;
+}
+
 .vachat-plan-name {
   font-size: 20px;
   font-weight: 800;
-  color: #059669;
+  color: #111827;
   letter-spacing: 0.5px;
   margin: 0 0 2px 0;
 }
 
 .vachat-plan-sublabel {
-  font-size: 13px;
-  font-weight: 500;
+  font-size: 12.5px;
+  font-weight: 450;
   color: #4b5563;
+  line-height: 1.35;
   margin: 0;
-}
-
-.vachat-plan-desc {
-  font-size: 13.5px;
-  color: #4b5563;
-  line-height: 1.45;
-  margin: 0 0 20px 0;
-  min-height: 40px;
 }
 
 /* Price Box */
 .vachat-plan-price-box {
-  margin-bottom: 22px;
+  margin: 12px 0 16px 0;
 }
 
 .vachat-plan-price-row {
@@ -2297,24 +2294,24 @@
 }
 
 .vachat-price-value {
-  font-size: 40px;
+  font-size: 38px;
   font-weight: 800;
-  color: #047857;
+  color: #008744;
   letter-spacing: -0.6px;
   line-height: 1;
 }
 
 .vachat-price-period {
   font-size: 14px;
-  color: #6b7280;
+  color: #4b5563;
   margin-left: 6px;
   font-weight: 500;
 }
 
 .vachat-plan-pill {
   display: inline-block;
-  background: #e8f8f0;
-  color: #047857;
+  background: #e8f8ee;
+  color: #008744;
   padding: 4px 12px;
   border-radius: var(--radius-pill);
   font-size: 12px;
@@ -2326,14 +2323,15 @@
   display: flex;
   flex-direction: column;
   flex: 1;
-  margin-bottom: 26px;
+  margin-bottom: 24px;
+  gap: 1px;
 }
 
 .vachat-feature-row {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 8px 0;
+  padding: 7px 0;
 }
 
 .vachat-feature-left {
@@ -2346,7 +2344,7 @@
 }
 
 .vachat-feature-icon {
-  color: #059669;
+  color: #008744;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -2354,15 +2352,16 @@
 }
 
 .vachat-feature-name {
-  line-height: 1.4;
+  line-height: 1.35;
+  color: #1f2937;
 }
 
 .vachat-feature-right {
   font-size: 13.5px;
-  font-weight: 600;
+  font-weight: 700;
   color: #111827;
   text-align: right;
-  padding-left: 12px;
+  padding-left: 10px;
   white-space: nowrap;
 }
 
@@ -2389,7 +2388,7 @@
   align-items: center;
   justify-content: center;
   position: relative;
-  background-color: #00c265;
+  background-color: #008744;
   color: #ffffff !important;
   font-size: 15px;
   font-weight: 700;
@@ -2397,13 +2396,13 @@
   border-radius: 12px;
   text-decoration: none;
   transition: all 0.22s ease;
-  box-shadow: 0 4px 14px rgba(0, 194, 101, 0.28);
+  box-shadow: 0 4px 14px rgba(0, 135, 68, 0.24);
 }
 
 .vachat-pricing-btn:hover {
-  background-color: #00af5a;
+  background-color: #007338;
   transform: translateY(-2px);
-  box-shadow: 0 6px 20px rgba(0, 194, 101, 0.42);
+  box-shadow: 0 6px 20px rgba(0, 135, 68, 0.38);
   color: #ffffff !important;
 }
 
@@ -2427,34 +2426,48 @@
 
 /* Bottom Trust Strip */
 .vachat-pricing-trust {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 24px;
-  margin-top: 48px;
-  font-size: 14.5px;
-  color: #374151;
-  font-weight: 500;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 20px;
+  max-width: 1160px;
+  margin: 54px auto 0 auto;
+  padding: 0 12px;
 }
 
 .vachat-trust-item {
-  display: inline-flex;
+  display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 12px;
 }
 
 .vachat-trust-icon {
-  display: inline-flex;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: #e6f7f0;
+  display: flex;
   align-items: center;
   justify-content: center;
-  color: #059669;
+  flex-shrink: 0;
 }
 
-.vachat-trust-sep {
-  color: #cbd5e1;
-  font-size: 16px;
-  font-weight: 300;
+.vachat-trust-info {
+  display: flex;
+  flex-direction: column;
+}
+
+.vachat-trust-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #111827;
+  line-height: 1.3;
+}
+
+.vachat-trust-subtitle {
+  font-size: 12.5px;
+  color: #6b7280;
+  margin-top: 2px;
+  line-height: 1.3;
 }
 
 /* Responsive Rules for Pricing */
@@ -2464,6 +2477,10 @@
     max-width: 520px;
     margin: 0 auto;
     gap: 36px;
+  }
+  .vachat-pricing-trust {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 20px;
   }
   .vachat-pricing-title {
     font-size: 32px;
@@ -2487,11 +2504,8 @@
     font-size: 34px;
   }
   .vachat-pricing-trust {
-    flex-direction: column;
-    gap: 12px;
-  }
-  .vachat-trust-sep {
-    display: none;
+    grid-template-columns: 1fr;
+    gap: 16px;
   }
 }
 
