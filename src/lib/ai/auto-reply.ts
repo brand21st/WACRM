@@ -19,7 +19,7 @@ import { speakableFirstName } from './customer-name'
 import { buildHandoffSummary } from './handoff'
 import { logAiUsage } from './usage'
 import { latestUserMessage } from './query'
-import { engineSendText, engineSendMedia, engineSendTypingIndicator, engineSendInteractiveButtons, engineSendCtaUrl, engineSendCatalogMessage } from '@/lib/flows/meta-send'
+import { engineSendText, engineSendMedia, engineSendTypingIndicator, engineSendInteractiveButtons, engineSendInteractiveList, engineSendCtaUrl, engineSendCatalogMessage } from '@/lib/flows/meta-send'
 import { checkRateLimit, RATE_LIMITS } from '@/lib/rate-limit'
 import {
   INBOUND_VOICE_PLACEHOLDER,
@@ -54,6 +54,14 @@ import {
   resolveCartOfferItems,
   cartOfferFallbackText,
 } from '@/lib/shopify'
+import {
+  resolveVariantPicker,
+  parseVariantPickerAction,
+  buildColorPickerRows,
+  buildSizePickerRows,
+  sizeRowsFromProduct,
+  handleFromProductUrl,
+} from '@/lib/shopify/match-variant'
 import { loadCommerceSettings } from '@/lib/shopify/commerce-config'
 import { nativeCommerceEnabled } from '@/lib/commerce/types'
 import {
@@ -61,12 +69,14 @@ import {
   tryCompleteCommerceDiscount,
   tryCompleteCommerceEmail,
 } from '@/lib/commerce/checkout'
-import type { CartOffer, ShopifyOrderCard, ShopifyProductCard, ShopifyStoreConfig } from '@/lib/shopify'
+import type { CartOffer, ShopifyOrderCard, ShopifyProductCard, ShopifyProductHit, ShopifyStoreConfig } from '@/lib/shopify'
 import { rehostPublicImage } from '@/lib/storage/generated-media'
 import type { ExecuteLlmTool, LlmToolDef } from './providers/shared'
 import type { AiConfig, ChatMessage } from './types'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { INTERACTIVE_LIMITS } from '@/lib/whatsapp/meta-api'
+import type { InteractiveListRow } from '@/lib/whatsapp/interactive'
+import type { RetailerIdSource } from '@/lib/shopify/retailer-id'
 import {
   buildCartOfferButtons,
   lastMessageHasAction,
@@ -580,10 +590,7 @@ export async function dispatchInboundToAiReply(
         console.warn('[ai auto-reply] voice product search failed:', err)
       }
     }
-    const isProductRec =
-      Boolean(shopify) &&
-      productCards.length > 0 &&
-      !cartOffer
+    const pickerTap = parseVariantPickerAction(queryText)
     const hasVoiceScript = Boolean(voiceText)
     const compiledVoice =
       ttsReady(config) &&
@@ -631,6 +638,85 @@ export async function dispatchInboundToAiReply(
         return false
       }
     }
+
+    if (pickerTap && shopify && !cartOffer) {
+      try {
+        const picked = await getProductLive(shopify, pickerTap.handle)
+        if (picked) {
+          const pickedResult = await applyVariantPicker({
+            sendArgs,
+            product: picked,
+            ask: queryText,
+            bodyText: textForCustomer,
+            chosenColor: pickerTap.color,
+            chosenSize: pickerTap.kind === 'size' ? pickerTap.size : null,
+            fromTap: pickerTap.kind,
+            productCards,
+            retailerIdSource: commerce?.retailerIdSource,
+          })
+          if (pickedResult === 'picker') {
+            if (compiledVoice) await sendShoppingAudio()
+            return
+          }
+          if (pickedResult === 'oos') {
+            await engineSendText({
+              ...sendArgs,
+              text:
+                textForCustomer.trim() ||
+                `${picked.title} is out of stock in that option.`,
+              aiGenerated: true,
+            })
+            return
+          }
+        }
+      } catch (err) {
+        console.warn('[ai auto-reply] variant picker tap failed:', err)
+      }
+    } else if (
+      shopify &&
+      !catalogBrowseAsk &&
+      !cartOffer &&
+      productCards.length === 1
+    ) {
+      const handle =
+        productCards[0].handle?.trim() ||
+        handleFromProductUrl(productCards[0].productUrl)
+      if (handle) {
+        try {
+          const listed = await getProductLive(shopify, handle)
+          if (listed) {
+            const listedResult = await applyVariantPicker({
+              sendArgs,
+              product: listed,
+              ask: queryText,
+              bodyText: textForCustomer,
+              productCards,
+              retailerIdSource: commerce?.retailerIdSource,
+            })
+            if (listedResult === 'picker') {
+              if (compiledVoice) await sendShoppingAudio()
+              return
+            }
+            if (listedResult === 'oos') {
+              await engineSendText({
+                ...sendArgs,
+                text:
+                  textForCustomer.trim() ||
+                  `${listed.title} is out of stock in that option.`,
+                aiGenerated: true,
+              })
+              return
+            }
+          }
+        } catch (err) {
+          console.warn('[ai auto-reply] variant picker failed:', err)
+        }
+      }
+    }
+    const isProductRec =
+      Boolean(shopify) &&
+      productCards.length > 0 &&
+      !cartOffer
 
     if (isProductRec) {
       const speakWithCards =
@@ -1089,6 +1175,119 @@ function stripReplyLinkUrls(
     ]),
     orderCards,
   )
+}
+
+async function applyVariantPicker(args: {
+  sendArgs: SendArgs
+  product: ShopifyProductHit
+  ask: string
+  bodyText: string
+  chosenColor?: string | null
+  chosenSize?: string | null
+  fromTap?: 'color' | 'size'
+  productCards: ShopifyProductCard[]
+  retailerIdSource?: RetailerIdSource
+}): Promise<'picker' | 'card' | 'oos'> {
+  const next = resolveVariantPicker({
+    product: args.product,
+    ask: args.ask,
+    chosenColor: args.chosenColor,
+    chosenSize: args.chosenSize,
+  })
+  if (next.kind === 'color') {
+    const rows = buildColorPickerRows(args.product.handle, next.colors)
+    if (rows.length === 0) return 'oos'
+    await sendVariantOptionList({
+      sendArgs: args.sendArgs,
+      kind: 'color',
+      title: args.product.title,
+      rows,
+      bodyText: args.bodyText,
+    })
+    return 'picker'
+  }
+  if (next.kind === 'size') {
+    const color = next.color ?? args.chosenColor ?? null
+    const rows = buildSizePickerRows(
+      args.product.handle,
+      color,
+      sizeRowsFromProduct(args.product, color),
+    )
+    if (rows.length === 0) return 'oos'
+    await sendVariantOptionList({
+      sendArgs: args.sendArgs,
+      kind: 'size',
+      title: args.product.title,
+      rows,
+      bodyText: args.bodyText,
+    })
+    return 'picker'
+  }
+  if (next.kind === 'done' && !next.variant) {
+    return 'card'
+  }
+  if (next.kind === 'done' && next.variant) {
+    const needsConfirm =
+      Boolean(next.color || next.size) &&
+      args.fromTap !== 'size' &&
+      !(args.fromTap === 'color' && !next.size)
+    if (needsConfirm && next.size) {
+      const color = next.color ?? args.chosenColor ?? null
+      await sendVariantOptionList({
+        sendArgs: args.sendArgs,
+        kind: 'size',
+        title: args.product.title,
+        rows: buildSizePickerRows(args.product.handle, color, [
+          {
+            size: next.size,
+            price: next.variant.price
+              ? args.product.currency
+                ? `${next.variant.price} ${args.product.currency}`
+                : next.variant.price
+              : null,
+          },
+        ]),
+        bodyText: args.bodyText,
+      })
+      return 'picker'
+    }
+    if (needsConfirm && next.color && !next.size) {
+      await sendVariantOptionList({
+        sendArgs: args.sendArgs,
+        kind: 'color',
+        title: args.product.title,
+        rows: buildColorPickerRows(args.product.handle, [next.color]),
+        bodyText: args.bodyText,
+      })
+      return 'picker'
+    }
+    args.productCards.length = 0
+    args.productCards.push(
+      toCard(args.product, args.retailerIdSource ?? 'sku', next.variant),
+    )
+    return 'card'
+  }
+  return 'oos'
+}
+
+async function sendVariantOptionList(args: {
+  sendArgs: SendArgs
+  kind: 'color' | 'size'
+  title: string
+  rows: InteractiveListRow[]
+  bodyText: string
+}): Promise<void> {
+  const fallback =
+    args.kind === 'color'
+      ? `Choose a color for ${args.title}.`
+      : `Choose a size for ${args.title}.`
+  await engineSendInteractiveList({
+    ...args.sendArgs,
+    bodyText: (args.bodyText.trim() || fallback).slice(0, INTERACTIVE_LIMITS.bodyMaxLength),
+    buttonLabel: args.kind === 'color' ? 'Choose color' : 'Choose size',
+    sections: [{ title: 'In stock', rows: args.rows }],
+    aiGenerated: true,
+  })
 }
 
 const CATALOG_MESSAGE_FALLBACK = 'Browse our catalog'

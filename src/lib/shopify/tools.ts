@@ -39,6 +39,7 @@ import type {
   ShopifyProductCard,
   ShopifyProductHit,
   ShopifyStoreConfig,
+  ShopifyVariantHit,
 } from './types'
 import type { LlmToolDef } from '@/lib/ai/providers/shared'
 import {
@@ -633,26 +634,64 @@ function pickCompareAt(p: ShopifyProductHit): string | null {
 export function toCard(
   p: ShopifyProductHit,
   source: RetailerIdSource = 'sku',
+  selected?: ShopifyVariantHit | null,
 ): ShopifyProductCard {
-  const price = salePriceLine(p)
-  const inStock = productInStock(p)
+  const variant = selected?.available ? selected : null
+  const urls = variant ? urlsForVariant(p, variant.variantId) : null
+  const price = variant ? variantPriceLine(variant, p.currency) : salePriceLine(p)
+  const inStock = variant ? variant.available : productInStock(p)
   const lines = [
     p.title,
     price,
     inStock ? 'Stock in' : 'Stock out',
-    ...variantCaptionLines(p.variants),
+    ...(variant
+      ? variantCaptionLines([variant])
+      : variantCaptionLines(p.variants)),
     p.productUrl ? `View: ${p.productUrl}` : '',
   ].filter(Boolean)
   return {
     title: p.title,
     imageUrl: p.imageUrl,
     productUrl: p.productUrl,
-    cartUrl: p.cartUrl,
-    checkoutUrl: p.checkoutUrl,
+    cartUrl: urls?.cartUrl ?? p.cartUrl,
+    checkoutUrl: urls?.checkoutUrl ?? p.checkoutUrl,
     inStock,
     caption: lines.join('\n').slice(0, 1024),
     retailerId: retailerIdForProduct(p, source) || null,
+    handle: p.handle || null,
+    variantId: variant?.variantId ?? null,
   }
+}
+
+function urlsForVariant(
+  p: ShopifyProductHit,
+  variantId: string,
+): { cartUrl: string | null; checkoutUrl: string | null } {
+  const id = variantId.trim()
+  if (!id) return { cartUrl: p.cartUrl, checkoutUrl: p.checkoutUrl }
+  const cart = p.cartUrl
+    ? p.cartUrl.replace(/\/cart\/[^/?#]+/, `/cart/${id}:1`)
+    : null
+  const checkout = cart
+    ? cart.includes('?checkout')
+      ? cart
+      : `${cart}?checkout`
+    : null
+  return { cartUrl: cart, checkoutUrl: checkout }
+}
+
+function variantPriceLine(
+  variant: ShopifyVariantHit,
+  currency: string | null,
+): string {
+  if (!variant.price) return ''
+  const suffix = currency ? ` ${currency}` : ''
+  const compare = Number(variant.compareAtPrice)
+  const price = Number(variant.price)
+  if (Number.isFinite(compare) && Number.isFinite(price) && compare > price) {
+    return `~${variant.compareAtPrice}~ ${variant.price}${suffix}`.trim()
+  }
+  return `${variant.price}${suffix}`.trim()
 }
 
 function orderLookupResult(

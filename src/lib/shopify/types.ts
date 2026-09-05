@@ -51,6 +51,8 @@ export interface ShopifyProductCard {
   inStock: boolean
   caption: string
   retailerId?: string | null
+  handle?: string | null
+  variantId?: string | null
 }
 
 export interface ShopifyOrderLineItem {

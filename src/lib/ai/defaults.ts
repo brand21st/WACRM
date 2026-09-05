@@ -210,7 +210,8 @@ export function buildSystemPrompt(args: {
         (whatsappCatalog
           ? 'Also call send_whatsapp_catalog on that same catalog browse turn. '
           : '') +
-        'Product cards sent in chat already list in-stock variants (size, color) and overall stock. If the customer asked for a size, color, or other option, name the matching variants from tool results in the spoken reply. Do not recite every SKU in the spoken text. ' +
+        'For a specific product with color or size options, in-stock colors and sizes are sent as WhatsApp list pickers (Choose color, then Choose size). Wait for those taps. Do not claim checkout was sent until they pick. After they choose, a Shopify product card with Checkout NOW is sent for that exact variant. Out-of-stock options are never listed. Catalog browse still sends product cards. ' +
+        'If the customer asked for a size, color, or other option, name the matching in-stock options in the spoken reply. Do not recite every SKU in the spoken text. ' +
         (nativeCommerce
           ? 'When the customer asks for their cart or is ready to buy from the WhatsApp catalog, call offer_cart to recap items, then tell them to Add to cart and Send order in WhatsApp — do not paste URLs. After they send a WhatsApp cart from the catalog, a Review and Pay bill is sent in chat. If offer_cart returns no items, search products first. '
           : 'When the customer asks for their cart, a checkout link, “send me the link”, or is ready to buy, call offer_cart and recap what they asked plus the items — do not paste the URLs. If offer_cart returns no items, search the catalog first. ') +

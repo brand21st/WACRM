@@ -49,6 +49,18 @@ export {
   productInStock,
 } from './tools'
 export {
+  inStockColors,
+  inStockSizes,
+  resolveVariantPicker,
+  parseVariantPickerAction,
+  parseWacrmAction,
+  buildColorPickerRows,
+  buildSizePickerRows,
+  sizeRowsFromProduct,
+  handleFromProductUrl,
+  findVariant,
+} from './match-variant'
+export {
   MAX_CART_ITEMS,
   itemsFromProductCards,
   itemsFromInteractiveRows,

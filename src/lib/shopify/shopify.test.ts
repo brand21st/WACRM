@@ -159,6 +159,60 @@ describe('mapGqlProduct', () => {
 })
 
 describe('toCard', () => {
+  it('uses the selected variant checkout URL and caption', () => {
+    const card = toCard(
+      fixtureProduct({
+        variants: [
+          {
+            id: 'gid://shopify/ProductVariant/11',
+            variantId: '11',
+            title: 'Red / S',
+            sku: 'TOTE-S',
+            price: '49.00',
+            compareAtPrice: null,
+            available: true,
+            options: [
+              { name: 'Color', value: 'Red' },
+              { name: 'Size', value: 'S' },
+            ],
+          },
+          {
+            id: 'gid://shopify/ProductVariant/12',
+            variantId: '12',
+            title: 'Blue / M',
+            sku: 'TOTE-M',
+            price: '59.00',
+            compareAtPrice: null,
+            available: true,
+            options: [
+              { name: 'Color', value: 'Blue' },
+              { name: 'Size', value: 'M' },
+            ],
+          },
+        ],
+      }),
+      'sku',
+      {
+        id: 'gid://shopify/ProductVariant/12',
+        variantId: '12',
+        title: 'Blue / M',
+        sku: 'TOTE-M',
+        price: '59.00',
+        compareAtPrice: null,
+        available: true,
+        options: [
+          { name: 'Color', value: 'Blue' },
+          { name: 'Size', value: 'M' },
+        ],
+      },
+    )
+    expect(card.checkoutUrl).toBe('https://shop.example/cart/12:1?checkout')
+    expect(card.variantId).toBe('12')
+    expect(card.caption).toContain('Color: Blue')
+    expect(card.caption).toContain('Variants: M')
+    expect(card.caption).toContain('59.00')
+  })
+
   it('includes Stock in, variants, and View on an in-stock product', () => {
     const card = toCard(fixtureProduct())
     expect(card.inStock).toBe(true)

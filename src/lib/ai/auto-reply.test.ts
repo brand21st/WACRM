@@ -24,6 +24,7 @@ const h = vi.hoisted(() => ({
   generateReply: vi.fn(),
   engineSendText: vi.fn(),
   engineSendInteractiveButtons: vi.fn(),
+  engineSendInteractiveList: vi.fn(),
   engineSendCtaUrl: vi.fn(),
   engineSendProduct: vi.fn(),
   engineSendProductList: vi.fn(),
@@ -94,6 +95,7 @@ vi.mock('./generate', () => ({ generateReply: h.generateReply }))
 vi.mock('@/lib/flows/meta-send', () => ({
   engineSendText: h.engineSendText,
   engineSendInteractiveButtons: h.engineSendInteractiveButtons,
+  engineSendInteractiveList: h.engineSendInteractiveList,
   engineSendCtaUrl: h.engineSendCtaUrl,
   engineSendProduct: h.engineSendProduct,
   engineSendProductList: h.engineSendProductList,
@@ -248,6 +250,7 @@ beforeEach(() => {
   h.rehostPublicImage.mockResolvedValue('https://cdn.example/hosted.jpg')
   h.toCard.mockImplementation((p: {
     title: string
+    handle?: string
     imageUrl?: string | null
     productUrl?: string
     cartUrl?: string | null
@@ -257,11 +260,12 @@ beforeEach(() => {
     currency?: string | null
     variants?: {
       available: boolean
+      variantId?: string
       title?: string
       price?: string | null
       options?: { name: string; value: string }[]
     }[]
-  }) => {
+  }, _source?: unknown, selected?: { variantId?: string; available?: boolean; price?: string | null; options?: { name: string; value: string }[] }) => {
     const inStock =
       p.variants && p.variants.length > 0
         ? p.variants.some((v) => v.available)
@@ -294,18 +298,30 @@ beforeEach(() => {
         }
       }
     }
+    const variantId = selected?.variantId
+    const cartUrl =
+      variantId && p.cartUrl
+        ? p.cartUrl.replace(/\/cart\/[^/?#]+/, `/cart/${variantId}:1`)
+        : (p.cartUrl ?? null)
+    const checkoutUrl = cartUrl
+      ? cartUrl.includes('?checkout')
+        ? cartUrl
+        : `${cartUrl}?checkout`
+      : (p.checkoutUrl ?? null)
     return {
       title: p.title,
+      handle: p.handle ?? null,
       imageUrl: p.imageUrl ?? null,
       productUrl: p.productUrl ?? '',
-      cartUrl: p.cartUrl ?? null,
-      checkoutUrl: p.checkoutUrl ?? null,
-      inStock,
+      cartUrl,
+      checkoutUrl,
+      inStock: selected ? Boolean(selected.available) : inStock,
       retailerId: null,
+      variantId: variantId ?? null,
       caption: [
         p.title,
-        price,
-        inStock ? 'Stock in' : 'Stock out',
+        selected?.price ?? price,
+        (selected ? Boolean(selected.available) : inStock) ? 'Stock in' : 'Stock out',
         sizes.length > 0 ? `Variants: ${sizes.join(', ')}` : '',
         colors.length > 0 ? `Color: ${colors.join(', ')}` : '',
         p.productUrl ? `View: ${p.productUrl}` : '',
@@ -368,6 +384,7 @@ beforeEach(() => {
   h.generateReply.mockResolvedValue({ text: 'Hello!', handoff: false })
   h.engineSendText.mockResolvedValue({ whatsapp_message_id: 'm1' })
   h.engineSendInteractiveButtons.mockResolvedValue({ whatsapp_message_id: 'm-btn' })
+  h.engineSendInteractiveList.mockReset().mockResolvedValue({ whatsapp_message_id: 'm-list' })
   h.engineSendCtaUrl.mockReset().mockResolvedValue({ whatsapp_message_id: 'm-cta' })
   h.engineSendProduct.mockReset().mockResolvedValue({ whatsapp_message_id: 'm-prod' })
   h.engineSendProductList.mockReset().mockResolvedValue({ whatsapp_message_id: 'm-list' })
@@ -1707,6 +1724,85 @@ describe('dispatchInboundToAiReply — cart offer', () => {
     catalogProductCount: 2,
   }
 
+  const POURNAMI = {
+    id: 'gid://shopify/Product/1',
+    handle: 'pournami-red',
+    title: 'Pournami',
+    description: '',
+    imageUrl: 'https://cdn.example/p.jpg',
+    productUrl: 'https://shop.example/products/pournami-red',
+    cartUrl: 'https://shop.example/cart/11:1',
+    checkoutUrl: 'https://shop.example/cart/11:1?checkout',
+    priceMin: '499',
+    priceMax: '699',
+    currency: 'INR',
+    variants: [
+      {
+        id: 'g11',
+        variantId: '11',
+        title: 'Red / M',
+        sku: 'P-RED-M',
+        price: '499',
+        compareAtPrice: null,
+        available: true,
+        options: [
+          { name: 'Color', value: 'Red' },
+          { name: 'Size', value: 'M' },
+        ],
+      },
+      {
+        id: 'g12',
+        variantId: '12',
+        title: 'Red / L',
+        sku: 'P-RED-L',
+        price: '499',
+        compareAtPrice: null,
+        available: true,
+        options: [
+          { name: 'Color', value: 'Red' },
+          { name: 'Size', value: 'L' },
+        ],
+      },
+      {
+        id: 'g13',
+        variantId: '13',
+        title: 'Blue / M',
+        sku: 'P-BLU-M',
+        price: '499',
+        compareAtPrice: null,
+        available: true,
+        options: [
+          { name: 'Color', value: 'Blue' },
+          { name: 'Size', value: 'M' },
+        ],
+      },
+      {
+        id: 'g14',
+        variantId: '14',
+        title: 'Blue / L',
+        sku: 'P-BLU-L',
+        price: '499',
+        compareAtPrice: null,
+        available: false,
+        options: [
+          { name: 'Color', value: 'Blue' },
+          { name: 'Size', value: 'L' },
+        ],
+      },
+    ],
+  }
+
+  const POURNAMI_CARD = {
+    title: 'Pournami',
+    handle: 'pournami-red',
+    imageUrl: 'https://cdn.example/p.jpg',
+    productUrl: 'https://shop.example/products/pournami-red',
+    cartUrl: 'https://shop.example/cart/11:1',
+    checkoutUrl: 'https://shop.example/cart/11:1?checkout',
+    inStock: true,
+    caption: 'Pournami',
+  }
+
   const offer = {
     items: [
       {
@@ -2115,6 +2211,131 @@ describe('dispatchInboundToAiReply — cart offer', () => {
       }),
     )
     expect(h.engineSendCatalogMessage).toHaveBeenCalled()
+  })
+
+  it('sends a color list picker for a specific product with in-stock variants', async () => {
+    h.loadAiConfig.mockResolvedValue(aiConfig({ fullAgentEnabled: true }))
+    h.buildConversationContext.mockResolvedValue([
+      { role: 'user', content: 'Pournami' },
+    ])
+    h.loadShopifyConfig.mockResolvedValue(shopifyRow)
+    h.getProductLive.mockResolvedValue(POURNAMI)
+    h.executeShopifyTool.mockResolvedValue({
+      json: '{}',
+      cards: [POURNAMI_CARD],
+    })
+    h.generateReply.mockImplementation(async (args: { executeTool?: Function }) => {
+      if (args.executeTool) await args.executeTool('search_products', { query: 'Pournami' })
+      return { text: 'Choose a color for Pournami.', handoff: false }
+    })
+
+    await dispatchInboundToAiReply(ARGS)
+
+    expect(h.engineSendInteractiveList).toHaveBeenCalledWith(
+      expect.objectContaining({
+        buttonLabel: 'Choose color',
+        sections: [
+          {
+            title: 'In stock',
+            rows: [
+              { id: 'wacrm:color:pournami-red:Red', title: 'Red' },
+              { id: 'wacrm:color:pournami-red:Blue', title: 'Blue' },
+            ],
+          },
+        ],
+      }),
+    )
+    expect(h.engineSendCtaUrl).not.toHaveBeenCalled()
+  })
+
+  it('sends a size list after the customer picks a color', async () => {
+    h.loadAiConfig.mockResolvedValue(aiConfig({ fullAgentEnabled: true }))
+    h.buildConversationContext.mockResolvedValue([
+      {
+        role: 'user',
+        content: '[Customer tapped "Red" (action: wacrm:color:pournami-red:Red)]',
+      },
+    ])
+    h.loadShopifyConfig.mockResolvedValue(shopifyRow)
+    h.getProductLive.mockResolvedValue(POURNAMI)
+    h.generateReply.mockResolvedValue({
+      text: 'Choose a size for Pournami.',
+      handoff: false,
+    })
+
+    await dispatchInboundToAiReply(ARGS)
+
+    expect(h.engineSendInteractiveList).toHaveBeenCalledWith(
+      expect.objectContaining({
+        buttonLabel: 'Choose size',
+        sections: [
+          expect.objectContaining({
+            title: 'In stock',
+            rows: expect.arrayContaining([
+              expect.objectContaining({
+                id: 'wacrm:size:pournami-red:Red:M',
+                title: 'M',
+              }),
+              expect.objectContaining({
+                id: 'wacrm:size:pournami-red:Red:L',
+                title: 'L',
+              }),
+            ]),
+          }),
+        ],
+      }),
+    )
+    expect(h.engineSendCtaUrl).not.toHaveBeenCalled()
+  })
+
+  it('sends the exact Shopify checkout card after the customer picks a size', async () => {
+    h.loadAiConfig.mockResolvedValue(aiConfig({ fullAgentEnabled: true }))
+    h.buildConversationContext.mockResolvedValue([
+      {
+        role: 'user',
+        content: '[Customer tapped "L" (action: wacrm:size:pournami-red:Red:L)]',
+      },
+    ])
+    h.loadShopifyConfig.mockResolvedValue(shopifyRow)
+    h.getProductLive.mockResolvedValue(POURNAMI)
+    h.generateReply.mockResolvedValue({
+      text: 'Here is Pournami Red / L.',
+      handoff: false,
+    })
+
+    await dispatchInboundToAiReply(ARGS)
+
+    expect(h.engineSendInteractiveList).not.toHaveBeenCalled()
+    expect(h.engineSendCtaUrl).toHaveBeenCalledWith(
+      expect.objectContaining({
+        url: 'https://shop.example/cart/12:1?checkout',
+        displayText: 'Checkout NOW',
+      }),
+    )
+  })
+
+  it('skips the color list when the customer already named a color', async () => {
+    h.loadAiConfig.mockResolvedValue(aiConfig({ fullAgentEnabled: true }))
+    h.buildConversationContext.mockResolvedValue([
+      { role: 'user', content: 'Pournami red' },
+    ])
+    h.loadShopifyConfig.mockResolvedValue(shopifyRow)
+    h.getProductLive.mockResolvedValue(POURNAMI)
+    h.executeShopifyTool.mockResolvedValue({
+      json: '{}',
+      cards: [POURNAMI_CARD],
+    })
+    h.generateReply.mockImplementation(async (args: { executeTool?: Function }) => {
+      if (args.executeTool) await args.executeTool('search_products', { query: 'Pournami red' })
+      return { text: 'Choose a size for Pournami.', handoff: false }
+    })
+
+    await dispatchInboundToAiReply(ARGS)
+
+    expect(h.engineSendInteractiveList).toHaveBeenCalledWith(
+      expect.objectContaining({ buttonLabel: 'Choose size' }),
+    )
+    expect(h.engineSendCtaUrl).not.toHaveBeenCalled()
   })
 
   it('sends all 10 Shopify cards for interest-based recommendations', async () => {
