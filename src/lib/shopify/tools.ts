@@ -51,7 +51,7 @@ export const SHOPIFY_LLM_TOOLS: LlmToolDef[] = [
   {
     name: 'search_products',
     description:
-      'Search the Shopify catalog for what the customer asked: product, category, color, occasion, or keywords. Set max_price when they gave a budget. Returns the best match plus close alternatives. Never invent products.',
+      'Search the Shopify catalog for what the customer asked: product, category, color, occasion, related, or keywords. Set max_price when they gave a budget. Returns every catalog-matched product, plus close alternatives only when nothing exact matches. Never invent products.',
     parameters: {
       type: 'object',
       properties: {
@@ -70,7 +70,7 @@ export const SHOPIFY_LLM_TOOLS: LlmToolDef[] = [
         limit: {
           type: 'integer',
           description:
-            'How many cards to send (1–10). Default 3 (best plus 1–2 alternatives).',
+            'How many cards to send (1–50). Omit to send every catalog match. Set only when they asked for a specific count.',
         },
       },
       required: ['query'],
@@ -100,7 +100,7 @@ export const SHOPIFY_LLM_TOOLS: LlmToolDef[] = [
         limit: {
           type: 'integer',
           description:
-            'How many to return (1–10). Omit to match how many the customer asked for.',
+            'How many to return (1–50). Omit to send every catalog match.',
         },
       },
     },
@@ -115,7 +115,7 @@ export const SHOPIFY_LLM_TOOLS: LlmToolDef[] = [
         limit: {
           type: 'integer',
           description:
-            'How many to return (1–10). Omit to match how many the customer asked for.',
+            'How many to return (1–50). Omit to send every catalog match.',
         },
       },
     },
@@ -123,7 +123,7 @@ export const SHOPIFY_LLM_TOOLS: LlmToolDef[] = [
   {
     name: 'recommend_products',
     description:
-      'Recommend related Shopify products. role=recommend for “for me” picks. role=upsell for a genuine higher-value version of the shown product. role=cross_sell for 1 complementary add-on. Do not use for a named product search. Never invent discounts.',
+      'Recommend related or matching Shopify catalog products. role=recommend for “for me”, related, or similar picks — send every catalog match. role=upsell for one genuine higher-value version of the shown product. role=cross_sell for 1 complementary add-on. Do not use for a named product search. Never invent discounts.',
     parameters: {
       type: 'object',
       properties: {
@@ -139,7 +139,7 @@ export const SHOPIFY_LLM_TOOLS: LlmToolDef[] = [
         limit: {
           type: 'integer',
           description:
-            'How many to return (1–10). Omit to match how many the customer asked for.',
+            'How many to return (1–50). Omit to send every catalog match.',
         },
       },
     },
@@ -280,13 +280,25 @@ export async function executeShopifyTool(
           limit,
           { allowCloseAlternatives: true, budget },
         )
+        if (ranked.hits.length > 0) {
+          return productsResult(
+            ranked.hits,
+            ctx.retailerIdSource,
+            limit,
+            ranked.exact
+              ? undefined
+              : 'No exact match. These are the closest catalog options. Explain what changed. Do not invent items.',
+          )
+        }
+        const relatedLimit = Math.min(limit, 10)
+        const related = await listNewArrivals(ctx.db, ctx.config, relatedLimit)
         return productsResult(
-          ranked.hits,
+          related,
           ctx.retailerIdSource,
-          limit,
-          ranked.exact
-            ? undefined
-            : 'No exact match. These are the closest catalog options. Explain what changed. Do not invent items.',
+          relatedLimit,
+          related.length > 0
+            ? 'No exact match. These are related catalog products. Say they are alternatives. Do not invent items.'
+            : undefined,
         )
       }
       case 'get_product': {

@@ -191,7 +191,9 @@ export function buildSystemPrompt(args: {
     parts.push(
         'Shopify is connected and is the source of truth. You MUST use tools to look up products, prices, variants, budget matches, new arrivals, best selling, trending, and this customer’s orders or tracking. ' +
         'When they name a product, category, color, SKU, occasion, or budget — in text, voice, or a WhatsApp AI call — call search_products with those words and max_price when they gave a budget. ' +
-        'Send 1 best match plus 1–2 relevant alternatives (limit 3 unless they asked for one item or to browse many). Do not dump the catalog. Do not send unrelated cards. ' +
+        'When they ask for related, similar, or matching products, call search_products or recommend_products (role recommend) with this ask and send every catalog-matched product. ' +
+        'A voice-note product ask must still search the catalog, send the Shopify product cards, and include a VOICE_MESSAGE spoken recap. ' +
+        'Send the full matched product list as cards — do not stop at 3. Only send 1 card when they asked for one item. If they asked for a number, send that many. Do not send unrelated cards. ' +
         'If there is no exact match, use the closest catalog options and say what changed (price, color, or feature). Never claim a product is within budget when it is not. Never invent items. ' +
         'After the cards, summarize the best pick and why. If a genuine step-up exists, call recommend_products with role upsell (reasonable price gap only). If a complementary add-on fits, call recommend_products with role cross_sell (1 product). Do not upsell every turn. Never invent bundles, coupons, or discounts. ' +
         'End a product recommendation with a simple CTA, then a VOICE_MESSAGE: block (10–25 seconds, same language, no emoji, no URLs, spoken currency words) recapping the best pick and optional upgrade. ' +

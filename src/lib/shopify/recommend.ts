@@ -1,11 +1,12 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { MAX_PRODUCT_CARDS } from '@/lib/ai/product-card-limit'
 import { listBestSelling, searchProducts, searchProductsLive } from './catalog'
 import { productUnitPrice } from './rank'
 import { storefrontOrigin } from './domain'
 import { numericIdFromGid } from './map-product'
 import type { ShopifyProductCard, ShopifyProductHit, ShopifyStoreConfig } from './types'
 
-export const BROWSE_RECOMMEND_LIMIT = 10
+export const BROWSE_RECOMMEND_LIMIT = MAX_PRODUCT_CARDS
 const MAX_SEED_TERMS = 5
 const MAX_SEED_PRODUCTS = 3
 

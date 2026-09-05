@@ -29,6 +29,7 @@ import {
 import { canSpeak as ttsReady, synthesizeSpeech } from './speech'
 import { prepareIndicSpeechText, stripUrlsForSpeech } from './speech-text'
 import { splitShoppingReply } from './shopping-voice'
+import { isShopifyProductAsk, MAX_PRODUCT_CARDS } from '@/lib/ai/product-card-limit'
 import {
   CHECKOUT_BUTTON_LABEL,
   VIEW_CART_BUTTON_LABEL,
@@ -549,6 +550,21 @@ export async function dispatchInboundToAiReply(
 
     const catalogRequested =
       catalogHolder.value || isWhatsAppCatalogRequest(queryText)
+    if (
+      inboundContentType === 'audio' &&
+      shopify &&
+      productCards.length === 0 &&
+      !catalogRequested &&
+      !cartOffer &&
+      isShopifyProductAsk(queryText) &&
+      shopifyTools.executeTool
+    ) {
+      try {
+        await shopifyTools.executeTool('search_products', { query: queryText })
+      } catch (err) {
+        console.warn('[ai auto-reply] voice product search failed:', err)
+      }
+    }
     const isProductRec =
       Boolean(shopify) &&
       productCards.length > 0 &&
@@ -603,6 +619,9 @@ export async function dispatchInboundToAiReply(
     }
 
     if (isProductRec) {
+      const speakWithCards =
+        inboundContentType === 'audio' && compiledVoice && canSpeak
+      const voicePending = speakWithCards ? sendShoppingAudio() : null
       try {
         await sendProductCards(sendArgs, productCards, shopify)
       } catch (err) {
@@ -619,13 +638,17 @@ export async function dispatchInboundToAiReply(
         shopify: Boolean(shopify),
         wantsText: true,
         wantsAudio: compiledVoice || wantsAudio,
-        audioSent: false,
+        audioSent: Boolean(voicePending),
         productCards,
         orderCards,
         chatButtonMode: 'nav',
       })
-      if (handedOff) return
-      if (compiledVoice) await sendShoppingAudio()
+      if (handedOff) {
+        if (voicePending) await voicePending.catch(() => false)
+        return
+      }
+      if (voicePending) await voicePending
+      else if (compiledVoice) await sendShoppingAudio()
       try {
         await sendOrderCards(sendArgs, orderCards)
       } catch (err) {
@@ -1012,7 +1035,6 @@ async function hydrateCardImages(
   return cards
 }
 
-const MAX_PRODUCT_CARDS = 10
 const MAX_ORDER_CARDS = 3
 
 function stripReplyLinkUrls(

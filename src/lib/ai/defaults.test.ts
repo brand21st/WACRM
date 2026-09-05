@@ -110,7 +110,7 @@ describe('buildSystemPrompt', () => {
     expect(prompt).toMatch(/best selling|trending/)
     expect(prompt).toMatch(/shopping and sales assistant/)
     expect(prompt).toMatch(/search_products with those words/)
-    expect(prompt).toMatch(/1 best match plus 1–2 relevant alternatives|1 best match plus 1-2 relevant alternatives/)
+    expect(prompt).toMatch(/full matched product list|every catalog-matched product/)
     expect(prompt).toMatch(/text, voice, or a WhatsApp AI call/)
     expect(prompt).toMatch(/role upsell/)
     expect(prompt).toMatch(/role cross_sell/)

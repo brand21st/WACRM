@@ -130,7 +130,7 @@ describe('listRecommendedProducts', () => {
     expect(h.searchProductsLive).toHaveBeenCalledWith(
       STORE,
       'handle:silk-coat OR handle:wooden-computer',
-      { first: 10 },
+      { first: 50 },
     )
     expect(hits.map((p) => p.title)).toEqual(['Silk Coat', 'Wooden Computer'])
   })

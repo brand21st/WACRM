@@ -262,7 +262,7 @@ export async function searchShoppingCatalog(
   limit = 5,
   opts?: SearchProductsOpts,
 ): Promise<ShoppingMatch> {
-  const fetchLimit = Math.min(10, Math.max(limit * 3, limit))
+  const fetchLimit = Math.min(MAX_CATALOG_PRODUCTS, Math.max(limit * 3, limit))
   let ranked: ShoppingMatch = { hits: [], exact: false }
   if (catalogIsFresh(config)) {
     ranked = rankFetched(

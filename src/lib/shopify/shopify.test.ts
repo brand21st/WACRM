@@ -1037,7 +1037,7 @@ describe('executeShopifyTool', () => {
       'list_best_selling',
       {},
     )
-    expect(result.cards).toHaveLength(10)
+    expect(result.cards).toHaveLength(12)
     expect(JSON.parse(result.json).products).toHaveLength(12)
   })
 
@@ -1145,7 +1145,7 @@ describe('executeShopifyTool', () => {
     )
   })
 
-  it('sends 3 search cards for a named product ask with no count', async () => {
+  it('sends every catalog-matched search card for a named product ask', async () => {
     vi.spyOn(client, 'shopifyGraphql').mockResolvedValue({
       products: {
         nodes: Array.from({ length: 6 }, (_, i) => ({
@@ -1180,7 +1180,45 @@ describe('executeShopifyTool', () => {
       'search_products',
       { query: 'red bags' },
     )
-    expect(result.cards).toHaveLength(3)
+    expect(result.cards).toHaveLength(6)
+  })
+
+  it('sends every catalog-matched card for a related-product ask', async () => {
+    vi.spyOn(client, 'shopifyGraphql').mockResolvedValue({
+      products: {
+        nodes: Array.from({ length: 8 }, (_, i) => ({
+          id: `gid://shopify/Product/${i + 1}`,
+          handle: `coord-${i + 1}`,
+          title: `Coord Set ${i + 1}`,
+          description: 'Coord',
+          featuredImage: { url: `https://cdn.example/coord-${i + 1}.jpg` },
+          variants: {
+            nodes: [
+              {
+                id: `gid://shopify/ProductVariant/${i + 1}`,
+                legacyResourceId: String(500 + i),
+                title: 'Default',
+                sku: `COORD-${i + 1}`,
+                availableForSale: true,
+                price: '599.00',
+                selectedOptions: [],
+              },
+            ],
+          },
+        })),
+      },
+    })
+    const result = await executeShopifyTool(
+      {
+        db: {} as SupabaseClient,
+        config: STORE,
+        contactPhone: null,
+        customerText: 'related coord set',
+      },
+      'search_products',
+      { query: 'coord set' },
+    )
+    expect(result.cards).toHaveLength(8)
   })
 
   it('lets a tool limit override the inferred search count', async () => {
