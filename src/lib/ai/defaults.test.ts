@@ -116,6 +116,7 @@ describe('buildSystemPrompt', () => {
     expect(prompt).toMatch(/role cross_sell/)
     expect(prompt).toMatch(/Do not upsell every turn/)
     expect(prompt).toMatch(/VOICE_MESSAGE/)
+    expect(prompt).toMatch(/voice-note product ask/)
     expect(prompt).toMatch(/Never invent bundles, coupons, or discounts/)
     expect(prompt).toMatch(/closest catalog options/)
     expect(prompt).toMatch(/this ask first, then remembered products and preferences/)

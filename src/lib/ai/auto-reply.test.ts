@@ -2084,6 +2084,105 @@ describe('dispatchInboundToAiReply — cart offer', () => {
     )
   })
 
+  it('sends Shopify cards and a voice note when the customer asks by voice', async () => {
+    h.loadAiConfig.mockResolvedValue(
+      aiConfig({
+        fullAgentEnabled: true,
+        elevenlabsApiKey: 'xi-test',
+        voiceReplyMode: 'same',
+      }),
+    )
+    h.buildConversationContext.mockResolvedValue([
+      { role: 'user', content: 'green color dress' },
+    ])
+    h.loadShopifyConfig.mockResolvedValue(shopifyRow)
+    h.executeShopifyTool.mockResolvedValue({
+      json: '{}',
+      cards: [
+        {
+          title: 'Rayon Coord',
+          imageUrl: 'https://cdn.example/coord.jpg',
+          productUrl: 'https://shop.example/products/coord',
+          cartUrl: 'https://shop.example/cart/1:1',
+          checkoutUrl: 'https://shop.example/cart/1:1?checkout',
+          inStock: true,
+          caption: 'Rayon Coord',
+        },
+      ],
+    })
+    h.generateReply.mockImplementation(async (args: { executeTool?: Function }) => {
+      if (args.executeTool) {
+        await args.executeTool('search_products', { query: 'green dress' })
+      }
+      return {
+        text: 'Closest options are on the cards.\n\nVOICE_MESSAGE:\nGreen dress match illa, ithu nokku.',
+        handoff: false,
+      }
+    })
+
+    await dispatchInboundToAiReply({ ...ARGS, inboundContentType: 'audio' })
+
+    expect(h.engineSendCtaUrl).toHaveBeenCalledWith(
+      expect.objectContaining({
+        url: 'https://shop.example/cart/1:1?checkout',
+      }),
+    )
+    expect(h.engineSendText).toHaveBeenCalled()
+    expect(h.synthesizeSpeech).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: expect.stringMatching(/Green dress match illa/),
+        whatsapp: true,
+      }),
+    )
+    expect(h.engineSendMedia).toHaveBeenCalledWith(
+      expect.objectContaining({ voice: true }),
+    )
+  })
+
+  it('searches Shopify on a voice product ask when the model skipped tools', async () => {
+    h.loadAiConfig.mockResolvedValue(
+      aiConfig({
+        fullAgentEnabled: true,
+        elevenlabsApiKey: 'xi-test',
+        voiceReplyMode: 'same',
+      }),
+    )
+    h.buildConversationContext.mockResolvedValue([
+      { role: 'user', content: 'rani pink product undo?' },
+    ])
+    h.loadShopifyConfig.mockResolvedValue(shopifyRow)
+    h.executeShopifyTool.mockResolvedValue({
+      json: '{}',
+      cards: [
+        {
+          title: 'Vatican Silk',
+          imageUrl: 'https://cdn.example/silk.jpg',
+          productUrl: 'https://shop.example/products/silk',
+          cartUrl: 'https://shop.example/cart/2:1',
+          checkoutUrl: 'https://shop.example/cart/2:1?checkout',
+          inStock: true,
+          caption: 'Vatican Silk',
+        },
+      ],
+    })
+    h.generateReply.mockResolvedValue({
+      text: 'Pink match illa.',
+      handoff: false,
+    })
+
+    await dispatchInboundToAiReply({ ...ARGS, inboundContentType: 'audio' })
+
+    expect(h.executeShopifyTool).toHaveBeenCalledWith(
+      expect.anything(),
+      'search_products',
+      { query: 'rani pink product undo?' },
+    )
+    expect(h.engineSendCtaUrl).toHaveBeenCalled()
+    expect(h.engineSendMedia).toHaveBeenCalledWith(
+      expect.objectContaining({ voice: true }),
+    )
+  })
+
   it('sends cards then summary then voice on a shopping turn', async () => {
     h.loadAiConfig.mockResolvedValue(
       aiConfig({

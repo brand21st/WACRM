@@ -1221,6 +1221,47 @@ describe('executeShopifyTool', () => {
     expect(result.cards).toHaveLength(8)
   })
 
+  it('sends related catalog cards when search has no exact match', async () => {
+    vi.spyOn(client, 'shopifyGraphql')
+      .mockResolvedValueOnce({ products: { nodes: [] } })
+      .mockResolvedValueOnce({
+        products: {
+          nodes: Array.from({ length: 4 }, (_, i) => ({
+            id: `gid://shopify/Product/${i + 1}`,
+            handle: `new-${i + 1}`,
+            title: `New ${i + 1}`,
+            description: 'New',
+            featuredImage: { url: `https://cdn.example/new-${i + 1}.jpg` },
+            variants: {
+              nodes: [
+                {
+                  id: `gid://shopify/ProductVariant/${i + 1}`,
+                  legacyResourceId: String(600 + i),
+                  title: 'Default',
+                  sku: `NEW-${i + 1}`,
+                  availableForSale: true,
+                  price: '29.00',
+                  selectedOptions: [],
+                },
+              ],
+            },
+          })),
+        },
+      })
+    const result = await executeShopifyTool(
+      {
+        db: {} as SupabaseClient,
+        config: STORE,
+        contactPhone: null,
+        customerText: 'green color dress',
+      },
+      'search_products',
+      { query: 'green dress' },
+    )
+    expect(result.cards).toHaveLength(4)
+    expect(JSON.parse(result.json).note).toMatch(/related catalog/)
+  })
+
   it('lets a tool limit override the inferred search count', async () => {
     vi.spyOn(client, 'shopifyGraphql').mockResolvedValue({
       products: {
