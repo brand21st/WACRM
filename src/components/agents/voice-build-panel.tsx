@@ -11,7 +11,6 @@ import {
 import { useAuth } from '@/hooks/use-auth';
 import { canEditSettings } from '@/lib/auth/roles';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import {
@@ -24,12 +23,15 @@ import {
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
 import { SettingsPanelHead } from '@/components/settings/settings-panel-head';
 import type { VoiceProvider, VoiceReplyMode } from '@/lib/ai/types';
+import { DEFAULT_ELEVENLABS_VOICE_ID } from '@/lib/ai/voice';
 import {
   REALTIME_VOICES,
   DEFAULT_REALTIME_VOICE,
@@ -53,6 +55,14 @@ const VOICE_REPLY_MODES: {
   { value: 'both', labelKey: 'replyModeBoth' },
 ];
 
+const DEFAULT_VOICE_SENTINEL = '__default__';
+
+interface ListedVoice {
+  voiceId: string;
+  name: string;
+  category: string;
+}
+
 export function VoiceBuildPanel() {
   const { accountId, accountRole, profileLoading } = useAuth();
   const canEdit = accountRole ? canEditSettings(accountRole) : false;
@@ -68,6 +78,9 @@ export function VoiceBuildPanel() {
   const [hasPlatformElevenlabsKey, setHasPlatformElevenlabsKey] = useState(false);
   const [hasPlatformSarvamKey, setHasPlatformSarvamKey] = useState(false);
   const [elevenlabsVoiceId, setElevenlabsVoiceId] = useState('');
+  const [voices, setVoices] = useState<ListedVoice[]>([]);
+  const [voicesLoading, setVoicesLoading] = useState(false);
+  const [voicesError, setVoicesError] = useState(false);
   const [sarvamSpeaker, setSarvamSpeaker] = useState('shubh');
   const [sarvamLanguage, setSarvamLanguage] = useState('en-IN');
   const [sttEnabled, setSttEnabled] = useState(true);
@@ -132,6 +145,56 @@ export function VoiceBuildPanel() {
     loadedAccountIdRef.current = accountId;
     void fetchConfig();
   }, [accountId, fetchConfig]);
+
+  useEffect(() => {
+    if (
+      !configured ||
+      voiceProvider !== 'elevenlabs' ||
+      !hasPlatformElevenlabsKey
+    ) {
+      setVoices([]);
+      setVoicesError(false);
+      setVoicesLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setVoicesLoading(true);
+    setVoicesError(false);
+    void (async () => {
+      try {
+        const res = await fetch('/api/ai/voice/voices');
+        const data = await res.json().catch(() => ({}));
+        if (cancelled) return;
+        const list = Array.isArray(data.voices)
+          ? (data.voices as ListedVoice[])
+          : [];
+        if (!res.ok) {
+          setVoices([]);
+          setVoicesError(true);
+          return;
+        }
+        setVoices(list);
+        setVoicesError(false);
+      } catch {
+        if (!cancelled) {
+          setVoices([]);
+          setVoicesError(true);
+        }
+      } finally {
+        if (!cancelled) setVoicesLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [configured, voiceProvider, hasPlatformElevenlabsKey]);
+
+  useEffect(() => {
+    if (voicesLoading || voicesError || elevenlabsVoiceId) return;
+    if (voices.some((v) => v.voiceId === DEFAULT_ELEVENLABS_VOICE_ID)) {
+      setElevenlabsVoiceId(DEFAULT_ELEVENLABS_VOICE_ID);
+    }
+  }, [voices, voicesLoading, voicesError, elevenlabsVoiceId]);
 
   const runVoiceTest = async (preview: boolean) => {
     if (preview) setPreviewingVoice(true);
@@ -250,6 +313,20 @@ export function VoiceBuildPanel() {
 
   const disabled = !canEdit || saving;
   const showRealtime = chatProvider === 'openai' && voiceProvider === 'elevenlabs';
+  const clonedVoices = voices.filter((v) => v.category === 'cloned');
+  const libraryVoices = voices.filter((v) => v.category !== 'cloned');
+  const voiceInList = voices.some((v) => v.voiceId === elevenlabsVoiceId);
+  const hasDefaultInList = voices.some(
+    (v) => v.voiceId === DEFAULT_ELEVENLABS_VOICE_ID,
+  );
+  const showCurrentFallback = Boolean(elevenlabsVoiceId) && !voiceInList;
+  const showDefaultOption = !hasDefaultInList;
+  const voiceSelectValue = elevenlabsVoiceId || DEFAULT_VOICE_SENTINEL;
+  const voiceSelectDisabled =
+    disabled ||
+    !hasPlatformElevenlabsKey ||
+    voicesLoading ||
+    voicesError;
 
   return (
     <div className="space-y-6">
@@ -261,24 +338,6 @@ export function VoiceBuildPanel() {
         </p>
       )}
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">{t('provider')}</CardTitle>
-          <CardDescription>{tc('platformKeysHint')}</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Select value={voiceProvider} disabled>
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="elevenlabs">{t('providerElevenlabs')}</SelectItem>
-              <SelectItem value="sarvam">{t('providerSarvam')}</SelectItem>
-            </SelectContent>
-          </Select>
-        </CardContent>
-      </Card>
-
       {voiceProvider === 'elevenlabs' ? (
         <Card>
           <CardHeader>
@@ -288,42 +347,70 @@ export function VoiceBuildPanel() {
             <CardDescription>{tc('voiceDesc')}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <p className="text-sm text-muted-foreground">
-              {hasPlatformElevenlabsKey
-                ? tc('platformKeysHint')
-                : 'ElevenLabs is not configured by the platform administrator.'}
-            </p>
-            <div className="flex flex-wrap gap-2">
-              <Button
-                variant="outline"
-                onClick={() => void runVoiceTest(false)}
-                disabled={
-                  disabled ||
-                  !hasPlatformElevenlabsKey ||
-                  testingVoice ||
-                  previewingVoice
-                }
-              >
-                {testingVoice ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <CheckCircle2 className="mr-2 h-4 w-4" />
-                )}
-                {tc('testVoice')}
-              </Button>
-            </div>
+            {!hasPlatformElevenlabsKey ? (
+              <p className="text-sm text-muted-foreground">
+                {tc('voiceUnavailable')}
+              </p>
+            ) : null}
 
             <div className="space-y-2">
               <Label htmlFor="ai-voice-id">{tc('voiceId')}</Label>
               <div className="flex gap-2">
-                <Input
-                  id="ai-voice-id"
-                  value={elevenlabsVoiceId}
-                  onChange={(e) => setElevenlabsVoiceId(e.target.value)}
-                  placeholder={tc('voiceIdPlaceholder')}
-                  disabled={disabled}
-                  autoComplete="off"
-                />
+                <Select
+                  value={voiceSelectValue}
+                  onValueChange={(v) => {
+                    if (!v) return;
+                    setElevenlabsVoiceId(
+                      v === DEFAULT_VOICE_SENTINEL ? '' : v,
+                    );
+                  }}
+                  disabled={voiceSelectDisabled}
+                >
+                  <SelectTrigger id="ai-voice-id" className="flex-1">
+                    <SelectValue>
+                      {voicesLoading
+                        ? tc('voicesLoading')
+                        : showCurrentFallback
+                          ? tc('currentVoice')
+                          : !elevenlabsVoiceId && showDefaultOption
+                            ? tc('defaultVoice')
+                            : voices.find((v) => v.voiceId === elevenlabsVoiceId)
+                                ?.name}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    {showDefaultOption ? (
+                      <SelectItem value={DEFAULT_VOICE_SENTINEL}>
+                        {tc('defaultVoice')}
+                      </SelectItem>
+                    ) : null}
+                    {showCurrentFallback ? (
+                      <SelectItem value={elevenlabsVoiceId}>
+                        {tc('currentVoice')}
+                      </SelectItem>
+                    ) : null}
+                    {clonedVoices.length > 0 ? (
+                      <SelectGroup>
+                        <SelectLabel>{tc('voiceCategoryCloned')}</SelectLabel>
+                        {clonedVoices.map((v) => (
+                          <SelectItem key={v.voiceId} value={v.voiceId}>
+                            {v.name}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    ) : null}
+                    {libraryVoices.length > 0 ? (
+                      <SelectGroup>
+                        <SelectLabel>{tc('voiceCategoryPremade')}</SelectLabel>
+                        {libraryVoices.map((v) => (
+                          <SelectItem key={v.voiceId} value={v.voiceId}>
+                            {v.name}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    ) : null}
+                  </SelectContent>
+                </Select>
                 <Button
                   variant="outline"
                   onClick={() => void runVoiceTest(true)}
@@ -342,7 +429,11 @@ export function VoiceBuildPanel() {
                   {tc('previewVoice')}
                 </Button>
               </div>
-              <p className="text-xs text-muted-foreground">{tc('voiceIdHint')}</p>
+              {voicesError ? (
+                <p className="text-xs text-destructive">{tc('voicesLoadFailed')}</p>
+              ) : (
+                <p className="text-xs text-muted-foreground">{tc('voiceIdHint')}</p>
+              )}
             </div>
           </CardContent>
         </Card>

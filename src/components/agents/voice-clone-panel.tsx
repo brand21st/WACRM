@@ -37,6 +37,7 @@ export function VoiceClonePanel() {
   const [files, setFiles] = useState<File[]>([]);
   const [cloning, setCloning] = useState(false);
   const [clonedId, setClonedId] = useState<string | null>(null);
+  const [clonedName, setClonedName] = useState<string | null>(null);
   const [using, setUsing] = useState(false);
   const [pastedSpeaker, setPastedSpeaker] = useState('');
   const [previewing, setPreviewing] = useState<string | null>(null);
@@ -93,6 +94,7 @@ export function VoiceClonePanel() {
         return;
       }
       setClonedId(typeof data.voice_id === 'string' ? data.voice_id : null);
+      setClonedName(name.trim());
       toast.success(t('cloneSuccess'));
     } catch {
       toast.error(t('saveFailed'));
@@ -337,7 +339,9 @@ export function VoiceClonePanel() {
         </Button>
         {clonedId && (
           <div className="flex items-center gap-2 rounded-md border border-border p-3 text-sm">
-            <code className="flex-1 truncate">{clonedId}</code>
+            <span className="flex-1 truncate font-medium">
+              {clonedName || t('cloneName')}
+            </span>
             <Button
               size="sm"
               disabled={!canEdit || using}
