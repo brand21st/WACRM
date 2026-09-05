@@ -23,6 +23,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import {
   productFocusFromMessage,
   saveProductFocus,
+  wantsProductOrder,
 } from '@/lib/shopify/product-focus';
 
 import {
@@ -592,11 +593,40 @@ export async function sendMessageToConversation(
   if (replyParent) {
     const extracted = productFocusFromMessage(replyParent)
     if (extracted) {
-      await saveProductFocus(db, conversationId, {
+      const focus = {
         ...extracted,
-        stage: 'focused',
-        setBy: 'send',
-      })
+        stage: 'focused' as const,
+        setBy: 'send' as const,
+      }
+      await saveProductFocus(db, conversationId, focus)
+      const buyText = persistedText ?? contentText ?? ''
+      if (wantsProductOrder(buyText)) {
+        const userId =
+          typeof (conversation as { user_id?: unknown }).user_id === 'string'
+            ? (conversation as { user_id: string }).user_id
+            : ''
+        if (userId) {
+          try {
+            const { startFocusedOrderForConversation } = await import(
+              '@/lib/ai/auto-reply'
+            )
+            await startFocusedOrderForConversation({
+              db,
+              accountId,
+              userId,
+              conversationId,
+              contactId: contact.id,
+              focus,
+              queryText: buyText,
+            })
+          } catch (err) {
+            console.warn(
+              '[send-message] start focused order failed:',
+              err instanceof Error ? err.message : err,
+            )
+          }
+        }
+      }
     }
   }
 

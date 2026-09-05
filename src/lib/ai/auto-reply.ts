@@ -175,10 +175,16 @@ export async function dispatchInboundToAiReply(
       .eq('id', conversationId)
       .maybeSingle()
     if (convErr || !conv) return
-    if (conv.assigned_agent_id) return // a human owns this thread
-    // Per-chat pause (header AI off / Take over) always wins, including
-    // full-agent mode — otherwise "Manual chat" would still get bot replies.
-    if (conv.ai_autoreply_disabled) return
+    const pinnedFocus = parseProductFocus(
+      (conv as { ai_product_focus?: unknown }).ai_product_focus,
+    )
+    // A human assignee owns free-form chat — but an agent-pinned Shopify
+    // product is an explicit handoff to the shopper bot (text or voice buy).
+    if (conv.assigned_agent_id && !pinnedFocus) return
+    // Per-chat pause (header AI off / Take over) wins for free-form chat.
+    // Pinning a product card ("Focusing AI") is the agent handing that SKU
+    // to the order bot, so buy / variant turns still run.
+    if (conv.ai_autoreply_disabled && !pinnedFocus) return
 
     const { data: liveCalls } = await db
       .from('calls')
@@ -289,7 +295,7 @@ export async function dispatchInboundToAiReply(
     const customerName = speakableFirstName(contactRow?.name)
     const languageChoiceOnly = isLanguageChoiceOnly(queryText)
 
-    if (!replyLanguage?.locked && !languageChoiceOnly) {
+    if (!replyLanguage?.locked && !languageChoiceOnly && !pinnedFocus) {
       await sendWelcomeLanguagePicker({
         sendArgs,
         firstName: customerName,
@@ -320,7 +326,8 @@ export async function dispatchInboundToAiReply(
     if (
       !config.fullAgentEnabled &&
       inboundContentType === 'text' &&
-      !languageChoiceOnly
+      !languageChoiceOnly &&
+      !pinnedFocus
     ) {
       const { data: autoResponders } = await db
         .from('automations')
@@ -1653,6 +1660,88 @@ async function runFocusedProductTurn(args: {
     })
   }
   if (args.compiledVoice) await args.sendShoppingAudio()
+  return true
+}
+
+/** Agent quoted a product and sent buy-intent text — start variant lists now. */
+export async function startFocusedOrderForConversation(args: {
+  db: SupabaseClient
+  accountId: string
+  userId: string
+  conversationId: string
+  contactId: string
+  focus: ProductFocus
+  queryText: string
+}): Promise<boolean> {
+  const shopify = await loadShopifyConfig(args.db, args.accountId).catch((err) => {
+    console.warn('[product-focus] start order: shopify config failed:', err)
+    return null
+  })
+  if (!shopify) return false
+  const commerce = await loadCommerceSettings(args.db, args.accountId).catch(() => null)
+  let live: ShopifyProductHit | null = null
+  try {
+    live = await getProductLive(shopify, args.focus.handle)
+  } catch (err) {
+    console.warn('[product-focus] start order: product load failed:', err)
+    return false
+  }
+  if (!live) return false
+
+  const sendArgs: SendArgs = {
+    accountId: args.accountId,
+    userId: args.userId,
+    conversationId: args.conversationId,
+    contactId: args.contactId,
+  }
+  const productCards: ShopifyProductCard[] = []
+  const listedResult = await applyVariantPicker({
+    sendArgs,
+    product: live,
+    ask: args.queryText,
+    bodyText: args.queryText,
+    chosenColor: args.focus.color,
+    chosenSize: args.focus.size,
+    productCards,
+    retailerIdSource: commerce?.retailerIdSource,
+  })
+  if (listedResult === 'picker') {
+    await saveProductFocus(args.db, args.conversationId, {
+      ...args.focus,
+      title: live.title,
+      stage: 'collecting_variants',
+      introSent: true,
+    })
+    return true
+  }
+  if (listedResult === 'oos') {
+    await engineSendText({
+      ...sendArgs,
+      text: `${live.title} is out of stock in that option.`,
+      aiGenerated: true,
+    })
+    return true
+  }
+  await saveProductFocus(args.db, args.conversationId, {
+    ...args.focus,
+    title: live.title,
+    variantId:
+      productCards[0]?.variantId ??
+      live.variants.find((v) => v.available)?.variantId ??
+      args.focus.variantId ??
+      null,
+    stage: 'ready_to_confirm',
+    introSent: true,
+  })
+  await engineSendInteractiveButtons({
+    ...sendArgs,
+    bodyText: args.queryText.trim() || `Confirm ${live.title}?`,
+    buttons: [
+      { id: 'wacrm:confirm_order', title: 'Confirm order' },
+      { id: 'wacrm:continue_chat', title: 'Continue chat' },
+    ],
+    aiGenerated: true,
+  })
   return true
 }
 

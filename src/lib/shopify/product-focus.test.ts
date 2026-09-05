@@ -91,6 +91,26 @@ describe('wantsProductOrder', () => {
     ).toBe(true)
     expect(wantsProductOrder('what fabric is this?')).toBe(false)
   })
+
+  it('detects spoken and typed buy lines the customer actually says', () => {
+    for (const line of [
+      'I want to buy',
+      'I want to buy this',
+      'wanna buy',
+      'I wanna buy this one',
+      'can I buy',
+      "I'll buy",
+      'i will take it',
+      'need to order',
+      'wants to purchase',
+      'വാങ്ങണം',
+      'ऑर्डर करना है',
+    ]) {
+      expect(wantsProductOrder(line), line).toBe(true)
+    }
+    expect(wantsProductOrder('[Customer sent a voice note]')).toBe(false)
+    expect(wantsProductOrder('how much is shipping?')).toBe(false)
+  })
 })
 
 describe('titleFromCardText / notes', () => {

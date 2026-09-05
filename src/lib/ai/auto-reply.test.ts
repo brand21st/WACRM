@@ -186,7 +186,7 @@ vi.mock('./admin-client', () => ({
 }))
 
 import { __resetRateLimitForTests } from '@/lib/rate-limit'
-import { dispatchInboundToAiReply } from './auto-reply'
+import { dispatchInboundToAiReply, startFocusedOrderForConversation } from './auto-reply'
 
 const ARGS = {
   accountId: 'acct-1',
@@ -3069,6 +3069,161 @@ describe('dispatchInboundToAiReply — agent product focus', () => {
       ai_product_focus: expect.objectContaining({
         handle: 'pournami-red',
         stage: 'focused',
+      }),
+    })
+  })
+
+  it('starts the order lists when a human is assigned and the customer says I want to buy', async () => {
+    h.state.conv = {
+      assigned_agent_id: 'agent-9',
+      ai_autoreply_disabled: false,
+      ai_reply_count: 0,
+      ai_product_focus: focusedConv(),
+    }
+    h.buildConversationContext.mockResolvedValue([
+      { role: 'user', content: 'I want to buy' },
+    ])
+    h.generateReply.mockResolvedValue({
+      text: 'Choose a color for Pournami.',
+      handoff: false,
+    })
+
+    await dispatchInboundToAiReply(ARGS)
+
+    expect(h.engineSendInteractiveList).toHaveBeenCalledWith(
+      expect.objectContaining({ buttonLabel: 'Choose color' }),
+    )
+    expect(h.engineSendCtaUrl).not.toHaveBeenCalled()
+  })
+
+  it('starts the order lists from a voice-note transcript that says they want to buy', async () => {
+    h.state.conv = {
+      assigned_agent_id: 'agent-9',
+      ai_autoreply_disabled: false,
+      ai_reply_count: 0,
+      ai_product_focus: focusedConv(),
+    }
+    h.buildConversationContext.mockResolvedValue([
+      { role: 'user', content: 'I wanna buy this one' },
+    ])
+    h.generateReply.mockResolvedValue({
+      text: 'Choose a color for Pournami.',
+      handoff: false,
+    })
+
+    await dispatchInboundToAiReply({ ...ARGS, inboundContentType: 'audio' })
+
+    expect(h.engineSendInteractiveList).toHaveBeenCalledWith(
+      expect.objectContaining({ buttonLabel: 'Choose color' }),
+    )
+    expect(h.engineSendCtaUrl).not.toHaveBeenCalled()
+  })
+
+  it('does not send the language picker when a product is pinned', async () => {
+    h.loadContactMemory.mockResolvedValue({
+      profileSummary: '',
+      lastSessionSummary: '',
+      facts: {
+        intent: null,
+        products: [],
+        preferences: [],
+        language: null,
+        language_code: null,
+        language_script: null,
+        language_locked: false,
+        open_questions: [],
+      },
+      notes: [],
+      summarizedThroughAt: null,
+      messageCountAtSummary: 0,
+      conversationId: null,
+    })
+    h.buildConversationContext.mockResolvedValue([
+      { role: 'user', content: 'I want to buy' },
+    ])
+    h.generateReply.mockResolvedValue({
+      text: 'Choose a color for Pournami.',
+      handoff: false,
+    })
+
+    await dispatchInboundToAiReply(ARGS)
+
+    expect(h.engineSendInteractiveList).toHaveBeenCalledWith(
+      expect.objectContaining({ buttonLabel: 'Choose color' }),
+    )
+    expect(h.engineSendInteractiveList).not.toHaveBeenCalledWith(
+      expect.objectContaining({ buttonLabel: 'Language' }),
+    )
+  })
+
+  it('does not stand down for automations when a product is pinned', async () => {
+    h.state.autoResponders = [{ id: 'auto-1' }]
+    h.loadAiConfig.mockResolvedValue(aiConfig({ fullAgentEnabled: false }))
+    h.buildConversationContext.mockResolvedValue([
+      { role: 'user', content: 'I want to buy' },
+    ])
+    h.generateReply.mockResolvedValue({
+      text: 'Choose a color for Pournami.',
+      handoff: false,
+    })
+
+    await dispatchInboundToAiReply(ARGS)
+
+    expect(h.engineSendInteractiveList).toHaveBeenCalledWith(
+      expect.objectContaining({ buttonLabel: 'Choose color' }),
+    )
+  })
+
+  it('starts the order lists when this chat is paused but a product is pinned', async () => {
+    h.state.conv = {
+      assigned_agent_id: 'agent-9',
+      ai_autoreply_disabled: true,
+      ai_reply_count: 0,
+      ai_product_focus: focusedConv(),
+    }
+    h.buildConversationContext.mockResolvedValue([
+      { role: 'user', content: 'I want to buy' },
+    ])
+    h.generateReply.mockResolvedValue({
+      text: 'Choose a color for Pournami.',
+      handoff: false,
+    })
+
+    await dispatchInboundToAiReply(ARGS)
+
+    expect(h.engineSendInteractiveList).toHaveBeenCalledWith(
+      expect.objectContaining({ buttonLabel: 'Choose color' }),
+    )
+  })
+
+  it('starts variant lists when the inbox agent quotes the card and types I want to buy', async () => {
+    h.state.conv = {
+      assigned_agent_id: 'agent-9',
+      ai_autoreply_disabled: true,
+      ai_reply_count: 0,
+      ai_product_focus: focusedConv(),
+    }
+
+    const started = await startFocusedOrderForConversation({
+      db: (
+        await import('./admin-client')
+      ).supabaseAdmin(),
+      accountId: 'acct-1',
+      userId: 'user-1',
+      conversationId: 'conv-1',
+      contactId: 'contact-1',
+      focus: focusedConv() as import('@/lib/shopify/product-focus').ProductFocus,
+      queryText: 'I want to buy',
+    })
+
+    expect(started).toBe(true)
+    expect(h.engineSendInteractiveList).toHaveBeenCalledWith(
+      expect.objectContaining({ buttonLabel: 'Choose color' }),
+    )
+    expect(h.state.updatePayload).toMatchObject({
+      ai_product_focus: expect.objectContaining({
+        handle: 'pournami-red',
+        stage: 'collecting_variants',
       }),
     })
   })

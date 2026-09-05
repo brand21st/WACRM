@@ -36,7 +36,7 @@ const PRODUCT_PATH = /https?:\/\/[^\s]+\/products\/[^/?#\s]+/i
 const CART_PATH = /https?:\/\/[^\s]+\/cart\/[^/?#\s]+/i
 
 const ORDER_INTENT =
-  /\b(order|buy|purchase|checkout|cart|i(?:'|’)ll take|add to cart|send (?:me )?(?:the )?link|i want (?:this|it|one|to order))\b/i
+  /\b(order|buy(?:ing)?|bought|purchase|checkout|cart|book(?:ing)?|wanna buy|want(?:s)? to (?:buy|order|purchase)|want this|need this|need to (?:buy|order)|take (?:this|it|one)|i(?:'|’)?ll (?:take|buy)|i will (?:take|buy)|can i (?:buy|order)|add to cart|send (?:me )?(?:the )?(?:link|checkout)|i want (?:this|it|one|to (?:order|buy|purchase)))\b|വാങ്ങ|ഓർഡർ|खरीद|ऑर्डर|வாங்க/i
 
 export function parseProductFocus(raw: unknown): ProductFocus | null {
   if (!raw || typeof raw !== 'object') return null
