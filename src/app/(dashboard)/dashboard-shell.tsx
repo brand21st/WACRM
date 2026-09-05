@@ -10,6 +10,7 @@ import { PresenceHeartbeat } from "@/components/presence/presence-heartbeat";
 import { IncomingMessageAlerts } from "@/components/layout/incoming-message-alerts";
 import { CallSessionProvider } from "@/components/calls/call-session-provider";
 import { BillingGateHost } from "@/components/billing/billing-gate-host";
+import { InboxChromeProvider } from "@/components/inbox/inbox-chrome-context";
 import { cn } from "@/lib/utils";
 
 // Desktop icon-rail preference. Device-scoped like the inbox contact
@@ -59,10 +60,20 @@ function DashboardShellInner({ children }: { children: React.ReactNode }) {
 
   if (loading) {
     return (
-      <div className="flex h-screen items-center justify-center bg-background">
+      <div
+        className="flex h-screen items-center justify-center bg-background"
+        suppressHydrationWarning
+      >
         <div className="flex flex-col items-center gap-3">
           <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-          <p className="text-sm text-muted-foreground">Loading...</p>
+          {/* suppressHydrationWarning: this node is the first paint of
+              every dashboard load. Browser extensions (and Cursor's
+              preview, which stamps data-cursor-ref) can add attributes
+              before React hydrates, which Next reports as a mismatch
+              even though the spinner text is identical. */}
+          <p className="text-sm text-muted-foreground" suppressHydrationWarning>
+            Loading...
+          </p>
         </div>
       </div>
     );
@@ -110,7 +121,9 @@ function DashboardShellInner({ children }: { children: React.ReactNode }) {
 export function DashboardShell({ children }: { children: React.ReactNode }) {
   return (
     <AuthProvider>
-      <DashboardShellInner>{children}</DashboardShellInner>
+      <InboxChromeProvider>
+        <DashboardShellInner>{children}</DashboardShellInner>
+      </InboxChromeProvider>
     </AuthProvider>
   );
 }

@@ -205,7 +205,7 @@ export function AiThreadBanner({
           </span>
         </div>
         {fullAgentOn && (
-          <span className="text-[11px] text-muted-foreground">
+          <span className="hidden text-[11px] text-muted-foreground lg:inline">
             {t("fullAgentHint")}
           </span>
         )}

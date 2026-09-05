@@ -73,7 +73,7 @@ export function InteractivePreview({
           <img
             src={headerImage}
             alt=""
-            className="-mx-3 -mt-2 mb-2 h-32 w-[calc(100%+1.5rem)] object-cover"
+            className="-mx-3 -mt-2 mb-2 h-24 w-[calc(100%+1.5rem)] object-cover lg:h-32"
           />
         ) : null}
         {header ? (

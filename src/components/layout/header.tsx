@@ -18,6 +18,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { ModeToggle } from "@/components/layout/mode-toggle";
 import { SoundToggle } from "@/components/layout/sound-toggle";
+import { useInboxChrome } from "@/components/inbox/inbox-chrome-context";
+import { cn } from "@/lib/utils";
 
 const pageTitles: Record<string, string> = {
   "/dashboard": "dashboard",
@@ -53,6 +55,7 @@ export function Header({ onOpenSidebar }: HeaderProps) {
   const t = useTranslations("Header");
   const pathname = usePathname();
   const { profile, signOut } = useAuth();
+  const { immersive } = useInboxChrome();
   const titleKey = getPageTitleKey(pathname);
 
   const initial =
@@ -61,7 +64,14 @@ export function Header({ onOpenSidebar }: HeaderProps) {
     "U";
 
   return (
-    <header className="flex h-14 shrink-0 items-center justify-between gap-3 border-b border-border bg-background px-4 lg:px-6">
+    <header
+      className={cn(
+        "flex h-14 shrink-0 items-center justify-between gap-3 border-b border-border bg-background px-4 lg:px-6",
+        // Immersive inbox thread — hide the global bar on mobile so the
+        // chat uses the full viewport. Desktop always keeps this header.
+        immersive && "max-lg:hidden",
+      )}
+    >
       <div className="flex min-w-0 items-center gap-2">
         {/* Hamburger — mobile only. Desktop collapse sits under the
             sidebar logo. 44×44 hit target per Apple HIG. */}

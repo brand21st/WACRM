@@ -18,6 +18,7 @@ import { toast } from "sonner";
 import { WifiOff } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { AI_FULL_AGENT_CHANGED } from "@/components/inbox/ai-full-agent-events";
+import { useInboxChrome } from "@/components/inbox/inbox-chrome-context";
 
 // Remembers the agent's show/hide choice for the desktop contact panel
 // across reloads and sessions (device-scoped, like the theme prefs).
@@ -38,6 +39,7 @@ function InboxPageInner() {
   const t = useTranslations("Inbox.page");
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { setImmersive } = useInboxChrome();
   /**
    * `?c=<id>` deep-link support. Used when landing here from the
    * dashboard's recent-conversations list so the right thread opens
@@ -622,8 +624,21 @@ function InboxPageInner() {
   // before, unchanged.
   const hasActiveConv = !!activeConversation;
 
+  // Mobile thread is full-screen: hide the global Inbox header and fill
+  // the viewport. Cleared on unmount so leaving /inbox restores chrome.
+  useEffect(() => {
+    setImmersive(hasActiveConv);
+    return () => setImmersive(false);
+  }, [hasActiveConv, setImmersive]);
+
   return (
-    <div className="-m-4 flex h-[calc(100vh-3.5rem)] flex-col overflow-hidden sm:-m-6">
+    <div
+      className={cn(
+        "-m-4 flex h-[calc(100vh-3.5rem)] flex-col overflow-hidden sm:-m-6",
+        "max-lg:h-[calc(100dvh-3.5rem)]",
+        hasActiveConv && "max-lg:h-dvh",
+      )}
+    >
       {/* WhatsApp connection banner — in the flex column, not absolute,
           so it pushes the panels down instead of overlapping them. */}
       {whatsappConnected === false && (
@@ -641,7 +656,11 @@ function InboxPageInner() {
             thread can occupy the full width. Always visible on lg+. */}
         <div
           className={cn(
-            "flex h-full flex-1 lg:flex-none",
+            // `min-w-0` matches the thread pane (#165): without it a
+            // long preview/URL in the list grows this flex child past
+            // the viewport and the AI toggle row paints thousands of
+            // pixels wide on mobile.
+            "flex h-full min-w-0 flex-1 lg:flex-none",
             hasActiveConv ? "hidden lg:flex" : "flex",
           )}
         >

@@ -117,25 +117,27 @@ export function InboxAiAgentPanel({ className }: AiAgentPanelProps) {
   return (
     <div
       className={cn(
-        "border-b border-border bg-muted/30 px-3 py-2.5 sm:px-4",
+        "min-w-0 max-w-full border-b border-border bg-muted/30 px-3 py-2 sm:px-4 lg:py-2.5",
         className,
       )}
     >
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-1.5">
+      <div className="flex min-w-0 items-center justify-between gap-3 lg:items-start">
+        <div className="min-w-0 flex-1 overflow-hidden">
+          <div className="flex min-w-0 items-center gap-1.5">
             <Bot
               className={cn(
                 "h-4 w-4 flex-shrink-0",
                 live ? "text-primary" : "text-muted-foreground",
               )}
             />
-            <p className="text-sm font-medium text-foreground">
+            <p className="truncate text-sm font-medium text-foreground">
               {t("title")}
             </p>
           </div>
-          <p className="mt-0.5 text-xs text-muted-foreground">{t("desc")}</p>
-          <div className="mt-2 flex flex-wrap gap-1.5">
+          <p className="mt-0.5 hidden text-xs text-muted-foreground lg:block">
+            {t("desc")}
+          </p>
+          <div className="mt-2 hidden flex-wrap gap-1.5 lg:flex">
             <ModalityBadge icon={MessageSquareText} label={t("text")} />
             <ModalityBadge icon={Mic} label={t("voice")} />
             <ModalityBadge icon={ImageIcon} label={t("images")} />
@@ -146,13 +148,16 @@ export function InboxAiAgentPanel({ className }: AiAgentPanelProps) {
           onCheckedChange={handleToggle}
           disabled={!canEdit || saving}
           aria-label={t("title")}
+          className="shrink-0"
         />
       </div>
       {!canEdit && (
-        <p className="mt-2 text-[11px] text-muted-foreground">{t("viewOnly")}</p>
+        <p className="mt-2 hidden text-[11px] text-muted-foreground lg:block">
+          {t("viewOnly")}
+        </p>
       )}
       {!isActive || !autoReplyEnabled ? (
-        <p className="mt-2 text-[11px] text-amber-600 dark:text-amber-400">
+        <p className="mt-1 truncate text-[11px] text-amber-600 lg:mt-2 dark:text-amber-400">
           {t("needsSetup")}{" "}
           <Link href="/agents" className="underline underline-offset-2">
             {t("setupLink")}
@@ -160,7 +165,7 @@ export function InboxAiAgentPanel({ className }: AiAgentPanelProps) {
         </p>
       ) : null}
       {saving && (
-        <div className="mt-1 flex items-center gap-1 text-[11px] text-muted-foreground">
+        <div className="mt-1 hidden items-center gap-1 text-[11px] text-muted-foreground lg:flex">
           <Loader2 className="h-3 w-3 animate-spin" />
           {t("saving")}
         </div>

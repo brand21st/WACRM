@@ -409,6 +409,8 @@
       "showContact": "연락처 표시",
       "refresh": "새로고침",
       "refreshConversation": "대화 새로고침",
+      "moreActions": "더보기",
+      "conversationActions": "대화 작업",
       "status": "상태",
       "statusOpen": "열림",
       "statusPending": "대기 중",
@@ -443,6 +445,7 @@
       "readOnlyPlaceholder": "읽기 전용 — 뷰어는 열람만 가능하고 답장할 수 없습니다",
       "sessionExpiredPlaceholder": "세션 만료 - 템플릿을 사용하세요",
       "typeMessagePlaceholder": "메시지를 입력하세요... (줄바꿈은 Shift+Enter)",
+      "typeMessagePlaceholderMobile": "메시지를 입력하세요…",
       "readOnlyTitle": "읽기 전용 — 현재 역할로는 메시지를 보낼 수 없습니다",
       "recording": "녹음 중… {current} / {max}",
       "cancel": "취소",
@@ -528,7 +531,9 @@
       "template": "[템플릿]",
       "call": "[통화]",
       "message": "[메시지]",
-      "cancelReply": "답장 취소"
+      "cancelReply": "답장 취소",
+      "focusingProduct": "AI 집중: {title}",
+      "focusingProductHandle": "AI 집중: {handle}"
     },
     "templatePicker": {
       "sendTemplate": "템플릿 보내기",

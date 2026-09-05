@@ -409,6 +409,8 @@
       "showContact": "Show contact",
       "refresh": "Refresh",
       "refreshConversation": "Refresh conversation",
+      "moreActions": "More",
+      "conversationActions": "Conversation actions",
       "status": "Status",
       "statusOpen": "Open",
       "statusPending": "Pending",
@@ -443,6 +445,7 @@
       "readOnlyPlaceholder": "Read-only — viewers can browse but not reply",
       "sessionExpiredPlaceholder": "Session expired - use a template",
       "typeMessagePlaceholder": "Type a message... (Shift+Enter for new line)",
+      "typeMessagePlaceholderMobile": "Type a message…",
       "readOnlyTitle": "Read-only — your role can't send messages",
       "recording": "Recording… {current} / {max}",
       "cancel": "Cancel",
@@ -528,7 +531,9 @@
       "template": "[Template]",
       "call": "[Call]",
       "message": "[Message]",
-      "cancelReply": "Cancel reply"
+      "cancelReply": "Cancel reply",
+      "focusingProduct": "Focusing AI: {title}",
+      "focusingProductHandle": "Focusing AI: {handle}"
     },
     "templatePicker": {
       "sendTemplate": "Send template",
