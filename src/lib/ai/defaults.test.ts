@@ -140,7 +140,10 @@ describe('buildSystemPrompt', () => {
     expect(prompt).toMatch(/The inbox agent selected this Shopify product/)
     expect(prompt).toMatch(/Pournami \(handle: pournami-red\)/)
     expect(prompt).toMatch(/wacrm:continue_chat/)
-    expect(prompt).toMatch(/Discuss only this product/)
+    expect(prompt).toMatch(/only product you may discuss or send/)
+    expect(prompt).not.toMatch(/call search_products with those words/)
+    expect(prompt).not.toMatch(/send every catalog-matched product/)
+    expect(prompt).toMatch(/Do not call search_products, list_new_arrivals/)
   })
 
   it('tells the model to use native WhatsApp cart when commerce is on', () => {

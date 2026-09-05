@@ -3,7 +3,10 @@ import type { ChatMessage } from './types'
 import { aiContextMessageLimit } from './defaults'
 import { formatButtonTapForModel } from './chat-buttons'
 import { isPhotoWaitAck } from './photo-wait-ack'
-import { formatProductFocusNote } from '@/lib/shopify/product-focus'
+import {
+  formatProductFocusNote,
+  scopeMessagesToProductFocus,
+} from '@/lib/shopify/product-focus'
 
 interface DbMessage {
   sender_type: 'customer' | 'agent' | 'bot'
@@ -44,10 +47,13 @@ export async function buildConversationContext(
   if (error) throw error
 
   const rows = ((data ?? []) as DbMessage[]).reverse()
-  const messages: ChatMessage[] = rows
+  const mapped: ChatMessage[] = rows
     .filter((m) => m.content_text && m.content_text.trim())
     .filter((m) => !isPhotoWaitAck(m.content_text))
     .map(toChatMessage)
+  const messages = productFocus?.handle
+    ? scopeMessagesToProductFocus(mapped, productFocus)
+    : mapped
   if (productFocus?.handle) {
     messages.unshift({
       role: 'assistant',

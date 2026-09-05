@@ -76,6 +76,8 @@ export {
   wantsProductOrder,
   formatProductFocusNote,
   formatProductFocusPrompt,
+  scopeMessagesToProductFocus,
+  cardMatchesProductFocus,
   shouldClearDraftFocus,
   saveProductFocus,
   clearProductFocus,

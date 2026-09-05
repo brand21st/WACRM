@@ -155,9 +155,54 @@ export function formatProductFocusPrompt(focus: {
     : focus.handle
   return (
     `The inbox agent selected this Shopify product as the reply target: ${label}. ` +
-    'Discuss only this product. Do not search, recommend, or send other products. ' +
+    'This is the only product you may discuss or send. ' +
+    'Do not search the catalog. Do not recommend, list, or send any other products. ' +
     'Do not mention checkout or cart links until the customer says they want to order it. ' +
     'If they want to order, collect color and size needs — variant lists and Confirm order / Continue chat buttons are sent separately.'
+  )
+}
+
+const PRODUCT_CARD_HINT =
+  /(?:^|\n)\s*View:\s*\S+|https?:\/\/[^\s]+\/products\/|https?:\/\/[^\s]+\/cart\/|(?:^|\n)\s*Stock\s+(?:in|out)\b/i
+
+export function isShopifyProductCardText(text: string | null | undefined): boolean {
+  return PRODUCT_CARD_HINT.test(text ?? '')
+}
+
+export function messageMatchesProductFocus(
+  text: string | null | undefined,
+  focus: { handle: string; title?: string | null },
+): boolean {
+  const raw = (text ?? '').toLowerCase()
+  const handle = focus.handle.trim().toLowerCase()
+  if (handle && raw.includes(handle)) return true
+  const title = focus.title?.trim().toLowerCase()
+  return Boolean(title && title.length >= 3 && raw.includes(title))
+}
+
+export function scopeMessagesToProductFocus<T extends { content: string }>(
+  messages: T[],
+  focus: { handle: string; title?: string | null },
+): T[] {
+  return messages.filter((message) => {
+    if (message.content.startsWith('Replying to product:')) return true
+    if (!isShopifyProductCardText(message.content)) return true
+    return messageMatchesProductFocus(message.content, focus)
+  })
+}
+
+export function cardMatchesProductFocus(
+  card: { handle?: string | null; productUrl?: string | null; title?: string | null },
+  focus: { handle: string; title?: string | null },
+): boolean {
+  const handle = focus.handle.trim().toLowerCase()
+  const cardHandle = card.handle?.trim().toLowerCase() ?? ''
+  if (handle && cardHandle && cardHandle === handle) return true
+  const url = card.productUrl ?? ''
+  if (handle && url.toLowerCase().includes(`/products/${handle}`)) return true
+  return messageMatchesProductFocus(
+    [card.title, card.handle, card.productUrl].filter(Boolean).join('\n'),
+    focus,
   )
 }
 

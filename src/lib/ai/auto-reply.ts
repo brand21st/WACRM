@@ -72,10 +72,12 @@ import {
   findVariant,
 } from '@/lib/shopify/match-variant'
 import {
+  cardMatchesProductFocus,
   clearProductFocus,
   formatProductFocusNote,
   parseProductFocus,
   saveProductFocus,
+  scopeMessagesToProductFocus,
   wantsProductOrder,
   type ProductFocus,
 } from '@/lib/shopify/product-focus'
@@ -340,9 +342,13 @@ export async function dispatchInboundToAiReply(
     }
 
     const retrieveText = priorCustomerQuestion(messages) || queryText
+    const browsingOtherProducts = lastMessageHasAction(
+      messages,
+      WACRM_CHAT_BUTTON_IDS.products,
+    )
     const [manualKnowledge, storeContent] = await Promise.all([
       retrieveKnowledge(db, accountId, config, retrieveText),
-      shopify
+      shopify && !(pinnedFocus && !browsingOtherProducts)
         ? retrieveShopifyStoreContent(db, accountId, retrieveText, 5)
         : Promise.resolve([] as string[]),
     ])
@@ -414,14 +420,15 @@ export async function dispatchInboundToAiReply(
       }
       await saveProductFocus(db, conversationId, productFocus)
     }
-    if (
-      productFocus &&
-      !messages.some((m) => m.content.startsWith('Replying to product:'))
-    ) {
-      messages.unshift({
-        role: 'assistant',
-        content: formatProductFocusNote(productFocus),
-      })
+    if (productFocus) {
+      const scoped = scopeMessagesToProductFocus(messages, productFocus)
+      messages.splice(0, messages.length, ...scoped)
+      if (!messages.some((m) => m.content.startsWith('Replying to product:'))) {
+        messages.unshift({
+          role: 'assistant',
+          content: formatProductFocusNote(productFocus),
+        })
+      }
     }
     if (productFocus && shopify) {
       try {
@@ -578,7 +585,9 @@ export async function dispatchInboundToAiReply(
             })
             if (handedOff) return
           }
-          await sendProductCards(sendArgs, productCards, shopify)
+          await sendProductCards(sendArgs, productCards, shopify, {
+            focus: productFocus,
+          })
           await sendOrderCards(sendArgs, orderCards)
           return
         }
@@ -653,7 +662,9 @@ export async function dispatchInboundToAiReply(
         text: 'Add the items to your WhatsApp cart, then tap Send order. I’ll send a Review and Pay bill in this chat.',
         aiGenerated: true,
       })
-      await sendProductCards(sendArgs, productCards, shopify)
+      await sendProductCards(sendArgs, productCards, shopify, {
+        focus: productFocus,
+      })
       await sendOrderCards(sendArgs, orderCards)
       return
     }
@@ -1015,7 +1026,9 @@ export async function dispatchInboundToAiReply(
       return
     }
 
-    await sendProductCards(sendArgs, productCards, shopify)
+    await sendProductCards(sendArgs, productCards, shopify, {
+      focus: productFocus,
+    })
     await sendOrderCards(sendArgs, orderCards)
     if (speakAfterText) await sendShoppingAudio()
   } catch (err) {
@@ -1346,6 +1359,7 @@ export function bindShopifyTools(
           retailerIdSource: opts.retailerIdSource,
           customerInterest: opts.customerInterest,
           customerText: opts.customerText,
+          focusedHandle: opts.focusedHandle,
         },
         name,
         args,
@@ -1356,7 +1370,23 @@ export function bindShopifyTools(
           name === 'list_new_arrivals' ||
           name === 'list_best_selling' ||
           name === 'recommend_products')
-      if (!skipCards && !result.sendCatalog) productCards.push(...result.cards)
+      const incoming = opts.focusedHandle
+        ? result.cards.filter((card) =>
+            cardMatchesProductFocus(card, { handle: opts.focusedHandle! }),
+          )
+        : result.cards
+      if (!skipCards && !result.sendCatalog) {
+        if (opts.focusedHandle) {
+          for (const card of incoming) {
+            const already = productCards.some((existing) =>
+              cardMatchesProductFocus(existing, { handle: opts.focusedHandle! }),
+            )
+            if (!already) productCards.push(card)
+          }
+        } else {
+          productCards.push(...incoming)
+        }
+      }
       if (result.orderCards?.length && opts.orderCards) {
         opts.orderCards.push(...result.orderCards)
       }
@@ -1473,7 +1503,9 @@ async function finishFocusedVariantTurn(args: {
         'Add the items to your WhatsApp cart, then tap Send order. I’ll send a Review and Pay bill in this chat.',
       aiGenerated: true,
     })
-    await sendProductCards(args.sendArgs, args.productCards, args.shopify)
+    await sendProductCards(args.sendArgs, args.productCards, args.shopify, {
+      focus: args.focus,
+    })
     if (args.compiledVoice) await args.sendShoppingAudio()
     return true
   }
@@ -1502,7 +1534,9 @@ async function finishFocusedVariantTurn(args: {
         orderCards: args.orderCards,
         chatButtonMode: 'none',
       })
-      await sendProductCards(args.sendArgs, args.productCards, args.shopify)
+      await sendProductCards(args.sendArgs, args.productCards, args.shopify, {
+        focus: args.focus,
+      })
       if (args.compiledVoice) await args.sendShoppingAudio()
       return true
     }
@@ -1651,6 +1685,7 @@ async function runFocusedProductTurn(args: {
   if (sendIntroCard && args.productCards.length > 0) {
     await sendProductCards(args.sendArgs, args.productCards, args.shopify, {
       omitCheckout: true,
+      focus: args.focus,
     })
   }
   if (!args.focus.introSent) {
@@ -1892,11 +1927,14 @@ export async function sendProductCards(
   },
   cards: ShopifyProductCard[],
   shopify?: ShopifyStoreConfig | null,
-  opts?: { omitCheckout?: boolean },
+  opts?: { omitCheckout?: boolean; focus?: { handle: string; title?: string | null } | null },
 ): Promise<void> {
+  const focused = opts?.focus?.handle
+    ? cards.filter((card) => cardMatchesProductFocus(card, opts.focus!)).slice(0, 1)
+    : cards
   const seen = new Set<string>()
   let sent = 0
-  for (const card of cards) {
+  for (const card of focused) {
     if (sent >= MAX_PRODUCT_CARDS) break
     const key = card.productUrl || card.title
     if (!key || seen.has(key)) continue

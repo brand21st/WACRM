@@ -218,11 +218,21 @@ export async function POST(request: Request) {
                   productCards,
                   conversationId,
                   customerText: latestUserMessage(messages),
+                  focusedHandle: productFocus?.handle ?? null,
                 },
                 name,
                 args,
               )
-              productCards.push(...result.cards)
+              if (productFocus?.handle) {
+                const keep = result.cards.filter(
+                  (card) =>
+                    (card.handle ?? '').toLowerCase() ===
+                    productFocus.handle.toLowerCase(),
+                )
+                if (keep[0] && productCards.length === 0) productCards.push(keep[0])
+              } else {
+                productCards.push(...result.cards)
+              }
               return result.json
             },
           }

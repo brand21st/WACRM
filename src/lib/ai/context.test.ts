@@ -119,6 +119,38 @@ describe('buildConversationContext', () => {
     ])
   })
 
+  it('drops other product cards from context when focus is set', async () => {
+    const out = await buildConversationContext(
+      fakeDb([
+        {
+          sender_type: 'customer',
+          content_text: 'tell me more',
+          content_type: 'text',
+        },
+        {
+          sender_type: 'bot',
+          content_text:
+            'Pournami\n499 INR\nStock in\nView: https://shop.example/products/pournami-red',
+          content_type: 'image',
+        },
+        {
+          sender_type: 'bot',
+          content_text:
+            'Silk Saree\n1499 INR\nStock in\nView: https://shop.example/products/silk-saree',
+          content_type: 'image',
+        },
+      ]),
+      'conv-1',
+      undefined,
+      { handle: 'pournami-red', title: 'Pournami' },
+    )
+    expect(out.map((m) => m.content)).toEqual([
+      'Replying to product: Pournami (pournami-red)',
+      'Pournami\n499 INR\nStock in\nView: https://shop.example/products/pournami-red',
+      'tell me more',
+    ])
+  })
+
   it('prepends the selected product note when focus is set', async () => {
     const out = await buildConversationContext(
       fakeDb([{ sender_type: 'customer', content_text: 'tell me more' }]),

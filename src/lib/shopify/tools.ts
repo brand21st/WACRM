@@ -244,6 +244,14 @@ export function shopifyLlmTools(opts?: {
   return tools
 }
 
+const CATALOG_BROWSE_TOOLS = new Set([
+  'search_products',
+  'list_new_arrivals',
+  'list_best_selling',
+  'recommend_products',
+  'match_product_from_photo',
+])
+
 export interface ShopifyToolContext {
   db: SupabaseClient
   config: ShopifyStoreConfig
@@ -255,6 +263,7 @@ export interface ShopifyToolContext {
   retailerIdSource?: RetailerIdSource
   customerInterest?: CustomerProductInterest
   customerText?: string | null
+  focusedHandle?: string | null
 }
 
 export interface ShopifyToolResult {
@@ -271,6 +280,19 @@ export async function executeShopifyTool(
   args: Record<string, unknown>,
 ): Promise<ShopifyToolResult> {
   try {
+    const focusedHandle = ctx.focusedHandle?.trim() || ''
+    if (focusedHandle && (CATALOG_BROWSE_TOOLS.has(name) || name === 'get_product')) {
+      const requested = name === 'get_product' ? str(args.id).trim() : ''
+      const id =
+        requested && requested.toLowerCase() === focusedHandle.toLowerCase()
+          ? requested
+          : focusedHandle
+      const hit = await getProductLive(ctx.config, id)
+      const ok =
+        Boolean(hit) &&
+        hit!.handle.trim().toLowerCase() === focusedHandle.toLowerCase()
+      return productsResult(ok && hit ? [hit] : [], ctx.retailerIdSource, 1)
+    }
     switch (name) {
       case 'search_products': {
         const limit = resolveProductCardLimit(args.limit, ctx.customerText)

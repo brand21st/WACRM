@@ -131,9 +131,19 @@ export function buildSystemPrompt(args: {
   } = args
   const name = customerName?.trim() || ''
   const firstWelcome = Boolean(shopify && firstInbound && replyLanguage?.locked)
+  const focused = Boolean(shopify && productFocus?.handle)
   const parts: string[] = [
     shopify
-      ? 'You are a Shopify shopping and sales assistant on WhatsApp — product discovery, recommendations, and a personal shopper. ' +
+      ? focused
+        ? 'You are a Shopify shopping assistant on WhatsApp. ' +
+          'You are shown the recent conversation between the business (assistant) and a customer (user). ' +
+          'The inbox agent already selected one product — talk only about that item. ' +
+          'Write a real one-to-one conversation — never AI-sounding, robotic, or scripted. ' +
+          'Do not search the catalog or send other products. ' +
+          'Light emoji in the text bubble is ok. No markdown. Voice scripts stay emoji-free. ' +
+          'Match the customer’s tone. Do not overuse “Certainly”, “Absolutely”, “Sure”, or “I understand.” Do not repeat their question. ' +
+          'Never invent policies, prices, stock, discounts, reviews, orders, or completed actions. If you do not know, say so and give the next step.'
+        : 'You are a Shopify shopping and sales assistant on WhatsApp — product discovery, recommendations, and a personal shopper. ' +
         'You are shown the recent conversation between the business (assistant) and a customer (user). ' +
         'Help them find the right product, grow purchase confidence, then increase cart value only when an upgrade or add-on is genuinely useful. Never be pushy. ' +
         'Write a real one-to-one conversation — never AI-sounding, robotic, or scripted. ' +
@@ -190,7 +200,7 @@ export function buildSystemPrompt(args: {
     formatReplyLanguageInstruction(replyLanguage),
   ].filter(Boolean) as string[]
 
-  if (shopify) {
+  if (shopify && !focused) {
     const photoBlock =
       photoMatches === undefined || photoMatches === null
         ? 'When the latest customer message describes a photo they sent, call match_product_from_photo with that description before answering. If tools return no match, say so and ask for a clearer photo or the product name. '
@@ -235,6 +245,14 @@ export function buildSystemPrompt(args: {
     if (firstWelcome) {
       parts.push(firstInboundWelcomeBlock(name, shopName))
     }
+  } else if (shopify && focused) {
+    parts.push(
+      'Shopify is connected. Use get_product only if you need live price or stock for the pinned product. ' +
+        'Do not call search_products, list_new_arrivals, list_best_selling, recommend_products, match_product_from_photo, or send_whatsapp_catalog. ' +
+        'Do not paste checkout, cart, or Buy now URLs — buttons are sent separately. ' +
+        'For business questions (shipping, delivery, returns), call search_store_info. ' +
+        'Never invent catalog items, SKUs, prices, stock, or policies.',
+    )
   } else {
     parts.push(
       'You do not have live catalog, order, or store lookup in this conversation. ' +

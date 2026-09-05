@@ -2933,6 +2933,59 @@ describe('dispatchInboundToAiReply — agent product focus', () => {
     h.loadAiConfig.mockResolvedValue(aiConfig({ fullAgentEnabled: true }))
   })
 
+  it('does not send other catalog cards when a product is pinned', async () => {
+    h.generateReply.mockImplementation(async (args: {
+      executeTool?: (name: string, toolArgs: Record<string, unknown>) => Promise<string>
+    }) => {
+      if (args.executeTool) {
+        await args.executeTool('search_products', { query: 'saree' })
+      }
+      return { text: 'Pournami is the selected saree.', handoff: false }
+    })
+    h.executeShopifyTool.mockResolvedValue({
+      json: '{}',
+      cards: [
+        {
+          title: 'Silk Saree',
+          handle: 'silk-saree',
+          imageUrl: 'https://cdn.example/s.jpg',
+          productUrl: 'https://shop.example/products/silk-saree',
+          cartUrl: 'https://shop.example/cart/99:1',
+          checkoutUrl: 'https://shop.example/cart/99:1?checkout',
+          inStock: true,
+          caption: 'Silk Saree\nView: https://shop.example/products/silk-saree',
+        },
+        {
+          title: 'Pournami',
+          handle: 'pournami-red',
+          imageUrl: 'https://cdn.example/p.jpg',
+          productUrl: 'https://shop.example/products/pournami-red',
+          cartUrl: 'https://shop.example/cart/11:1',
+          checkoutUrl: 'https://shop.example/cart/11:1?checkout',
+          inStock: true,
+          caption: 'Pournami\nView: https://shop.example/products/pournami-red',
+        },
+      ],
+    })
+    h.buildConversationContext.mockResolvedValue([
+      {
+        role: 'assistant',
+        content:
+          'Silk Saree\n1499 INR\nStock in\nView: https://shop.example/products/silk-saree',
+      },
+      { role: 'user', content: 'tell me more about this' },
+    ])
+
+    await dispatchInboundToAiReply(ARGS)
+
+    const captions = h.engineSendMedia.mock.calls.map(
+      (call) => (call[0] as { caption?: string }).caption ?? '',
+    )
+    expect(captions.some((c) => c.includes('Pournami'))).toBe(true)
+    expect(captions.some((c) => c.includes('Silk Saree'))).toBe(false)
+    expect(h.engineSendCtaUrl).not.toHaveBeenCalled()
+  })
+
   it('sends only the focused product card without checkout', async () => {
     h.buildConversationContext.mockResolvedValue([
       { role: 'user', content: 'tell me more about this' },
@@ -2944,6 +2997,7 @@ describe('dispatchInboundToAiReply — agent product focus', () => {
 
     await dispatchInboundToAiReply(ARGS)
 
+    expect(h.retrieveShopifyStoreContent).not.toHaveBeenCalled()
     expect(h.engineSendCtaUrl).not.toHaveBeenCalled()
     expect(h.engineSendMedia).toHaveBeenCalledWith(
       expect.objectContaining({

@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import {
+  cardMatchesProductFocus,
   formatProductFocusNote,
   parseProductFocus,
   productFocusFromMessage,
+  scopeMessagesToProductFocus,
   shouldClearDraftFocus,
   titleFromCardText,
   wantsProductOrder,
@@ -124,6 +126,45 @@ describe('titleFromCardText / notes', () => {
     expect(formatProductFocusNote({ handle: 'pournami-red', title: 'Pournami' })).toBe(
       'Replying to product: Pournami (pournami-red)',
     )
+  })
+})
+
+describe('scopeMessagesToProductFocus', () => {
+  const focus = { handle: 'pournami-red', title: 'Pournami' }
+
+  it('keeps chat and the selected card, drops other product cards', () => {
+    const scoped = scopeMessagesToProductFocus(
+      [
+        {
+          role: 'assistant',
+          content:
+            'Silk Saree\n1499 INR\nStock in\nView: https://shop.example/products/silk-saree',
+        },
+        {
+          role: 'assistant',
+          content:
+            'Pournami\n499 INR\nStock in\nView: https://shop.example/products/pournami-red',
+        },
+        { role: 'user', content: 'tell me more about this' },
+      ],
+      focus,
+    )
+    expect(scoped.map((m) => m.content)).toEqual([
+      'Pournami\n499 INR\nStock in\nView: https://shop.example/products/pournami-red',
+      'tell me more about this',
+    ])
+  })
+
+  it('matches a card by handle', () => {
+    expect(
+      cardMatchesProductFocus(
+        { handle: 'pournami-red', title: 'Pournami' },
+        focus,
+      ),
+    ).toBe(true)
+    expect(
+      cardMatchesProductFocus({ handle: 'silk-saree', title: 'Silk Saree' }, focus),
+    ).toBe(false)
   })
 })
 
