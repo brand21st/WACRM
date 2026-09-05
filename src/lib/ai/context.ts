@@ -47,16 +47,7 @@ export async function buildConversationContext(
   const messages: ChatMessage[] = rows
     .filter((m) => m.content_text && m.content_text.trim())
     .filter((m) => !isPhotoWaitAck(m.content_text))
-    .map((m) => ({
-      role: m.sender_type === 'customer' ? ('user' as const) : ('assistant' as const),
-      content:
-        m.sender_type === 'customer'
-          ? formatButtonTapForModel(
-              m.content_text!.trim(),
-              m.interactive_reply_id,
-            )
-          : m.content_text!.trim(),
-    }))
+    .map(toChatMessage)
   if (productFocus?.handle) {
     messages.unshift({
       role: 'assistant',
@@ -64,4 +55,15 @@ export async function buildConversationContext(
     })
   }
   return messages
+}
+
+function toChatMessage(m: DbMessage): ChatMessage {
+  const text = m.content_text!.trim()
+  if (m.sender_type === 'customer') {
+    return {
+      role: 'user',
+      content: formatButtonTapForModel(text, m.interactive_reply_id),
+    }
+  }
+  return { role: 'assistant', content: text }
 }
