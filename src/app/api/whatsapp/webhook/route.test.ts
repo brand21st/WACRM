@@ -525,6 +525,50 @@ describe('inbound webhook: template quick-reply buttons (#478)', () => {
   })
 })
 
+describe('inbound webhook: language picker tap reaches AI', () => {
+  const languageListTap = {
+    id: 'wamid.LANG1',
+    from: '15551230000',
+    timestamp: '1700000000',
+    type: 'interactive',
+    interactive: {
+      type: 'list_reply',
+      list_reply: { id: 'wacrm:lang:ml', title: 'Malayalam' },
+    },
+  }
+
+  it('enqueues AI for wacrm:lang:* without full-agent', async () => {
+    h.loadAiConfig.mockResolvedValue({
+      autoReplyEnabled: true,
+      fullAgentEnabled: false,
+    })
+    await runWebhook(languageListTap)
+    expect(h.enqueueAiChatReply).toHaveBeenCalledWith(
+      expect.objectContaining({ inboundContentType: 'text' }),
+    )
+    expect(h.dispatchInboundToAiReply).not.toHaveBeenCalled()
+  })
+
+  it('does not enqueue AI for other interactive taps when full-agent is off', async () => {
+    h.loadAiConfig.mockResolvedValue({
+      autoReplyEnabled: true,
+      fullAgentEnabled: false,
+    })
+    await runWebhook({
+      id: 'wamid.BTN2',
+      from: '15551230000',
+      timestamp: '1700000000',
+      type: 'interactive',
+      interactive: {
+        type: 'button_reply',
+        button_reply: { id: 'wacrm:products', title: 'New products' },
+      },
+    })
+    expect(h.enqueueAiChatReply).not.toHaveBeenCalled()
+    expect(h.dispatchInboundToAiReply).not.toHaveBeenCalled()
+  })
+})
+
 describe('inbound webhook: inbound media is mirrored (#466)', () => {
   const IMAGE_MESSAGE = {
     id: 'wamid.IMG1',

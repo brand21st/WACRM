@@ -90,6 +90,7 @@ export async function persistLiveAiTranscript(args: {
   const resolved = resolveLanguageLock({
     customerText: text,
     stored: memory.facts,
+    lockFromDetectedSpeech: true,
   })
   if (!resolved.lock) {
     return { persisted: true, lock: null, changed: false }

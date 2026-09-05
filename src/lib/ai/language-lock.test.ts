@@ -5,6 +5,8 @@ import {
   detectLanguageSwitch,
   formatReplyLanguageInstruction,
   indicCodesForLock,
+  isLanguageChoiceOnly,
+  lockFromPickerId,
   resolveLanguageLock,
   sarvamCodeFromIso,
   sttHintFromHardLock,
@@ -72,16 +74,31 @@ describe('detectLanguageSwitch', () => {
 })
 
 describe('resolveLanguageLock', () => {
-  it('sets the first confident language and keeps it', () => {
+  it('does not auto-lock from first-message script until a picker tap', () => {
     const first = resolveLanguageLock({
       customerText: 'ethra und alle',
       stored: null,
     })
-    expect(first.changed).toBe(true)
-    expect(first.lock).toMatchObject({ code: 'ml', locked: true })
+    expect(first.changed).toBe(false)
+    expect(first.lock).toBeNull()
 
+    const namaskaram = resolveLanguageLock({
+      customerText: 'നമസ്കാരം',
+      stored: null,
+    })
+    expect(namaskaram.lock).toBeNull()
+
+    const fromTap = resolveLanguageLock({
+      customerText: '[Customer tapped "Malayalam" (action: wacrm:lang:ml)]',
+      stored: null,
+    })
+    expect(fromTap.changed).toBe(true)
+    expect(fromTap.lock).toMatchObject({ code: 'ml', locked: true })
+  })
+
+  it('keeps a hard lock through English product names', () => {
     const later = resolveLanguageLock({
-      customerText: 'Do you have this dress in red?',
+      customerText: 'I want the red saree',
       stored: {
         language: 'Malayalam',
         language_code: 'ml',
@@ -93,7 +110,7 @@ describe('resolveLanguageLock', () => {
     expect(later.lock).toMatchObject({ code: 'ml', script: 'romanized' })
   })
 
-  it('switches only on an explicit ask and heals an unlocked cron guess', () => {
+  it('switches only on an explicit ask and does not heal an unlocked guess', () => {
     const switched = resolveLanguageLock({
       customerText: 'talk in English please',
       stored: {
@@ -106,7 +123,7 @@ describe('resolveLanguageLock', () => {
     expect(switched.changed).toBe(true)
     expect(switched.lock).toMatchObject({ code: 'en', locked: true })
 
-    const heal = resolveLanguageLock({
+    const unlocked = resolveLanguageLock({
       customerText: 'എനിക്ക് റെഡ് വേണം',
       stored: {
         language: 'English',
@@ -115,8 +132,32 @@ describe('resolveLanguageLock', () => {
         language_locked: false,
       },
     })
-    expect(heal.changed).toBe(true)
-    expect(heal.lock).toMatchObject({ code: 'ml', locked: true })
+    expect(unlocked.changed).toBe(false)
+    expect(unlocked.lock).toBeNull()
+  })
+
+  it('can still lock from detected speech when callers opt in', () => {
+    const first = resolveLanguageLock({
+      customerText: 'ethra und alle',
+      stored: null,
+      lockFromDetectedSpeech: true,
+    })
+    expect(first.changed).toBe(true)
+    expect(first.lock).toMatchObject({ code: 'ml', locked: true })
+  })
+})
+
+describe('lockFromPickerId', () => {
+  it('locks the four picker languages', () => {
+    expect(lockFromPickerId('wacrm:lang:hi')).toMatchObject({
+      code: 'hi',
+      locked: true,
+    })
+    expect(lockFromPickerId('wacrm:products')).toBeNull()
+    expect(isLanguageChoiceOnly('Malayalam')).toBe(true)
+    expect(isLanguageChoiceOnly('talk in Hindi, I want the red saree')).toBe(
+      false,
+    )
   })
 })
 

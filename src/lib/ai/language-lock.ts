@@ -1,8 +1,9 @@
 /**
  * Per-contact chat language lock.
  *
- * First confident customer turn wins. Stay there until they clearly ask
- * to change. Product names, SKUs, and a few English words are not a switch.
+ * Lock only from the welcome language picker or an explicit “talk in
+ * Hindi” switch. Product names, SKUs, and a few English words are not
+ * a switch. Do not auto-lock from first-message script detection.
  */
 
 import {
@@ -11,6 +12,7 @@ import {
   isIndicScript,
   type IndicLanguageCodes,
 } from './indic-language'
+import { languagePickerCode } from './language-picker'
 
 export type ChatLanguageCode =
   | 'en'
@@ -316,6 +318,31 @@ export function detectLanguageSwitch(
   return null
 }
 
+/** `wacrm:lang:en|hi|ml|ta` from a raw id or a formatted tap line. */
+export function lockFromPickerId(
+  id: string | null | undefined,
+): ChatLanguageLock | null {
+  const code = languagePickerCode(id)
+  if (!code) return null
+  return lockOf(code)
+}
+
+const SHOP_INTENT =
+  /\b(?:want|need|have|price|order|buy|saree|dress|sku|stock|delivery|shipping)\b/i
+
+/**
+ * True when this turn is only a language pick (list tap or “Malayalam”
+ * / “talk in English”), not a product question that also names a language.
+ */
+export function isLanguageChoiceOnly(text: string | null | undefined): boolean {
+  const raw = text?.trim() ?? ''
+  if (!raw) return false
+  if (languagePickerCode(raw)) return true
+  if (!detectLanguageSwitch(raw)) return false
+  if (raw.length > 24 && SHOP_INTENT.test(raw)) return false
+  return raw.length <= 80
+}
+
 export function storedLanguageLock(
   stored: StoredLanguageFacts | null | undefined,
 ): ChatLanguageLock | null {
@@ -345,13 +372,21 @@ export function locksEqual(a: ChatLanguageLock | null, b: ChatLanguageLock | nul
 /**
  * Decide the lock for this inbound turn.
  * `changed` means persist immediately.
+ *
+ * Unlocked contacts stay unlocked until a picker tap or an explicit
+ * switch — `detectChatLanguage` must not skip the welcome list.
  */
 export function resolveLanguageLock(args: {
   customerText?: string | null
   stored?: StoredLanguageFacts | null
+  /**
+   * Voice / draft / cron: first confident speech may lock.
+   * WhatsApp chat leaves this off so the welcome list stays in control.
+   */
+  lockFromDetectedSpeech?: boolean
 }): { lock: ChatLanguageLock | null; changed: boolean } {
-  const switched = detectLanguageSwitch(args.customerText)
-  const detected = detectChatLanguage(args.customerText)
+  const switched =
+    lockFromPickerId(args.customerText) ?? detectLanguageSwitch(args.customerText)
   const prev = storedLanguageLock(args.stored)
   const prevHard = Boolean(prev?.locked)
 
@@ -365,13 +400,14 @@ export function resolveLanguageLock(args: {
     return { lock: { ...prev, locked: true }, changed: false }
   }
 
-  // Unlocked / missing: next confident inbound wins (heals a stale cron guess).
-  if (detected) {
-    const next = { ...detected, locked: true }
-    return { lock: next, changed: true }
+  if (args.lockFromDetectedSpeech) {
+    const detected = detectChatLanguage(args.customerText)
+    if (detected) {
+      return { lock: { ...detected, locked: true }, changed: true }
+    }
+    if (prev) return { lock: prev, changed: false }
   }
 
-  if (prev) return { lock: prev, changed: false }
   return { lock: null, changed: false }
 }
 

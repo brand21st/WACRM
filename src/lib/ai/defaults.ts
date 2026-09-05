@@ -123,7 +123,7 @@ export function buildSystemPrompt(args: {
     replyLanguage,
   } = args
   const name = customerName?.trim() || ''
-  const firstWelcome = Boolean(shopify && firstInbound)
+  const firstWelcome = Boolean(shopify && firstInbound && replyLanguage?.locked)
   const parts: string[] = [
     shopify
       ? 'You are a Shopify shopping and sales assistant on WhatsApp — product discovery, recommendations, and a personal shopper. ' +

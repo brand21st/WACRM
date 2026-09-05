@@ -132,6 +132,7 @@ export async function POST(request: Request) {
     const resolvedLanguage = resolveLanguageLock({
       customerText: latestUserMessage(messages),
       stored: contactMemory.facts,
+      lockFromDetectedSpeech: true,
     })
     if (conversation.contact_id && resolvedLanguage.lock && resolvedLanguage.changed) {
       try {

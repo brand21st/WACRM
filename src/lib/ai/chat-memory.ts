@@ -488,6 +488,7 @@ export async function syncLanguageLock(args: {
   const resolved = resolveLanguageLock({
     customerText: args.customerText,
     stored: args.memory.facts,
+    lockFromDetectedSpeech: true,
   })
   if (!resolved.lock) return { memory: args.memory, lock: null }
   if (!resolved.changed) return { memory: args.memory, lock: resolved.lock }

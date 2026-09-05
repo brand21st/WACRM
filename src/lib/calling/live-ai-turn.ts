@@ -241,6 +241,7 @@ export async function runLiveAiTurn(args: {
   const resolvedLanguage = resolveLanguageLock({
     customerText: args.kind === 'greeting' ? '' : transcript || latestUserMessage(contextMessages),
     stored: contactMemory.facts,
+    lockFromDetectedSpeech: true,
   })
   if (resolvedLanguage.lock && resolvedLanguage.changed) {
     try {

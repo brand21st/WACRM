@@ -148,6 +148,7 @@ export async function loadLiveAiCustomerMemory(args: {
   const resolved = resolveLanguageLock({
     customerText: lastCustomer,
     stored: stored.facts,
+    lockFromDetectedSpeech: true,
   })
   let nextStored = stored
   if (resolved.lock && resolved.changed) {

@@ -11,6 +11,7 @@ import { verifyMetaWebhookSignature } from '@/lib/whatsapp/webhook-signature'
 import { runAutomationsForTrigger } from '@/lib/automations/engine'
 import { dispatchInboundToFlows } from '@/lib/flows/engine'
 import { dispatchInboundToAiReply } from '@/lib/ai/auto-reply'
+import { isLanguagePickerReply } from '@/lib/ai/language-picker'
 import { loadAiConfig } from '@/lib/ai/config'
 import { loadAccountPlatformFlags } from '@/lib/ai/platform-settings'
 import { describeInboundImage } from '@/lib/ai/describe-inbound-image'
@@ -1247,7 +1248,9 @@ async function processMessage(
     !queuedVoice &&
     aiConfig?.autoReplyEnabled &&
     (inboundText.trim() || contentType === 'image' || contentType === 'audio') &&
-    (!interactiveReplyId || aiConfig.fullAgentEnabled) &&
+    (!interactiveReplyId ||
+      aiConfig.fullAgentEnabled ||
+      isLanguagePickerReply(interactiveReplyId)) &&
     (!flowConsumed ||
       aiConfig.fullAgentEnabled ||
       contentType === 'audio')

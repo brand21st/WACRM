@@ -162,6 +162,13 @@ describe('buildSystemPrompt', () => {
     expect(withoutCatalog).not.toMatch(/send_whatsapp_catalog/)
   })
 
+  const lockedEnglish = {
+    code: 'en' as const,
+    name: 'English',
+    script: 'latin' as const,
+    locked: true,
+  }
+
   it('requires a named shop welcome on the first Shopify inbound', () => {
     const prompt = buildSystemPrompt({
       userPrompt: null,
@@ -170,6 +177,7 @@ describe('buildSystemPrompt', () => {
       firstInbound: true,
       customerName: 'Anil',
       shopName: 'Aurimo',
+      replyLanguage: lockedEnglish,
     })
     expect(prompt).toMatch(/This is their first message/)
     expect(prompt).toMatch(/MUST open with a short welcome using their first name Anil/)
@@ -186,12 +194,27 @@ describe('buildSystemPrompt', () => {
       shopify: true,
       firstInbound: true,
       shopName: 'Aurimo',
+      replyLanguage: lockedEnglish,
     })
     expect(prompt).toMatch(/This is their first message/)
     expect(prompt).toMatch(/without inventing a name/)
     expect(prompt).toMatch(/to Aurimo/)
     expect(prompt).toMatch(/No customer name is known/)
     expect(prompt).not.toMatch(/MUST open with a short welcome using their first name/)
+  })
+
+  it('does not welcome-and-search the catalog when language is not locked', () => {
+    const prompt = buildSystemPrompt({
+      userPrompt: null,
+      mode: 'auto_reply',
+      shopify: true,
+      firstInbound: true,
+      customerName: 'Anil',
+      shopName: 'Aurimo',
+    })
+    expect(prompt).not.toMatch(/This is their first message/)
+    expect(prompt).not.toMatch(/MUST open with a short welcome/)
+    expect(prompt).toMatch(/Mid-conversation: just answer/)
   })
 
   it('does not add a first-turn welcome after the first message', () => {

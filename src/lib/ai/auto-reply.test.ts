@@ -338,10 +338,10 @@ beforeEach(() => {
       intent: null,
       products: [],
       preferences: [],
-      language: null,
-      language_code: null,
-      language_script: null,
-      language_locked: false,
+      language: 'English',
+      language_code: 'en',
+      language_script: 'latin',
+      language_locked: true,
       open_questions: [],
     },
     notes: [],
@@ -596,25 +596,7 @@ describe('dispatchInboundToAiReply — eligibility gates', () => {
     expect(prompt).toMatch(/Do not recite this dump/)
   })
 
-  it('locks Malayalam and keeps it when the next turn is English product text', async () => {
-    h.buildConversationContext.mockResolvedValue([
-      { role: 'user', content: 'ethra und alle' },
-    ])
-    await dispatchInboundToAiReply(ARGS)
-    expect(h.persistLanguageLock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        lock: expect.objectContaining({ code: 'ml' }),
-      }),
-    )
-    expect(h.generateReply.mock.calls[0][0].systemPrompt).toMatch(
-      /Locked reply language: Malayalam/,
-    )
-    expect(h.generateReply.mock.calls[0][0].replyLanguage).toMatchObject({
-      code: 'ml',
-    })
-
-    h.persistLanguageLock.mockClear()
-    h.generateReply.mockClear()
+  it('keeps a locked language when the next turn is English product text', async () => {
     h.loadContactMemory.mockResolvedValue({
       profileSummary: '',
       lastSessionSummary: '',
@@ -634,15 +616,53 @@ describe('dispatchInboundToAiReply — eligibility gates', () => {
       conversationId: 'conv-1',
     })
     h.buildConversationContext.mockResolvedValue([
-      { role: 'user', content: 'Do you have this dress in red?' },
+      { role: 'user', content: 'I want the red saree' },
     ])
     await dispatchInboundToAiReply(ARGS)
     expect(h.persistLanguageLock).not.toHaveBeenCalled()
+    expect(h.engineSendInteractiveList).not.toHaveBeenCalled()
     expect(h.generateReply.mock.calls[0][0].replyLanguage).toMatchObject({
       code: 'ml',
     })
     expect(h.generateReply.mock.calls[0][0].systemPrompt).toMatch(
       /Locked reply language: Malayalam/,
+    )
+  })
+
+  it('switches language only when the customer explicitly asks', async () => {
+    h.loadContactMemory.mockResolvedValue({
+      profileSummary: '',
+      lastSessionSummary: '',
+      facts: {
+        intent: null,
+        products: [],
+        preferences: [],
+        language: 'Malayalam',
+        language_code: 'ml',
+        language_script: 'native',
+        language_locked: true,
+        open_questions: [],
+      },
+      notes: [],
+      summarizedThroughAt: null,
+      messageCountAtSummary: 1,
+      conversationId: 'conv-1',
+    })
+    h.buildConversationContext.mockResolvedValue([
+      { role: 'user', content: 'talk in English please' },
+    ])
+    await dispatchInboundToAiReply(ARGS)
+    expect(h.persistLanguageLock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        lock: expect.objectContaining({ code: 'en', locked: true }),
+      }),
+    )
+    expect(h.generateReply).not.toHaveBeenCalled()
+    expect(h.engineSendText).toHaveBeenCalledWith(
+      expect.objectContaining({ text: 'Got it — I’ll reply in English.' }),
+    )
+    expect(h.engineSendText).toHaveBeenCalledWith(
+      expect.objectContaining({ text: 'How can I help you?' }),
     )
   })
 
@@ -663,6 +683,126 @@ describe('dispatchInboundToAiReply — eligibility gates', () => {
     expect(h.synthesizeSpeech).toHaveBeenCalled()
     expect(h.engineSendMedia).toHaveBeenCalledWith(
       expect.objectContaining({ voice: true }),
+    )
+  })
+})
+
+describe('dispatchInboundToAiReply — welcome language picker', () => {
+  function unlockedMemory() {
+    return {
+      profileSummary: '',
+      lastSessionSummary: '',
+      facts: {
+        intent: null,
+        products: [],
+        preferences: [],
+        language: null,
+        language_code: null,
+        language_script: null,
+        language_locked: false,
+        open_questions: [],
+      },
+      notes: [],
+      summarizedThroughAt: null,
+      messageCountAtSummary: 0,
+      conversationId: null,
+    }
+  }
+
+  it('sends Hi then the language list and does not call generateReply', async () => {
+    h.loadContactMemory.mockResolvedValue(unlockedMemory())
+    h.state.contactName = 'Anil Kumar'
+    h.loadShopifyConfig.mockResolvedValue({
+      accountId: 'acct-1',
+      shopDomain: 'acme.myshopify.com',
+      accessToken: 't',
+      isActive: true,
+    })
+    h.buildConversationContext.mockResolvedValue([
+      { role: 'user', content: 'I want the red saree' },
+    ])
+    await dispatchInboundToAiReply({ ...ARGS, isFirstInbound: true })
+    expect(h.engineSendText).toHaveBeenCalledWith(
+      expect.objectContaining({ text: 'Hi, Anil' }),
+    )
+    expect(h.engineSendInteractiveList).toHaveBeenCalledWith(
+      expect.objectContaining({
+        bodyText: 'What’s your language?',
+        buttonLabel: 'Language',
+        sections: [
+          expect.objectContaining({
+            rows: expect.arrayContaining([
+              expect.objectContaining({ id: 'wacrm:lang:ml', title: 'Malayalam' }),
+              expect.objectContaining({ id: 'wacrm:lang:en', title: 'English' }),
+            ]),
+          }),
+        ],
+      }),
+    )
+    const hiOrder = h.engineSendText.mock.invocationCallOrder[0]
+    const listOrder = h.engineSendInteractiveList.mock.invocationCallOrder[0]
+    expect(hiOrder).toBeLessThan(listOrder)
+    expect(h.generateReply).not.toHaveBeenCalled()
+    expect(h.persistLanguageLock).not.toHaveBeenCalled()
+    expect(h.retrieveKnowledge).not.toHaveBeenCalled()
+    expect(h.retrieveShopifyStoreContent).not.toHaveBeenCalled()
+    expect(h.executeShopifyTool).not.toHaveBeenCalled()
+  })
+
+  it('locks Malayalam from a picker tap and then answers the prior question', async () => {
+    h.loadContactMemory.mockResolvedValue(unlockedMemory())
+    h.loadShopifyConfig.mockResolvedValue({
+      accountId: 'acct-1',
+      shopDomain: 'acme.myshopify.com',
+      accessToken: 't',
+      isActive: true,
+    })
+    h.buildConversationContext.mockResolvedValue([
+      { role: 'user', content: 'I want the red saree' },
+      { role: 'assistant', content: 'Hi' },
+      {
+        role: 'user',
+        content: '[Customer tapped "Malayalam" (action: wacrm:lang:ml)]',
+      },
+    ])
+    await dispatchInboundToAiReply(ARGS)
+    expect(h.persistLanguageLock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        lock: expect.objectContaining({ code: 'ml', locked: true }),
+      }),
+    )
+    expect(h.engineSendText).toHaveBeenCalledWith(
+      expect.objectContaining({ text: expect.stringMatching(/മലയാളത്തിൽ/) }),
+    )
+    expect(h.generateReply).toHaveBeenCalled()
+    expect(h.generateReply.mock.calls[0][0].replyLanguage).toMatchObject({
+      code: 'ml',
+    })
+    expect(h.retrieveShopifyStoreContent).toHaveBeenCalledWith(
+      expect.anything(),
+      'acct-1',
+      'I want the red saree',
+      5,
+    )
+  })
+
+  it('asks how we can help after a language tap with no prior question', async () => {
+    h.loadContactMemory.mockResolvedValue(unlockedMemory())
+    h.buildConversationContext.mockResolvedValue([
+      { role: 'user', content: 'hi' },
+      {
+        role: 'user',
+        content: '[Customer tapped "English" (action: wacrm:lang:en)]',
+      },
+    ])
+    await dispatchInboundToAiReply(ARGS)
+    expect(h.persistLanguageLock).toHaveBeenCalled()
+    expect(h.generateReply).not.toHaveBeenCalled()
+    expect(h.engineSendText).toHaveBeenCalledWith(
+      expect.objectContaining({ text: 'Got it — I’ll reply in English.' }),
+    )
+    expect(h.engineSendText).toHaveBeenCalledWith(
+      expect.objectContaining({ text: 'How can I help you?' }),
     )
   })
 })
