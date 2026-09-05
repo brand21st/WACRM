@@ -176,7 +176,9 @@ export async function dispatchInboundToAiReply(
       .maybeSingle()
     if (convErr || !conv) return
     if (conv.assigned_agent_id) return // a human owns this thread
-    if (conv.ai_autoreply_disabled && !config.fullAgentEnabled) return
+    // Per-chat pause (header AI off / Take over) always wins, including
+    // full-agent mode — otherwise "Manual chat" would still get bot replies.
+    if (conv.ai_autoreply_disabled) return
 
     const { data: liveCalls } = await db
       .from('calls')

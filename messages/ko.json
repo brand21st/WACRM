@@ -399,7 +399,8 @@
       "callCompletedUnknown": "통화",
       "callRejected": "거절된 전화",
       "callFailed": "통화 실패",
-      "callInProgress": "통화 중"
+      "callInProgress": "통화 중",
+      "manualChat": "수동 채팅"
     },
     "messageThread": {
       "backToConversations": "대화 목록으로 돌아가기",
@@ -425,7 +426,10 @@
       "selectConversation": "대화를 선택하세요",
       "selectConversationHint": "왼쪽에서 대화를 선택해 메시지를 시작하세요",
       "today": "오늘",
-      "yesterday": "어제"
+      "yesterday": "어제",
+      "aiToggle": "AI",
+      "aiOn": "이 대화에서 AI가 켜졌습니다.",
+      "aiOff": "수동 채팅 — 이 대화에서 AI가 꺼졌습니다."
     },
     "sessionTimer": {
       "expired": "만료됨",

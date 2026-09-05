@@ -399,7 +399,8 @@
       "callCompletedUnknown": "Call",
       "callRejected": "Declined call",
       "callFailed": "Call failed",
-      "callInProgress": "On a call"
+      "callInProgress": "On a call",
+      "manualChat": "Manual chat"
     },
     "messageThread": {
       "backToConversations": "Back to conversations",
@@ -425,7 +426,10 @@
       "selectConversation": "Select a conversation",
       "selectConversationHint": "Choose a conversation from the left to start messaging",
       "today": "Today",
-      "yesterday": "Yesterday"
+      "yesterday": "Yesterday",
+      "aiToggle": "AI",
+      "aiOn": "AI is on for this chat.",
+      "aiOff": "Manual chat — AI is off here."
     },
     "sessionTimer": {
       "expired": "Expired",

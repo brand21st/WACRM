@@ -534,7 +534,7 @@ describe('dispatchInboundToAiReply — eligibility gates', () => {
     expect(h.engineSendText).not.toHaveBeenCalled()
   })
 
-  it('still replies when auto-reply was disabled but full-agent mode is on', async () => {
+  it('skips when auto-reply was disabled even if full-agent mode is on', async () => {
     h.loadAiConfig.mockResolvedValue(aiConfig({ fullAgentEnabled: true }))
     h.state.conv = {
       assigned_agent_id: null,
@@ -542,8 +542,8 @@ describe('dispatchInboundToAiReply — eligibility gates', () => {
       ai_reply_count: 0,
     }
     await dispatchInboundToAiReply(ARGS)
-    expect(h.generateReply).toHaveBeenCalled()
-    expect(h.engineSendText).toHaveBeenCalled()
+    expect(h.generateReply).not.toHaveBeenCalled()
+    expect(h.engineSendText).not.toHaveBeenCalled()
   })
 
   it('skips when the per-conversation cap is reached', async () => {

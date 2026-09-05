@@ -24,6 +24,7 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { InboxAiAgentPanel } from "./ai-agent-panel";
 import { CustomerPaidBadges } from "./customer-paid-badges";
+import { useInboxAiAccountStatus } from "./use-inbox-ai-account-status";
 import { callListPreview } from "@/lib/calls/preview";
 
 interface ConversationListProps {
@@ -58,6 +59,7 @@ export function ConversationList({
   resyncToken = 0,
 }: ConversationListProps) {
   const t = useTranslations("Inbox.conversationList");
+  const { fullAgentOn } = useInboxAiAccountStatus();
   
   const FILTER_OPTIONS: { label: string; value: InboxFilter }[] = useMemo(() => [
     { label: t("filterAll"), value: "all" },
@@ -421,6 +423,7 @@ export function ConversationList({
                 conversation={conv}
                 isActive={conv.id === activeConversationId}
                 onSelect={handleSelect}
+                fullAgentOn={fullAgentOn}
                 t={t}
               />
             ))}
@@ -435,6 +438,8 @@ interface ConversationItemProps {
   conversation: Conversation;
   isActive: boolean;
   onSelect: (conversation: Conversation) => void;
+  /** Account-level fully automated agent is on — Manual chat badge only then. */
+  fullAgentOn: boolean;
   t: ReturnType<typeof useTranslations>;
 }
 
@@ -442,6 +447,7 @@ function ConversationItem({
   conversation,
   isActive,
   onSelect,
+  fullAgentOn,
   t,
 }: ConversationItemProps) {
   const contact = conversation.contact;
@@ -491,6 +497,13 @@ function ConversationItem({
               shopifyPaidAt={contact?.shopify_paid_at}
               className="shrink-0"
             />
+            {fullAgentOn &&
+              (conversation.ai_autoreply_disabled ||
+                conversation.assigned_agent_id) && (
+                <span className="shrink-0 rounded-full border border-red-500/30 bg-red-500/10 px-1.5 py-0.5 text-[10px] font-medium text-red-600 dark:text-red-400">
+                  {t("manualChat")}
+                </span>
+              )}
           </span>
           <span className="shrink-0 text-[10px] text-muted-foreground">{timeAgo}</span>
         </div>
