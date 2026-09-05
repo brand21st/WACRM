@@ -79,6 +79,9 @@ export interface InteractiveCtaUrlPayload {
   url: string
   /** Optional product photo shown above the body (CTA image header). */
   header_image?: string
+  /** Persisted only — not sent to Meta. Lets reply-to resolve the product. */
+  shopify_handle?: string
+  shopify_variant_id?: string
 }
 
 export interface InteractiveProductPayload {

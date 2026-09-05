@@ -355,6 +355,8 @@ interface SendInteractiveCtaUrlEngineArgs {
   headerText?: string
   footerText?: string
   headerImageUrl?: string
+  shopifyHandle?: string | null
+  shopifyVariantId?: string | null
   aiGenerated?: boolean
 }
 
@@ -680,6 +682,12 @@ async function sendInteractiveViaMeta(
             display_text: input.displayText,
             url: input.url,
             header_image: input.headerImageUrl,
+            ...(input.shopifyHandle
+              ? { shopify_handle: input.shopifyHandle }
+              : {}),
+            ...(input.shopifyVariantId
+              ? { shopify_variant_id: input.shopifyVariantId }
+              : {}),
           }
         : input.kind === 'product'
           ? {

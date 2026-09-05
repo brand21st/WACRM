@@ -1468,6 +1468,14 @@ describe('executeShopifyTool', () => {
     ).toBe(true)
   })
 
+  it('limits tools to the focused product when an agent pinned a card', () => {
+    const names = shopifyLlmTools({ focused: true }).map((t) => t.name)
+    expect(names).toContain('get_product')
+    expect(names).not.toContain('search_products')
+    expect(names).not.toContain('list_new_arrivals')
+    expect(names).not.toContain('recommend_products')
+  })
+
   it('returns a note when offer_cart has no shown products', async () => {
     const result = await executeShopifyTool(
       { db: {} as SupabaseClient, config: STORE, contactPhone: null },

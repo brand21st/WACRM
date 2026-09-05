@@ -8,6 +8,7 @@ export const WACRM_CHAT_BUTTON_IDS = {
   help: 'wacrm:help',
   confirmOrder: 'wacrm:confirm_order',
   moreOptions: 'wacrm:more_options',
+  continueChat: 'wacrm:continue_chat',
 } as const
 
 /**
@@ -32,6 +33,14 @@ export function buildCartOfferButtons(): InteractiveButton[] {
   return [
     { id: WACRM_CHAT_BUTTON_IDS.confirmOrder, title: 'Confirm order' },
     { id: WACRM_CHAT_BUTTON_IDS.moreOptions, title: 'Check other options' },
+  ]
+}
+
+/** Confirm / keep chatting after a focused product's variants are chosen. */
+export function buildProductOrderButtons(): InteractiveButton[] {
+  return [
+    { id: WACRM_CHAT_BUTTON_IDS.confirmOrder, title: 'Confirm order' },
+    { id: WACRM_CHAT_BUTTON_IDS.continueChat, title: 'Continue chat' },
   ]
 }
 

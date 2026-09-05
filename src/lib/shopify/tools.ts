@@ -224,13 +224,24 @@ export const SEND_WHATSAPP_CATALOG_TOOL: LlmToolDef = {
   },
 }
 
+const FOCUSED_PRODUCT_TOOLS = new Set([
+  'get_product',
+  'search_store_info',
+  'lookup_my_orders',
+  'get_order_tracking',
+])
+
 export function shopifyLlmTools(opts?: {
   whatsappCatalog?: boolean
+  focused?: boolean
 }): LlmToolDef[] {
-  if (opts?.whatsappCatalog) {
-    return [...SHOPIFY_LLM_TOOLS, SEND_WHATSAPP_CATALOG_TOOL]
+  const tools = opts?.whatsappCatalog
+    ? [...SHOPIFY_LLM_TOOLS, SEND_WHATSAPP_CATALOG_TOOL]
+    : [...SHOPIFY_LLM_TOOLS]
+  if (opts?.focused) {
+    return tools.filter((tool) => FOCUSED_PRODUCT_TOOLS.has(tool.name))
   }
-  return SHOPIFY_LLM_TOOLS
+  return tools
 }
 
 export interface ShopifyToolContext {

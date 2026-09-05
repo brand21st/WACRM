@@ -170,7 +170,10 @@ vi.mock('./admin-client', () => ({
       return {
         ...convChain,
         update: (payload: Record<string, unknown>) => {
-          h.state.updatePayload = payload
+          h.state.updatePayload = {
+            ...(h.state.updatePayload ?? {}),
+            ...payload,
+          }
           return { eq: () => Promise.resolve({ error: null }) }
         },
       }
@@ -215,6 +218,7 @@ beforeEach(() => {
     assigned_agent_id: null,
     ai_autoreply_disabled: false,
     ai_reply_count: 0,
+    ai_product_focus: null,
   }
   h.state.autoResponders = []
   h.state.liveCalls = []
@@ -2846,6 +2850,227 @@ describe('dispatchInboundToAiReply — cart offer', () => {
     expect(h.engineSendText).toHaveBeenCalledWith(
       expect.objectContaining({ text: 'This red bag matches.' }),
     )
+  })
+})
+
+describe('dispatchInboundToAiReply — agent product focus', () => {
+  const shopifyRow = {
+    accountId: 'acct-1',
+    shopDomain: 'acme.myshopify.com',
+    accessToken: 'shpat_test',
+    isActive: true,
+    shopName: 'Acme',
+    primaryDomain: 'https://shop.example',
+    currency: 'INR',
+    metaCatalogId: null,
+    lastVerifiedAt: null,
+    lastCatalogSyncAt: null,
+    catalogProductCount: 2,
+  }
+
+  const POURNAMI = {
+    id: 'gid://shopify/Product/1',
+    handle: 'pournami-red',
+    title: 'Pournami',
+    description: '',
+    imageUrl: 'https://cdn.example/p.jpg',
+    productUrl: 'https://shop.example/products/pournami-red',
+    cartUrl: 'https://shop.example/cart/11:1',
+    checkoutUrl: 'https://shop.example/cart/11:1?checkout',
+    priceMin: '499',
+    priceMax: '699',
+    currency: 'INR',
+    variants: [
+      {
+        id: 'g11',
+        variantId: '11',
+        title: 'Red / M',
+        sku: 'P-RED-M',
+        price: '499',
+        compareAtPrice: null,
+        available: true,
+        options: [
+          { name: 'Color', value: 'Red' },
+          { name: 'Size', value: 'M' },
+        ],
+      },
+      {
+        id: 'g12',
+        variantId: '12',
+        title: 'Red / L',
+        sku: 'P-RED-L',
+        price: '499',
+        compareAtPrice: null,
+        available: true,
+        options: [
+          { name: 'Color', value: 'Red' },
+          { name: 'Size', value: 'L' },
+        ],
+      },
+    ],
+  }
+
+  function focusedConv(overrides: Record<string, unknown> = {}) {
+    return {
+      handle: 'pournami-red',
+      title: 'Pournami',
+      sourceMessageId: 'msg-card-1',
+      stage: 'focused',
+      setBy: 'send',
+      ...overrides,
+    }
+  }
+
+  beforeEach(() => {
+    h.state.conv = {
+      assigned_agent_id: null,
+      ai_autoreply_disabled: false,
+      ai_reply_count: 0,
+      ai_product_focus: focusedConv(),
+    }
+    h.loadShopifyConfig.mockResolvedValue(shopifyRow)
+    h.getProductLive.mockResolvedValue(POURNAMI)
+    h.loadAiConfig.mockResolvedValue(aiConfig({ fullAgentEnabled: true }))
+  })
+
+  it('sends only the focused product card without checkout', async () => {
+    h.buildConversationContext.mockResolvedValue([
+      { role: 'user', content: 'tell me more about this' },
+    ])
+    h.generateReply.mockResolvedValue({
+      text: 'Pournami is a silk saree in stock.',
+      handoff: false,
+    })
+
+    await dispatchInboundToAiReply(ARGS)
+
+    expect(h.engineSendCtaUrl).not.toHaveBeenCalled()
+    expect(h.engineSendMedia).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: 'image',
+        caption: expect.stringContaining('Pournami'),
+      }),
+    )
+    expect(h.engineSendText).toHaveBeenCalledWith(
+      expect.objectContaining({ text: 'Pournami is a silk saree in stock.' }),
+    )
+    expect(h.engineSendInteractiveButtons).not.toHaveBeenCalled()
+  })
+
+  it('sends variant lists then Confirm order / Continue chat on order intent', async () => {
+    h.buildConversationContext.mockResolvedValue([
+      { role: 'user', content: 'I want to order this' },
+    ])
+    h.generateReply.mockResolvedValue({
+      text: 'Choose a color for Pournami.',
+      handoff: false,
+    })
+
+    await dispatchInboundToAiReply(ARGS)
+
+    expect(h.engineSendInteractiveList).toHaveBeenCalledWith(
+      expect.objectContaining({ buttonLabel: 'Choose color' }),
+    )
+    expect(h.engineSendCtaUrl).not.toHaveBeenCalled()
+  })
+
+  it('sends confirm buttons after the customer picks a size while focused', async () => {
+    h.state.conv = {
+      assigned_agent_id: null,
+      ai_autoreply_disabled: false,
+      ai_reply_count: 0,
+      ai_product_focus: focusedConv({
+        stage: 'collecting_variants',
+        color: 'Red',
+      }),
+    }
+    h.buildConversationContext.mockResolvedValue([
+      {
+        role: 'user',
+        content:
+          '[Customer tapped "L" (action: wacrm:size:pournami-red:Red:L)]',
+      },
+    ])
+    h.generateReply.mockResolvedValue({
+      text: 'Ready to confirm Pournami Red L.',
+      handoff: false,
+    })
+
+    await dispatchInboundToAiReply(ARGS)
+
+    expect(h.engineSendCtaUrl).not.toHaveBeenCalled()
+    expect(h.engineSendInteractiveButtons).toHaveBeenCalledWith(
+      expect.objectContaining({
+        buttons: [
+          { id: 'wacrm:confirm_order', title: 'Confirm order' },
+          { id: 'wacrm:continue_chat', title: 'Continue chat' },
+        ],
+      }),
+    )
+  })
+
+  it('sends the variant checkout card on Confirm order', async () => {
+    h.state.conv = {
+      assigned_agent_id: null,
+      ai_autoreply_disabled: false,
+      ai_reply_count: 0,
+      ai_product_focus: focusedConv({
+        stage: 'ready_to_confirm',
+        variantId: '12',
+        color: 'Red',
+        size: 'L',
+      }),
+    }
+    h.buildConversationContext.mockResolvedValue([
+      {
+        role: 'user',
+        content:
+          '[Customer tapped "Confirm order" (action: wacrm:confirm_order)]',
+      },
+    ])
+    h.generateReply.mockResolvedValue({
+      text: 'Here is checkout for Pournami Red L.',
+      handoff: false,
+    })
+
+    await dispatchInboundToAiReply(ARGS)
+
+    expect(h.engineSendCtaUrl).toHaveBeenCalledWith(
+      expect.objectContaining({
+        displayText: 'Checkout NOW',
+        url: 'https://shop.example/cart/12:1?checkout',
+        shopifyHandle: 'pournami-red',
+        shopifyVariantId: '12',
+      }),
+    )
+  })
+
+  it('keeps the focused product on Continue chat without checkout', async () => {
+    h.buildConversationContext.mockResolvedValue([
+      {
+        role: 'user',
+        content:
+          '[Customer tapped "Continue chat" (action: wacrm:continue_chat)]',
+      },
+    ])
+    h.generateReply.mockResolvedValue({
+      text: 'What else would you like to know?',
+      handoff: false,
+    })
+
+    await dispatchInboundToAiReply(ARGS)
+
+    expect(h.engineSendCtaUrl).not.toHaveBeenCalled()
+    expect(h.engineSendInteractiveList).not.toHaveBeenCalled()
+    expect(h.engineSendText).toHaveBeenCalledWith(
+      expect.objectContaining({ text: 'What else would you like to know?' }),
+    )
+    expect(h.state.updatePayload).toMatchObject({
+      ai_product_focus: expect.objectContaining({
+        handle: 'pournami-red',
+        stage: 'focused',
+      }),
+    })
   })
 })
 

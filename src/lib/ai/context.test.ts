@@ -119,6 +119,20 @@ describe('buildConversationContext', () => {
     ])
   })
 
+  it('prepends the selected product note when focus is set', async () => {
+    const out = await buildConversationContext(
+      fakeDb([{ sender_type: 'customer', content_text: 'tell me more' }]),
+      'conv-1',
+      undefined,
+      { handle: 'pournami-red', title: 'Pournami' },
+    )
+    expect(out[0]).toEqual({
+      role: 'assistant',
+      content: 'Replying to product: Pournami (pournami-red)',
+    })
+    expect(out[1]).toEqual({ role: 'user', content: 'tell me more' })
+  })
+
   it('drops empty / whitespace-only messages', async () => {
     const out = await buildConversationContext(
       fakeDb([

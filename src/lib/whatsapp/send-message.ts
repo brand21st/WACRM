@@ -20,6 +20,10 @@
 // ============================================================
 
 import type { SupabaseClient } from '@supabase/supabase-js';
+import {
+  productFocusFromMessage,
+  saveProductFocus,
+} from '@/lib/shopify/product-focus';
 
 import {
   sendTextMessage,
@@ -293,10 +297,19 @@ export async function sendMessageToConversation(
   // belong to this same conversation — otherwise a caller could quote
   // messages they can't see by guessing UUIDs.
   let contextMessageId: string | undefined;
+  let replyParent: {
+    id: string
+    message_id: string | null
+    content_type?: string | null
+    content_text?: string | null
+    interactive_payload?: InteractiveMessagePayload | null
+  } | null = null
   if (replyToMessageId) {
     const { data: parent, error: parentError } = await db
       .from('messages')
-      .select('message_id, conversation_id')
+      .select(
+        'id, message_id, conversation_id, content_type, content_text, interactive_payload',
+      )
       .eq('id', replyToMessageId)
       .eq('conversation_id', conversationId)
       .maybeSingle();
@@ -308,6 +321,7 @@ export async function sendMessageToConversation(
         400
       );
     }
+    replyParent = parent
     if (!parent.message_id) {
       console.warn(
         '[send-message] reply target has no Meta message_id; sending without context'
@@ -574,6 +588,17 @@ export async function sendMessageToConversation(
       updated_at: new Date().toISOString(),
     })
     .eq('id', conversationId);
+
+  if (replyParent) {
+    const extracted = productFocusFromMessage(replyParent)
+    if (extracted) {
+      await saveProductFocus(db, conversationId, {
+        ...extracted,
+        stage: 'focused',
+        setBy: 'send',
+      })
+    }
+  }
 
   // Pause any active Flow run for this contact — the agent stepping in
   // is the strongest "yield, human is here" signal. Best-effort.

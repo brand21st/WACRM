@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
   buildAiChatButtons,
   buildCartOfferButtons,
+  buildProductOrderButtons,
   formatButtonTapForModel,
   lastMessageHasAction,
   WACRM_CHAT_BUTTON_IDS,
@@ -31,6 +32,17 @@ describe('buildCartOfferButtons', () => {
     expect(buttons).toEqual([
       { id: WACRM_CHAT_BUTTON_IDS.confirmOrder, title: 'Confirm order' },
       { id: WACRM_CHAT_BUTTON_IDS.moreOptions, title: 'Check other options' },
+    ])
+    expect(buttons.every((b) => b.title.length <= 20)).toBe(true)
+  })
+})
+
+describe('buildProductOrderButtons', () => {
+  it('returns confirm and continue-chat within Meta’s 20-char limit', () => {
+    const buttons = buildProductOrderButtons()
+    expect(buttons).toEqual([
+      { id: WACRM_CHAT_BUTTON_IDS.confirmOrder, title: 'Confirm order' },
+      { id: WACRM_CHAT_BUTTON_IDS.continueChat, title: 'Continue chat' },
     ])
     expect(buttons.every((b) => b.title.length <= 20)).toBe(true)
   })

@@ -1,5 +1,6 @@
 import type { ChatLanguageLock } from './language-lock'
 import { formatReplyLanguageInstruction } from './language-lock'
+import { formatProductFocusPrompt } from '@/lib/shopify/product-focus'
 import type { AiProvider } from './types'
 
 export interface PhotoMatchSummary {
@@ -107,6 +108,11 @@ export function buildSystemPrompt(args: {
   customerMemory?: string | null
   /** Locked reply language for this contact. */
   replyLanguage?: ChatLanguageLock | null
+  /**
+   * Inbox agent pinned a Shopify product (reply-to a product card).
+   * The model must discuss only this item.
+   */
+  productFocus?: { handle: string; title?: string | null } | null
 }): string {
   const {
     userPrompt,
@@ -121,6 +127,7 @@ export function buildSystemPrompt(args: {
     shopName,
     customerMemory,
     replyLanguage,
+    productFocus,
   } = args
   const name = customerName?.trim() || ''
   const firstWelcome = Boolean(shopify && firstInbound && replyLanguage?.locked)
@@ -244,6 +251,15 @@ export function buildSystemPrompt(args: {
           'wacrm:help = general assistance, wacrm:agent = hand off to a human.',
       )
     }
+  }
+
+  if (shopify && productFocus?.handle) {
+    parts.push(formatProductFocusPrompt(productFocus))
+    parts.push(
+      'wacrm:confirm_order = send the final selected variant and Checkout NOW for this product only. ' +
+        'wacrm:continue_chat = keep talking about this same product without checkout. ' +
+        'wacrm:products = leave this product and browse other items.',
+    )
   }
 
   if (mode === 'auto_reply') {

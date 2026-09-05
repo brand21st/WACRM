@@ -24,6 +24,10 @@ import { AiError } from '@/lib/ai/types'
 import { loadShopifyConfig } from '@/lib/shopify/config'
 import { shopifyLlmTools, executeShopifyTool } from '@/lib/shopify/tools'
 import type { ShopifyProductCard } from '@/lib/shopify'
+import {
+  parseProductFocus,
+  productFocusFromMessage,
+} from '@/lib/shopify/product-focus'
 
 /**
  * POST /api/ai/draft  (agent+)
@@ -50,6 +54,10 @@ export async function POST(request: Request) {
     const body = await request.json().catch(() => null)
     const conversationId =
       body && typeof body.conversation_id === 'string' ? body.conversation_id : ''
+    const replyToMessageId =
+      body && typeof body.reply_to_message_id === 'string'
+        ? body.reply_to_message_id.trim()
+        : ''
     if (!conversationId) {
       return NextResponse.json(
         { error: 'conversation_id is required' },
@@ -61,7 +69,7 @@ export async function POST(request: Request) {
     // row means "not yours / not found" either way.
     const { data: conversation, error: convErr } = await supabase
       .from('conversations')
-      .select('id, contact_id')
+      .select('id, contact_id, ai_product_focus')
       .eq('id', conversationId)
       .maybeSingle()
     if (convErr) {
@@ -90,7 +98,30 @@ export async function POST(request: Request) {
       )
     }
 
-    const messages = await buildConversationContext(supabase, conversationId)
+    let productFocus = parseProductFocus(conversation.ai_product_focus)
+    if (replyToMessageId) {
+      const { data: quoted } = await supabase
+        .from('messages')
+        .select('id, content_type, content_text, interactive_payload')
+        .eq('id', replyToMessageId)
+        .eq('conversation_id', conversationId)
+        .maybeSingle()
+      const fromQuote = productFocusFromMessage(quoted)
+      if (fromQuote) {
+        productFocus = {
+          ...fromQuote,
+          stage: 'focused',
+          setBy: 'reply_draft',
+        }
+      }
+    }
+
+    const messages = await buildConversationContext(
+      supabase,
+      conversationId,
+      undefined,
+      productFocus,
+    )
     // Nothing to draft from — a brand-new thread with no customer text
     // would otherwise produce a nonsensical reply-to-nothing.
     if (messages.length === 0) {
@@ -162,6 +193,7 @@ export async function POST(request: Request) {
       customerName,
       customerMemory: formatCustomerMemoryBlock(contactMemory) || null,
       replyLanguage: resolvedLanguage.lock,
+      productFocus,
     })
 
     const productCards: ShopifyProductCard[] = []
@@ -175,6 +207,7 @@ export async function POST(request: Request) {
         ? {
             tools: shopifyLlmTools({
               whatsappCatalog: Boolean(shopify.metaCatalogId?.trim()),
+              focused: Boolean(productFocus?.handle),
             }),
             executeTool: async (name, args) => {
               const result = await executeShopifyTool(

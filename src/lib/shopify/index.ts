@@ -70,10 +70,22 @@ export {
   resolveCartOfferItems,
 } from './cart-offer'
 export type { CartOffer, CartOfferItem } from './cart-offer'
+export {
+  parseProductFocus,
+  productFocusFromMessage,
+  wantsProductOrder,
+  formatProductFocusNote,
+  formatProductFocusPrompt,
+  shouldClearDraftFocus,
+  saveProductFocus,
+  clearProductFocus,
+} from './product-focus'
+export type { ProductFocus, ProductFocusStage } from './product-focus'
 export type {
   ShopifyStoreConfig,
   ShopifyProductHit,
   ShopifyProductCard,
+  ShopifyVariantHit,
   ShopifyOrderHit,
   ShopifyOrderCard,
   ShopifyOrderLineItem,

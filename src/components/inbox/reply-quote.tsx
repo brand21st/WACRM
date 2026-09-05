@@ -4,6 +4,7 @@ import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Message } from "@/types";
 import { useTranslations } from "next-intl";
+import { productFocusFromMessage } from "@/lib/shopify/product-focus";
 
 interface ReplyQuoteProps {
   /** Sender label of the quoted message: "You" for our own messages,
@@ -78,6 +79,13 @@ export function ReplyQuote({
 /** Build the one-line preview text shown inside a reply quote. */
 export function buildReplyPreview(message: Message, t: ReturnType<typeof useTranslations>): string {
   if (message.content_type === "call") return t("call");
+  const product = productFocusFromMessage(message);
+  if (product) {
+    const title = product.title?.trim();
+    return title
+      ? t("focusingProduct", { title })
+      : t("focusingProductHandle", { handle: product.handle });
+  }
   if (message.content_text) return message.content_text;
   switch (message.content_type) {
     case "image":

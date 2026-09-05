@@ -223,6 +223,8 @@ export interface Conversation {
   ai_autoreply_disabled?: boolean;
   ai_reply_count?: number;
   ai_handoff_summary?: string | null;
+  /** Agent-selected Shopify product for this thread (migration 074). */
+  ai_product_focus?: import('@/lib/shopify/product-focus').ProductFocus | null;
 }
 
 // ============================================================

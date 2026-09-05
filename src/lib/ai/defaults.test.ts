@@ -100,6 +100,7 @@ describe('buildSystemPrompt', () => {
     expect(prompt).toMatch(/call offer_cart/)
     expect(prompt).toMatch(/wacrm:confirm_order/)
     expect(prompt).toMatch(/wacrm:more_options/)
+    expect(prompt).not.toMatch(/The inbox agent selected this Shopify product/)
     expect(prompt).toMatch(/Choose color, then Choose size/)
     expect(prompt).toMatch(/exact variant/)
     expect(prompt).toMatch(/Track order card is sent separately/)
@@ -127,6 +128,19 @@ describe('buildSystemPrompt', () => {
     expect(prompt).not.toMatch(/Do not mention Shopify/)
     expect(prompt).not.toMatch(/can’t find live products|can't find live products/)
     expect(prompt).not.toMatch(/This is their first message/)
+  })
+
+  it('scopes the model to an agent-selected product', () => {
+    const prompt = buildSystemPrompt({
+      userPrompt: null,
+      mode: 'auto_reply',
+      shopify: true,
+      productFocus: { handle: 'pournami-red', title: 'Pournami' },
+    })
+    expect(prompt).toMatch(/The inbox agent selected this Shopify product/)
+    expect(prompt).toMatch(/Pournami \(handle: pournami-red\)/)
+    expect(prompt).toMatch(/wacrm:continue_chat/)
+    expect(prompt).toMatch(/Discuss only this product/)
   })
 
   it('tells the model to use native WhatsApp cart when commerce is on', () => {

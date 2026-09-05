@@ -3,6 +3,7 @@ import type { ChatMessage } from './types'
 import { aiContextMessageLimit } from './defaults'
 import { formatButtonTapForModel } from './chat-buttons'
 import { isPhotoWaitAck } from './photo-wait-ack'
+import { formatProductFocusNote } from '@/lib/shopify/product-focus'
 
 interface DbMessage {
   sender_type: 'customer' | 'agent' | 'bot'
@@ -30,6 +31,7 @@ export async function buildConversationContext(
   db: SupabaseClient,
   conversationId: string,
   limit: number = aiContextMessageLimit(),
+  productFocus?: { handle: string; title?: string | null } | null,
 ): Promise<ChatMessage[]> {
   const { data, error } = await db
     .from('messages')
@@ -42,7 +44,7 @@ export async function buildConversationContext(
   if (error) throw error
 
   const rows = ((data ?? []) as DbMessage[]).reverse()
-  return rows
+  const messages = rows
     .filter((m) => m.content_text && m.content_text.trim())
     .filter((m) => !isPhotoWaitAck(m.content_text))
     .map((m) => ({
@@ -55,4 +57,11 @@ export async function buildConversationContext(
             )
           : m.content_text!.trim(),
     }))
+  if (productFocus?.handle) {
+    messages.unshift({
+      role: 'assistant',
+      content: formatProductFocusNote(productFocus),
+    })
+  }
+  return messages
 }
