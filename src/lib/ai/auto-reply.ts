@@ -9,17 +9,9 @@ import {
 } from './chat-memory'
 import {
   applyLanguageLockToFacts,
-  isLanguageChoiceOnly,
   resolveLanguageLock,
   type ChatLanguageLock,
 } from './language-lock'
-import {
-  buildLanguagePickerList,
-  languageHelpAsk,
-  languageLockConfirmation,
-  languageWelcomeHi,
-  priorCustomerQuestion,
-} from './language-picker'
 import { retrieveKnowledge } from './knowledge'
 import { generateReply } from './generate'
 import { buildSystemPrompt, FULL_AGENT_FALLBACK_REPLY } from './defaults'
@@ -158,6 +150,20 @@ export async function dispatchInboundToAiReply(
     const config = await loadAiConfig(db, accountId)
     if (!config || !config.autoReplyEnabled) return
 
+    // Deterministic, user-configured responders win over the LLM for
+    // typed messages — unless full-agent mode is on. Voice notes and
+    // images skip that stand-down: they are the agent's job.
+    if (!config.fullAgentEnabled && inboundContentType === 'text') {
+      const { data: autoResponders } = await db
+        .from('automations')
+        .select('id')
+        .eq('account_id', accountId)
+        .eq('is_active', true)
+        .in('trigger_type', ['new_message_received', 'keyword_match'])
+        .limit(1)
+      if (autoResponders && autoResponders.length > 0) return
+    }
+
     const { data: conv, error: convErr } = await db
       .from('conversations')
       .select('assigned_agent_id, ai_autoreply_disabled, ai_reply_count')
@@ -228,12 +234,17 @@ export async function dispatchInboundToAiReply(
     })
 
     const queryText = latestUserMessage(messages)
-    const contactMemory = await loadContactMemory(db, accountId, contactId).catch(
-      (err) => {
+    const [manualKnowledge, storeContent, contactMemory] = await Promise.all([
+      retrieveKnowledge(db, accountId, config, queryText),
+      shopify
+        ? retrieveShopifyStoreContent(db, accountId, queryText, 5)
+        : Promise.resolve([] as string[]),
+      loadContactMemory(db, accountId, contactId).catch((err) => {
         console.warn('[ai auto-reply] loadContactMemory failed:', err)
         return emptyContactMemory()
-      },
-    )
+      }),
+    ])
+    const knowledge = [...storeContent, ...manualKnowledge].slice(0, 8)
     const resolvedLanguage = resolveLanguageLock({
       customerText: queryText,
       stored: contactMemory.facts,
@@ -266,67 +277,6 @@ export async function dispatchInboundToAiReply(
       .eq('id', contactId)
       .eq('account_id', accountId)
       .maybeSingle()
-
-    const sendArgs = {
-      accountId,
-      userId: configOwnerUserId,
-      conversationId,
-      contactId,
-    }
-    const customerName = speakableFirstName(contactRow?.name)
-    const languageChoiceOnly = isLanguageChoiceOnly(queryText)
-
-    if (!replyLanguage?.locked && !languageChoiceOnly) {
-      await sendWelcomeLanguagePicker({
-        sendArgs,
-        firstName: customerName,
-      })
-      return
-    }
-
-    if (languageChoiceOnly && replyLanguage?.locked) {
-      await engineSendText({
-        ...sendArgs,
-        text: languageLockConfirmation(replyLanguage),
-        aiGenerated: true,
-      })
-      if (!priorCustomerQuestion(messages)) {
-        await engineSendText({
-          ...sendArgs,
-          text: languageHelpAsk(replyLanguage),
-          aiGenerated: true,
-        })
-        return
-      }
-    }
-
-    // Deterministic, user-configured responders win over the LLM for
-    // typed messages — unless full-agent mode is on. Voice notes and
-    // images skip that stand-down: they are the agent's job. Language
-    // picker taps also skip it so the lock can persist.
-    if (
-      !config.fullAgentEnabled &&
-      inboundContentType === 'text' &&
-      !languageChoiceOnly
-    ) {
-      const { data: autoResponders } = await db
-        .from('automations')
-        .select('id')
-        .eq('account_id', accountId)
-        .eq('is_active', true)
-        .in('trigger_type', ['new_message_received', 'keyword_match'])
-        .limit(1)
-      if (autoResponders && autoResponders.length > 0) return
-    }
-
-    const retrieveText = priorCustomerQuestion(messages) || queryText
-    const [manualKnowledge, storeContent] = await Promise.all([
-      retrieveKnowledge(db, accountId, config, retrieveText),
-      shopify
-        ? retrieveShopifyStoreContent(db, accountId, retrieveText, 5)
-        : Promise.resolve([] as string[]),
-    ])
-    const knowledge = [...storeContent, ...manualKnowledge].slice(0, 8)
 
     if (nativeCommerce && queryText.trim()) {
       const handledEmail = await tryCompleteCommerceEmail({
@@ -419,6 +369,7 @@ export async function dispatchInboundToAiReply(
       }
     }
 
+    const customerName = speakableFirstName(contactRow?.name)
     const systemPrompt = buildSystemPrompt({
       userPrompt: config.systemPrompt,
       mode: 'auto_reply',
@@ -433,6 +384,13 @@ export async function dispatchInboundToAiReply(
       customerMemory,
       replyLanguage,
     })
+
+    const sendArgs = {
+      accountId,
+      userId: configOwnerUserId,
+      conversationId,
+      contactId,
+    }
 
     const channels = resolveReplyChannels(
       config.voiceReplyMode,
@@ -872,25 +830,6 @@ type SendArgs = {
   userId: string
   conversationId: string
   contactId: string
-}
-
-async function sendWelcomeLanguagePicker(args: {
-  sendArgs: SendArgs
-  firstName: string | null
-}): Promise<void> {
-  const list = buildLanguagePickerList()
-  await engineSendText({
-    ...args.sendArgs,
-    text: languageWelcomeHi(args.firstName),
-    aiGenerated: true,
-  })
-  await engineSendInteractiveList({
-    ...args.sendArgs,
-    bodyText: list.bodyText,
-    buttonLabel: list.buttonLabel,
-    sections: list.sections,
-    aiGenerated: true,
-  })
 }
 
 type ConvRow = {
