@@ -20,6 +20,7 @@ import { DealsSettings } from '@/components/settings/deals-settings';
 import { MembersTab } from '@/components/settings/members-tab';
 import { ApiKeysSettings } from '@/components/settings/api-keys-settings';
 import { BillingPanel } from '@/components/settings/billing-panel';
+import { KnowledgeBasePanel } from '@/components/settings/knowledge-base-panel';
 import {
   resolveSection,
   type SettingsSection,
@@ -84,6 +85,7 @@ function SettingsPageInner() {
     appearance: <AppearancePanel />,
     whatsapp: <WhatsAppConfig />,
     shopify: <ShopifyConfigPanel />,
+    knowledge: <KnowledgeBasePanel />,
     templates: <TemplateManager />,
     'quick-replies': <QuickRepliesManager />,
     fields: <FieldsAndTagsPanel />,

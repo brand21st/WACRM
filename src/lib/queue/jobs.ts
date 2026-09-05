@@ -60,3 +60,8 @@ export interface CallRecordingJob {
   accountId: string
   callId: string
 }
+
+export interface KnowledgeScrapeJob {
+  jobId: string
+  accountId: string
+}

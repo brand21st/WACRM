@@ -17,6 +17,7 @@ import {
   enqueueAiChatReply,
   enqueueAiVoiceInbound,
   enqueueCallRecording,
+  enqueueKnowledgeScrape,
   isDuplicateJobError,
   resetQueuesForTests,
 } from './enqueue'
@@ -106,6 +107,18 @@ describe('enqueue helpers', () => {
     mockGetBullmqConnection.mockReturnValue({ host: '127.0.0.1', port: 6379 } as never)
     add.mockResolvedValueOnce(null)
     await expect(enqueueAiChatReply(CHAT_JOB)).resolves.toBe(true)
+  })
+
+  it('adds a knowledge-scrape job keyed by jobId', async () => {
+    mockGetBullmqConnection.mockReturnValue({ host: '127.0.0.1', port: 6379 } as never)
+    await expect(
+      enqueueKnowledgeScrape({ jobId: 'scrape-1', accountId: 'acc-1' }),
+    ).resolves.toBe(true)
+    expect(add).toHaveBeenCalledWith(
+      'knowledge-scrape',
+      { jobId: 'scrape-1', accountId: 'acc-1' },
+      expect.objectContaining({ jobId: 'scrape-1' }),
+    )
   })
 
   it('returns false when Queue.add throws a real failure', async () => {

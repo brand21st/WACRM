@@ -19,15 +19,23 @@ export async function GET() {
     const { supabase, accountId } = await getCurrentAccount()
     const { data, error } = await supabase
       .from('ai_knowledge_documents')
-      .select('id, title, updated_at')
+      .select('id, title, updated_at, source_type, source_url, last_scraped_at, scrape_error')
       .eq('account_id', accountId)
       .order('updated_at', { ascending: false })
     if (error) {
-      console.error('[ai/knowledge GET] error:', error)
-      return NextResponse.json(
-        { error: 'Failed to load knowledge base' },
-        { status: 500 },
-      )
+      const fallback = await supabase
+        .from('ai_knowledge_documents')
+        .select('id, title, updated_at')
+        .eq('account_id', accountId)
+        .order('updated_at', { ascending: false })
+      if (fallback.error) {
+        console.error('[ai/knowledge GET] error:', error)
+        return NextResponse.json(
+          { error: 'Failed to load knowledge base' },
+          { status: 500 },
+        )
+      }
+      return NextResponse.json({ documents: fallback.data ?? [] })
     }
     return NextResponse.json({ documents: data ?? [] })
   } catch (err) {

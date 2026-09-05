@@ -2,12 +2,12 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { Loader2, Sparkles, Trash2 } from 'lucide-react';
+import { BookOpen, Loader2, Trash2 } from 'lucide-react';
 import { UpgradePlanBanner } from './upgrade-plan-banner';
 import { useEntitlements } from '@/hooks/use-entitlements';
 import { useAuth } from '@/hooks/use-auth';
 import { canEditSettings } from '@/lib/auth/roles';
-import { Button } from '@/components/ui/button';
+import { Button, buttonVariants } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
@@ -27,9 +27,6 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { SettingsPanelHead } from './settings-panel-head';
-import { AiKnowledgeCard } from './ai-knowledge';
-import { AI_PROVIDER_DEFAULT_MODEL } from '@/lib/ai/defaults';
-import type { AiProvider } from '@/lib/ai/types';
 import type { AccountMember } from '@/types';
 import { fetchAccountMembers, memberLabel } from '@/lib/account/members';
 import { useTranslations } from 'next-intl';
@@ -39,15 +36,11 @@ import Link from 'next/link';
 // unassigned" choice gets a sentinel that maps to null in the payload.
 const HANDOFF_QUEUE = '__queue__';
 
-const PROVIDER_LABEL: Record<AiProvider, string> = {
-  openai: 'OpenAI',
-  anthropic: 'Anthropic (Claude)',
-};
-
 export function AiConfig() {
   const { accountId, accountRole, profileLoading } = useAuth();
   const canEdit = accountRole ? canEditSettings(accountRole) : false;
   const t = useTranslations('Settings.aiConfig');
+  const tKb = useTranslations('Settings.knowledgeBase');
   const tv = useTranslations('Agents.voice');
   const { entitlements } = useEntitlements();
 
@@ -56,9 +49,6 @@ export function AiConfig() {
   const [removing, setRemoving] = useState(false);
 
   const [configured, setConfigured] = useState(false);
-  const [provider, setProvider] = useState<AiProvider>('openai');
-  const [model, setModel] = useState(AI_PROVIDER_DEFAULT_MODEL.openai);
-  const [hasStoredEmbeddingsKey, setHasStoredEmbeddingsKey] = useState(false);
   const [systemPrompt, setSystemPrompt] = useState('');
   const [isActive, setIsActive] = useState(false);
   const [autoReplyEnabled, setAutoReplyEnabled] = useState(false);
@@ -86,16 +76,8 @@ export function AiConfig() {
         toast.error(data.error ?? t('loadFailed'));
         return;
       }
-      if (data.platform_provider === 'openai' || data.platform_provider === 'anthropic') {
-        setProvider(data.platform_provider);
-      }
-      if (typeof data.platform_model === 'string' && data.platform_model) {
-        setModel(data.platform_model);
-      }
       if (data.configured) {
         setConfigured(true);
-        setProvider(data.provider);
-        setModel(data.model);
         setSystemPrompt(data.system_prompt ?? '');
         setIsActive(data.is_active);
         setAutoReplyEnabled(data.auto_reply_enabled);
@@ -103,7 +85,6 @@ export function AiConfig() {
         setMaxAutoReplyMode(data.auto_reply_unlimited ? 'unlimited' : 'limit');
         setMaxPerConversation(data.auto_reply_max_per_conversation ?? 3);
         setHandoffAgentId(data.handoff_agent_id ?? '');
-        setHasStoredEmbeddingsKey(Boolean(data.has_embeddings_key));
       }
     } catch {
       toast.error(t('loadFailed'));
@@ -121,17 +102,6 @@ export function AiConfig() {
     // queue option.
     void fetchAccountMembers().then(setMembers);
   }, [accountId, fetchConfig]);
-
-  // Swap the model default when the provider changes, unless the user
-  // typed a custom model.
-  const handleProviderChange = (next: AiProvider) => {
-    setProvider(next);
-    const isDefaultModel =
-      model === AI_PROVIDER_DEFAULT_MODEL.openai ||
-      model === AI_PROVIDER_DEFAULT_MODEL.anthropic ||
-      model.trim() === '';
-    if (isDefaultModel) setModel(AI_PROVIDER_DEFAULT_MODEL[next]);
-  };
 
   const buildBody = () => ({
     system_prompt: systemPrompt.trim() || null,
@@ -212,54 +182,6 @@ export function AiConfig() {
       )}
 
       <div className="space-y-6">
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <Sparkles className="h-4 w-4 text-primary" /> {t('providerAndKey')}
-            </CardTitle>
-            <CardDescription>
-              {t('encryptionNotice')}
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-2">
-                <Label>{t('provider')}</Label>
-                <Select
-                  value={provider}
-                  onValueChange={(v) => handleProviderChange(v as AiProvider)}
-                  disabled
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="openai">{PROVIDER_LABEL.openai}</SelectItem>
-                    <SelectItem value="anthropic">
-                      {PROVIDER_LABEL.anthropic}
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="ai-model">{t('model')}</Label>
-                <Input
-                  id="ai-model"
-                  value={model}
-                  onChange={(e) => setModel(e.target.value)}
-                  placeholder={AI_PROVIDER_DEFAULT_MODEL[provider]}
-                  disabled
-                />
-              </div>
-            </div>
-
-            <div className="rounded-lg border border-border bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
-              {t('platformKeysHint')}
-            </div>
-          </CardContent>
-        </Card>
-
         <Card>
           <CardHeader>
             <CardTitle className="text-base">{tv('movedTitle')}</CardTitle>
@@ -414,11 +336,22 @@ export function AiConfig() {
           </CardContent>
         </Card>
 
-        <AiKnowledgeCard
-          accountId={accountId}
-          canEdit={canEdit}
-          hasEmbeddingsKey={hasStoredEmbeddingsKey}
-        />
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <BookOpen className="h-4 w-4 text-primary" /> {tKb('agentsLinkTitle')}
+            </CardTitle>
+            <CardDescription>{tKb('agentsLinkDesc')}</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Link
+              href="/settings?tab=knowledge"
+              className={buttonVariants({ variant: 'outline', size: 'sm' })}
+            >
+              {tKb('agentsLinkCta')}
+            </Link>
+          </CardContent>
+        </Card>
 
         <div className="flex items-center justify-between">
           {configured ? (

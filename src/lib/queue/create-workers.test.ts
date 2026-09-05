@@ -31,6 +31,9 @@ vi.mock('@/lib/queue/processors/ai-voice-inbound', () => ({
 vi.mock('@/lib/queue/processors/call-recording', () => ({
   processCallRecordingJob: vi.fn(),
 }))
+vi.mock('@/lib/queue/processors/knowledge-scrape', () => ({
+  processKnowledgeScrape: vi.fn(),
+}))
 
 import { createQueueWorkers } from './create-workers'
 import { QUEUE_NAMES, WORKER_CONCURRENCY, WORKER_LOCK_MS } from './names'
@@ -39,11 +42,12 @@ describe('createQueueWorkers', () => {
   it('starts one worker per queue with planned concurrency and lock', () => {
     constructed.length = 0
     const workers = createQueueWorkers({ host: '127.0.0.1', port: 6379 })
-    expect(workers).toHaveLength(3)
+    expect(workers).toHaveLength(4)
     expect(constructed.map((w) => w.name)).toEqual([
       QUEUE_NAMES.aiChatReply,
       QUEUE_NAMES.aiVoiceInbound,
       QUEUE_NAMES.callRecording,
+      QUEUE_NAMES.knowledgeScrape,
     ])
     expect(constructed[0]).toMatchObject({
       concurrency: WORKER_CONCURRENCY.aiChatReply,
@@ -56,6 +60,10 @@ describe('createQueueWorkers', () => {
     expect(constructed[2]).toMatchObject({
       concurrency: WORKER_CONCURRENCY.callRecording,
       lockDuration: WORKER_LOCK_MS.callRecording,
+    })
+    expect(constructed[3]).toMatchObject({
+      concurrency: WORKER_CONCURRENCY.knowledgeScrape,
+      lockDuration: WORKER_LOCK_MS.knowledgeScrape,
     })
   })
 })

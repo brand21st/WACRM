@@ -209,6 +209,11 @@ export function SettingsOverview({
         </>
       ),
     },
+    {
+      section: 'knowledge',
+      loading: false,
+      subtitle: t('knowledgeHint'),
+    },
     ...(canManageMembers
       ? [
           {

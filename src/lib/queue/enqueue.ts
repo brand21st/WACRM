@@ -4,6 +4,7 @@ import type {
   AiChatReplyJob,
   AiVoiceInboundJob,
   CallRecordingJob,
+  KnowledgeScrapeJob,
 } from '@/lib/queue/jobs'
 import { DEFAULT_JOB_OPTIONS, QUEUE_NAMES } from '@/lib/queue/names'
 import { getBullmqConnection } from '@/lib/queue/redis'
@@ -12,6 +13,7 @@ type QueueMap = {
   aiChatReply: Queue
   aiVoiceInbound: Queue
   callRecording: Queue
+  knowledgeScrape: Queue
 }
 
 let queues: QueueMap | null = null
@@ -38,6 +40,7 @@ function getQueues(): QueueMap | null {
     aiChatReply: new Queue(QUEUE_NAMES.aiChatReply, opts),
     aiVoiceInbound: new Queue(QUEUE_NAMES.aiVoiceInbound, opts),
     callRecording: new Queue(QUEUE_NAMES.callRecording, opts),
+    knowledgeScrape: new Queue(QUEUE_NAMES.knowledgeScrape, opts),
   }
   return queues
 }
@@ -114,5 +117,17 @@ export async function enqueueCallRecording(
     QUEUE_NAMES.callRecording,
     data,
     data.callId,
+  )
+}
+
+/** Enqueue remaining knowledge-scrape pages. Falls back to after(). */
+export async function enqueueKnowledgeScrape(
+  data: KnowledgeScrapeJob,
+): Promise<boolean> {
+  return addJob(
+    getQueues()?.knowledgeScrape,
+    QUEUE_NAMES.knowledgeScrape,
+    data,
+    data.jobId,
   )
 }

@@ -12,6 +12,7 @@ import {
   User,
   UsersRound,
   Zap,
+  BookOpen,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -30,6 +31,7 @@ export const SETTINGS_SECTIONS = [
   'appearance',
   'whatsapp',
   'shopify',
+  'knowledge',
   'templates',
   'quick-replies',
   'fields',
@@ -59,6 +61,7 @@ export const SECTION_META: Record<SettingsSection, SectionMeta> = {
   appearance: { id: 'appearance', label: 'Appearance', icon: Palette, group: 'account' },
   whatsapp: { id: 'whatsapp', label: 'WhatsApp', icon: PlugZap, group: 'workspace' },
   shopify: { id: 'shopify', label: 'Shopify', icon: ShoppingBag, group: 'workspace' },
+  knowledge: { id: 'knowledge', label: 'Knowledge base', icon: BookOpen, group: 'workspace' },
   templates: { id: 'templates', label: 'Templates', icon: FileText, group: 'workspace' },
   'quick-replies': { id: 'quick-replies', label: 'Quick replies', icon: Zap, group: 'workspace' },
   fields: { id: 'fields', label: 'Fields & tags', icon: Tags, group: 'workspace' },

@@ -1591,8 +1591,8 @@
       "sarvamHint": "Saaras transcribes Indic and English speech. Bulbul speaks 11 Indian languages. REST transcription works best under about 30 seconds.",
       "sarvamTestSuccess": "Sarvam key works.",
       "sarvamTestRejected": "Sarvam rejected the request.",
-      "movedTitle": "Voice moved",
-      "movedDesc": "ElevenLabs and Sarvam speech settings now live under AI Agents → Voice Agent.",
+      "movedTitle": "Voice settings have moved",
+      "movedDesc": "Speech, cloning, and spoken replies are now in AI Agents → Voice Agent.",
       "movedCta": "Open Voice Agent",
       "cloneName": "Voice name",
       "cloneNamePlaceholder": "e.g. Brand narrator",
@@ -1646,7 +1646,8 @@
       "fieldsCount": "{count} custom {count, plural, =1 {field} other {fields}}",
       "appearance": "{mode} mode · {theme} accent",
       "yourAccount": "Your account",
-      "loading": "Loading…"
+      "loading": "Loading…",
+      "knowledgeHint": "Paste a link to teach the assistant"
     },
     "members": {
       "title": "Team members",
@@ -2137,6 +2138,7 @@
       "appearance": "Appearance",
       "whatsapp": "WhatsApp",
       "shopify": "Shopify",
+      "knowledge": "Knowledge base",
       "templates": "Templates",
       "quick-replies": "Quick replies",
       "fields": "Fields & tags",
@@ -2278,7 +2280,7 @@
     },
     "aiConfig": {
       "title": "Agent setup",
-      "description": "Configure how the assistant talks to your customers. API keys and the model are managed by the platform. This powers AI-drafted replies in the inbox, the auto-reply bot, and the Playground.",
+      "description": "Configure how the assistant talks to your customers. This powers drafted replies in the inbox, the auto-reply bot, and the Playground.",
       "adminOnlyConfig": "Only admins and owners can change the AI configuration.",
       "loadFailed": "Failed to load AI configuration",
       "providerAndKey": "Provider & key",
@@ -2380,6 +2382,32 @@
       "reindex": "Reindex",
       "reindexTooltip": "Re-embed all documents (e.g. after adding an embeddings key)",
       "loading": "Loading…"
+    },
+    "knowledgeBase": {
+      "title": "Knowledge base",
+      "description": "Paste a website, product, or blog link. The assistant learns from it and uses it when replying to customers.",
+      "pasteLabel": "Paste a link",
+      "pastePlaceholder": "https://yourstore.com/pages/shipping",
+      "pasteHint": "Pasting a URL starts learning automatically.",
+      "learning": "Learning from {host}…",
+      "learned": "Saved {saved} {saved, plural, =1 {page} other {pages}} from {host}.",
+      "learnedPartial": "Saved {saved} page(s). {failed} could not be read.",
+      "scrapeFailed": "Could not learn from this link.",
+      "invalidUrl": "Paste a full http or https link.",
+      "alreadyRunning": "Already learning from a site. Wait for it to finish.",
+      "sourceManual": "Manual",
+      "sourceUrl": "Website",
+      "shopifyTitle": "Shopify store pages",
+      "shopifyDesc": "Sync policies and Online Store pages so the assistant can answer shipping, returns, and FAQ questions.",
+      "shopifySync": "Sync store pages",
+      "shopifySynced": "Synced {count} store pages.",
+      "shopifySyncFailed": "Could not sync Shopify pages.",
+      "agentsLinkTitle": "Knowledge base",
+      "agentsLinkDesc": "Paste website links and manage the documents the assistant uses when it replies.",
+      "agentsLinkCta": "Open knowledge base",
+      "documentsTitle": "Documents",
+      "documentsDesc": "FAQs, policies, and pages the assistant retrieves when drafting and auto-replying.{searchType}",
+      "openSource": "Open source page"
     }
   },
   "SuperAdmin": {

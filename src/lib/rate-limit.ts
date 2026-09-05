@@ -193,6 +193,8 @@ export const RATE_LIMITS = {
   /** Shopify catalog sync, per user. A full catalog page-walk is
    *  expensive; a handful of clicks a minute is plenty. */
   shopifyCatalogSync: { limit: 6, windowMs: 60_000 },
+  /** Knowledge-base URL scrape. Each call may fetch multiple pages. */
+  knowledgeScrape: { limit: 8, windowMs: 60_000 },
   /** Live call AI turns (STT + ChatGPT + TTS) per user. */
   liveAiTurn: { limit: 40, windowMs: 60_000 },
   /** Live call AI turns per account, bounding shared BYO keys. */
