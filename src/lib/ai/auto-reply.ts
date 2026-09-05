@@ -67,7 +67,6 @@ import type { AiConfig, ChatMessage } from './types'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { INTERACTIVE_LIMITS } from '@/lib/whatsapp/meta-api'
 import {
-  buildAiChatButtons,
   buildCartOfferButtons,
   lastMessageHasAction,
   WACRM_CHAT_BUTTON_IDS,
@@ -708,11 +707,9 @@ async function sendCustomerFacingText(args: {
 }): Promise<boolean> {
   const mode = args.chatButtonMode ?? 'nav'
   const chatButtons =
-    !args.config.fullAgentEnabled || mode === 'none'
-      ? []
-      : mode === 'cart'
-        ? buildCartOfferButtons()
-        : buildAiChatButtons(args.shopify)
+    args.config.fullAgentEnabled && mode === 'cart'
+      ? buildCartOfferButtons()
+      : []
   const agentTap =
     args.messages.length > 0 &&
     args.messages[args.messages.length - 1]?.content?.includes(

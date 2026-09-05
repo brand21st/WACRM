@@ -522,7 +522,7 @@ describe('dispatchInboundToAiReply — eligibility gates', () => {
     }
     await dispatchInboundToAiReply(ARGS)
     expect(h.generateReply).toHaveBeenCalled()
-    expect(h.engineSendInteractiveButtons).toHaveBeenCalled()
+    expect(h.engineSendText).toHaveBeenCalled()
   })
 
   it('skips when the per-conversation cap is reached', async () => {
@@ -560,7 +560,7 @@ describe('dispatchInboundToAiReply — eligibility gates', () => {
     }
     await dispatchInboundToAiReply(ARGS)
     expect(h.generateReply).toHaveBeenCalled()
-    expect(h.engineSendInteractiveButtons).toHaveBeenCalled()
+    expect(h.engineSendText).toHaveBeenCalled()
     expect(h.state.rpcCalls[0]).toMatchObject({
       name: 'claim_ai_reply_slot',
       args: { max_replies: null },
@@ -675,8 +675,8 @@ describe('dispatchInboundToAiReply — handoff', () => {
       '[[HANDOFF]]',
     )
     expect(h.state.updatePayload).toBeNull()
-    expect(h.engineSendInteractiveButtons).toHaveBeenCalledWith(
-      expect.objectContaining({ bodyText: 'I can help with that.' }),
+    expect(h.engineSendText).toHaveBeenCalledWith(
+      expect.objectContaining({ text: 'I can help with that.' }),
     )
   })
 
@@ -685,8 +685,8 @@ describe('dispatchInboundToAiReply — handoff', () => {
     h.generateReply.mockResolvedValue({ text: '', handoff: true })
     await dispatchInboundToAiReply(ARGS)
     expect(h.state.updatePayload).toBeNull()
-    expect(h.engineSendInteractiveButtons).toHaveBeenCalledWith(
-      expect.objectContaining({ bodyText: FULL_AGENT_FALLBACK_REPLY }),
+    expect(h.engineSendText).toHaveBeenCalledWith(
+      expect.objectContaining({ text: FULL_AGENT_FALLBACK_REPLY }),
     )
   })
 
@@ -694,8 +694,8 @@ describe('dispatchInboundToAiReply — handoff', () => {
     h.loadAiConfig.mockResolvedValue(aiConfig({ fullAgentEnabled: true }))
     h.generateReply.mockRejectedValue(new Error('provider down'))
     await dispatchInboundToAiReply(ARGS)
-    expect(h.engineSendInteractiveButtons).toHaveBeenCalledWith(
-      expect.objectContaining({ bodyText: FULL_AGENT_FALLBACK_REPLY }),
+    expect(h.engineSendText).toHaveBeenCalledWith(
+      expect.objectContaining({ text: FULL_AGENT_FALLBACK_REPLY }),
     )
     expect(h.state.updatePayload).toBeNull()
   })
@@ -883,7 +883,7 @@ describe('dispatchInboundToAiReply — voice modality', () => {
     h.state.autoResponders = [{ id: 'auto-1' }]
     h.loadAiConfig.mockResolvedValue(aiConfig({ fullAgentEnabled: true }))
     await dispatchInboundToAiReply(ARGS)
-    expect(h.engineSendInteractiveButtons).toHaveBeenCalled()
+    expect(h.engineSendText).toHaveBeenCalled()
   })
 })
 
@@ -1458,9 +1458,9 @@ describe('dispatchInboundToAiReply — vision photo match', () => {
     expect(
       h.engineSendMedia.mock.calls.filter((c) => c[0].kind === 'image'),
     ).toHaveLength(0)
-    expect(h.engineSendInteractiveButtons).toHaveBeenCalledWith(
+    expect(h.engineSendText).toHaveBeenCalledWith(
       expect.objectContaining({
-        bodyText: expect.not.stringContaining(
+        text: expect.not.stringContaining(
           'https://shop.example/cart/99:1?checkout',
         ),
       }),
@@ -1805,13 +1805,10 @@ describe('dispatchInboundToAiReply — cart offer', () => {
 
     await dispatchInboundToAiReply(ARGS)
 
-    expect(h.engineSendInteractiveButtons).toHaveBeenCalledWith(
-      expect.objectContaining({
-        buttons: expect.arrayContaining([
-          expect.objectContaining({ id: 'wacrm:products' }),
-        ]),
-      }),
+    expect(h.engineSendText).toHaveBeenCalledWith(
+      expect.objectContaining({ text: 'Here are other bags.' }),
     )
+    expect(h.engineSendInteractiveButtons).not.toHaveBeenCalled()
     expect(
       h.engineSendCtaUrl.mock.calls.some((c) => c[0].displayText === 'View cart'),
     ).toBe(false)
@@ -1843,9 +1840,9 @@ describe('dispatchInboundToAiReply — cart offer', () => {
     await dispatchInboundToAiReply(ARGS)
 
     expect(h.engineSendCtaUrl).not.toHaveBeenCalled()
-    expect(h.engineSendInteractiveButtons).toHaveBeenCalledWith(
+    expect(h.engineSendText).toHaveBeenCalledWith(
       expect.objectContaining({
-        bodyText: 'Tell me which product you want first.',
+        text: 'Tell me which product you want first.',
       }),
     )
   })
@@ -2088,15 +2085,15 @@ describe('dispatchInboundToAiReply — cart offer', () => {
     await dispatchInboundToAiReply(ARGS)
 
     const ctaOrder = h.engineSendCtaUrl.mock.invocationCallOrder[0]
-    const textOrder = h.engineSendInteractiveButtons.mock.invocationCallOrder[0]
+    const textOrder = h.engineSendText.mock.invocationCallOrder[0]
     const voiceOrder = h.engineSendMedia.mock.invocationCallOrder.find((_, i) => {
       const call = h.engineSendMedia.mock.calls[i]
       return call?.[0]?.kind === 'audio' || call?.[0]?.voice === true
     })
     expect(ctaOrder).toBeLessThan(textOrder)
-    expect(h.engineSendInteractiveButtons).toHaveBeenCalledWith(
+    expect(h.engineSendText).toHaveBeenCalledWith(
       expect.objectContaining({
-        bodyText: 'First one is the best match.',
+        text: 'First one is the best match.',
       }),
     )
     expect(h.synthesizeSpeech).toHaveBeenCalledWith(
@@ -2225,8 +2222,8 @@ describe('dispatchInboundToAiReply — cart offer', () => {
 
     await dispatchInboundToAiReply(ARGS)
 
-    expect(h.engineSendInteractiveButtons).toHaveBeenCalledWith(
-      expect.objectContaining({ bodyText: 'This red bag matches.' }),
+    expect(h.engineSendText).toHaveBeenCalledWith(
+      expect.objectContaining({ text: 'This red bag matches.' }),
     )
   })
 })
