@@ -1937,7 +1937,7 @@ describe('dispatchInboundToAiReply — cart offer', () => {
     expect(h.engineSendCatalogMessage).not.toHaveBeenCalled()
   })
 
-  it('sends the WhatsApp catalog and no product cards when the customer asks for catalog', async () => {
+  it('sends Shopify product cards and the WhatsApp catalog when the customer asks for catalog', async () => {
     h.loadAiConfig.mockResolvedValue(aiConfig({ fullAgentEnabled: true }))
     h.buildConversationContext.mockResolvedValue([
       { role: 'user', content: 'show catalog' },
@@ -1958,21 +1958,21 @@ describe('dispatchInboundToAiReply — cart offer', () => {
       hasRazorpayWebhookSecret: false,
       shipBeneficiary: null,
     })
-    h.executeShopifyTool.mockResolvedValue({
-      json: JSON.stringify({ sent: true }),
-      cards: [
-        {
-          title: 'Should not send',
-          imageUrl: 'https://cdn.example/bag.jpg',
-          productUrl: 'https://shop.example/products/red-bag',
-          cartUrl: 'https://shop.example/cart/99:1',
-          checkoutUrl: 'https://shop.example/cart/99:1?checkout',
-          inStock: true,
-          caption: 'Should not send',
-          retailerId: 'BAG-RED',
-        },
-      ],
-      sendCatalog: true,
+    const catalogCard = {
+      title: 'Silk Saree',
+      imageUrl: 'https://cdn.example/saree.jpg',
+      productUrl: 'https://shop.example/products/saree',
+      cartUrl: 'https://shop.example/cart/1:1',
+      checkoutUrl: 'https://shop.example/cart/1:1?checkout',
+      inStock: true,
+      caption: 'Silk Saree',
+      retailerId: 'SAREE-1',
+    }
+    h.executeShopifyTool.mockImplementation(async (_ctx: unknown, name: string) => {
+      if (name === 'list_new_arrivals') {
+        return { json: '{}', cards: [catalogCard] }
+      }
+      return { json: JSON.stringify({ sent: true }), cards: [], sendCatalog: true }
     })
     h.generateReply.mockImplementation(async (args: { executeTool?: Function }) => {
       if (args.executeTool) await args.executeTool('send_whatsapp_catalog', {})
@@ -1981,15 +1981,140 @@ describe('dispatchInboundToAiReply — cart offer', () => {
 
     await dispatchInboundToAiReply(ARGS)
 
+    expect(h.executeShopifyTool).toHaveBeenCalledWith(
+      expect.anything(),
+      'list_new_arrivals',
+      {},
+    )
+    expect(h.engineSendCtaUrl).toHaveBeenCalledWith(
+      expect.objectContaining({
+        url: 'https://shop.example/cart/1:1?checkout',
+        displayText: 'Checkout NOW',
+      }),
+    )
     expect(h.engineSendCatalogMessage).toHaveBeenCalledWith(
       expect.objectContaining({
         bodyText: 'Browse our catalog.',
         aiGenerated: true,
       }),
     )
-    expect(h.engineSendCtaUrl).not.toHaveBeenCalled()
     expect(h.engineSendProduct).not.toHaveBeenCalled()
     expect(h.engineSendProductList).not.toHaveBeenCalled()
+  })
+
+  it('sends Shopify product cards when the customer asks what products you have', async () => {
+    h.loadAiConfig.mockResolvedValue(aiConfig({ fullAgentEnabled: true }))
+    h.buildConversationContext.mockResolvedValue([
+      { role: 'user', content: 'Endhokke products?' },
+    ])
+    h.loadShopifyConfig.mockResolvedValue({
+      ...shopifyRow,
+      metaCatalogId: '1234567890',
+    })
+    h.loadCommerceSettings.mockResolvedValue({
+      metaCatalogId: '1234567890',
+      metaCatalogAutoSync: true,
+      lastMetaCatalogSyncAt: null,
+      metaCatalogItemCount: 1,
+      retailerIdSource: 'sku',
+      waPaymentConfigurationName: 'razorpay_prod',
+      razorpayKeyId: null,
+      hasRazorpaySecret: false,
+      hasRazorpayWebhookSecret: false,
+      shipBeneficiary: null,
+    })
+    h.executeShopifyTool.mockResolvedValue({
+      json: '{}',
+      cards: [
+        {
+          title: 'Silk Saree',
+          imageUrl: 'https://cdn.example/saree.jpg',
+          productUrl: 'https://shop.example/products/saree',
+          cartUrl: 'https://shop.example/cart/1:1',
+          checkoutUrl: 'https://shop.example/cart/1:1?checkout',
+          inStock: true,
+          caption: 'Silk Saree',
+          retailerId: 'SAREE-1',
+        },
+      ],
+    })
+    h.generateReply.mockResolvedValue({
+      text: 'Catalog sent. Browse it in chat.',
+      handoff: false,
+    })
+
+    await dispatchInboundToAiReply(ARGS)
+
+    expect(h.executeShopifyTool).toHaveBeenCalledWith(
+      expect.anything(),
+      'list_new_arrivals',
+      {},
+    )
+    expect(h.engineSendCtaUrl).toHaveBeenCalledWith(
+      expect.objectContaining({
+        url: 'https://shop.example/cart/1:1?checkout',
+        displayText: 'Checkout NOW',
+      }),
+    )
+    expect(h.engineSendCatalogMessage).toHaveBeenCalled()
+  })
+
+  it('resends Shopify product cards and the WhatsApp catalog when the customer cannot see it', async () => {
+    h.loadAiConfig.mockResolvedValue(aiConfig({ fullAgentEnabled: true }))
+    h.buildConversationContext.mockResolvedValue([
+      { role: 'assistant', content: 'Catalog sent. Browse it in chat.' },
+      { role: 'user', content: 'Kannunilla' },
+    ])
+    h.loadShopifyConfig.mockResolvedValue({
+      ...shopifyRow,
+      metaCatalogId: '1234567890',
+    })
+    h.loadCommerceSettings.mockResolvedValue({
+      metaCatalogId: '1234567890',
+      metaCatalogAutoSync: true,
+      lastMetaCatalogSyncAt: null,
+      metaCatalogItemCount: 1,
+      retailerIdSource: 'sku',
+      waPaymentConfigurationName: null,
+      razorpayKeyId: null,
+      hasRazorpaySecret: false,
+      hasRazorpayWebhookSecret: false,
+      shipBeneficiary: null,
+    })
+    h.executeShopifyTool.mockResolvedValue({
+      json: '{}',
+      cards: [
+        {
+          title: 'Silk Saree',
+          imageUrl: 'https://cdn.example/saree.jpg',
+          productUrl: 'https://shop.example/products/saree',
+          cartUrl: 'https://shop.example/cart/1:1',
+          checkoutUrl: 'https://shop.example/cart/1:1?checkout',
+          inStock: true,
+          caption: 'Silk Saree',
+          retailerId: 'SAREE-1',
+        },
+      ],
+    })
+    h.generateReply.mockResolvedValue({
+      text: 'Catalog sent again. Browse it in chat.',
+      handoff: false,
+    })
+
+    await dispatchInboundToAiReply(ARGS)
+
+    expect(h.executeShopifyTool).toHaveBeenCalledWith(
+      expect.anything(),
+      'list_new_arrivals',
+      {},
+    )
+    expect(h.engineSendCtaUrl).toHaveBeenCalledWith(
+      expect.objectContaining({
+        url: 'https://shop.example/cart/1:1?checkout',
+        displayText: 'Checkout NOW',
+      }),
+    )
+    expect(h.engineSendCatalogMessage).toHaveBeenCalled()
   })
 
   it('sends all 10 Shopify cards for interest-based recommendations', async () => {

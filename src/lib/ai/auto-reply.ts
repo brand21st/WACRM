@@ -72,7 +72,7 @@ import {
   lastMessageHasAction,
   WACRM_CHAT_BUTTON_IDS,
 } from './chat-buttons'
-import { isWhatsAppCatalogRequest } from './catalog-intent'
+import { wantsWhatsAppCatalog } from './catalog-intent'
 
 interface DispatchArgs {
   /** Tenancy key — drives config, contact, and whatsapp_config lookups. */
@@ -548,13 +548,28 @@ export async function dispatchInboundToAiReply(
         [cartOffer?.cartUrl, cartOffer?.checkoutUrl],
       ).trim() || FULL_AGENT_FALLBACK_REPLY
 
-    const catalogRequested =
-      catalogHolder.value || isWhatsAppCatalogRequest(queryText)
+    const catalogBrowseAsk = wantsWhatsAppCatalog({
+      customerText: queryText,
+      replyText: textForCustomer,
+      messages,
+      toolRequested: catalogHolder.value,
+    })
     if (
+      catalogBrowseAsk &&
+      shopify &&
+      productCards.length === 0 &&
+      !cartOffer &&
+      shopifyTools.executeTool
+    ) {
+      try {
+        await shopifyTools.executeTool('list_new_arrivals', {})
+      } catch (err) {
+        console.warn('[ai auto-reply] catalog product cards failed:', err)
+      }
+    } else if (
       inboundContentType === 'audio' &&
       shopify &&
       productCards.length === 0 &&
-      !catalogRequested &&
       !cartOffer &&
       isShopifyProductAsk(queryText) &&
       shopifyTools.executeTool
@@ -568,7 +583,6 @@ export async function dispatchInboundToAiReply(
     const isProductRec =
       Boolean(shopify) &&
       productCards.length > 0 &&
-      !catalogRequested &&
       !cartOffer
     const hasVoiceScript = Boolean(voiceText)
     const compiledVoice =
@@ -627,6 +641,9 @@ export async function dispatchInboundToAiReply(
       } catch (err) {
         console.error('[ai auto-reply] product cards failed:', err)
       }
+      if (catalogBrowseAsk && metaCatalogId) {
+        await sendWhatsAppCatalogMessage(sendArgs, textForCustomer)
+      }
       const handedOff = await sendCustomerFacingText({
         db,
         config,
@@ -657,6 +674,34 @@ export async function dispatchInboundToAiReply(
       return
     }
 
+    if (catalogBrowseAsk && metaCatalogId) {
+      await sendWhatsAppCatalogMessage(sendArgs, textForCustomer)
+      const handedOff = await sendCustomerFacingText({
+        db,
+        config,
+        conv,
+        conversationId,
+        sendArgs,
+        text: textForCustomer,
+        messages,
+        shopify: Boolean(shopify),
+        wantsText: true,
+        wantsAudio: compiledVoice || wantsAudio,
+        audioSent: false,
+        productCards,
+        orderCards,
+        chatButtonMode: 'nav',
+      })
+      if (handedOff) return
+      try {
+        await sendOrderCards(sendArgs, orderCards)
+      } catch (err) {
+        console.error('[ai auto-reply] order cards failed:', err)
+      }
+      if (compiledVoice) await sendShoppingAudio()
+      return
+    }
+
     let audioSent = false
     if (compiledVoice && canSpeak && !speakAfterText) {
       audioSent = await sendShoppingAudio()
@@ -679,13 +724,6 @@ export async function dispatchInboundToAiReply(
       chatButtonMode: cartOffer ? (confirmTap ? 'none' : 'cart') : 'nav',
     })
     if (handedOff) return
-
-    if (catalogRequested && metaCatalogId) {
-      await sendWhatsAppCatalogMessage(sendArgs, textForCustomer)
-      await sendOrderCards(sendArgs, orderCards)
-      if (speakAfterText) await sendShoppingAudio()
-      return
-    }
 
     if (cartOffer) {
       await sendCartOffer(sendArgs, cartOffer)
@@ -1063,7 +1101,7 @@ export async function sendWhatsAppCatalogMessage(
     contactId: string
   },
   bodyText: string,
-): Promise<void> {
+): Promise<boolean> {
   const body = (bodyText.trim() || CATALOG_MESSAGE_FALLBACK).slice(0, 1024)
   try {
     await engineSendCatalogMessage({
@@ -1071,8 +1109,10 @@ export async function sendWhatsAppCatalogMessage(
       bodyText: body,
       aiGenerated: true,
     })
+    return true
   } catch (err) {
     console.error('[ai auto-reply] catalog message send failed:', err)
+    return false
   }
 }
 

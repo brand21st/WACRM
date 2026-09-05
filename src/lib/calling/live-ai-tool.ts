@@ -255,10 +255,18 @@ export async function executeLiveAiTool(args: {
       conversationId: call.conversation_id,
       contactId: call.contact_id,
     }
+    if (catalogHolder.value && productCards.length === 0) {
+      try {
+        await bound.executeTool('list_new_arrivals', {})
+      } catch (err) {
+        console.warn('[live-ai] catalog product cards failed:', err)
+      }
+    }
+    if (productCards.length > 0) {
+      await sendProductCards(sendArgs, productCards, shopify)
+    }
     if (catalogHolder.value && metaCatalogId) {
       await sendWhatsAppCatalogMessage(sendArgs, 'Browse our catalog')
-    } else if (productCards.length > 0) {
-      await sendProductCards(sendArgs, productCards, shopify)
     }
     if (orderCards.length > 0) {
       await sendOrderCards(sendArgs, orderCards)

@@ -143,21 +143,22 @@ describe('buildSystemPrompt', () => {
     expect(prompt).not.toMatch(/Product cards are native WhatsApp catalog items/)
   })
 
-  it('tells the model to send the WhatsApp catalog only when asked', () => {
+  it('tells the model to send Shopify cards and the WhatsApp catalog when asked', () => {
     const withCatalog = buildSystemPrompt({
       userPrompt: null,
       mode: 'auto_reply',
       shopify: true,
       whatsappCatalog: true,
     })
+    expect(withCatalog).toMatch(/list_new_arrivals so Shopify product cards/)
     expect(withCatalog).toMatch(/send_whatsapp_catalog/)
-    expect(withCatalog).toMatch(/do not search individual products on that turn/)
 
     const withoutCatalog = buildSystemPrompt({
       userPrompt: null,
       mode: 'auto_reply',
       shopify: true,
     })
+    expect(withoutCatalog).toMatch(/list_new_arrivals so Shopify product cards/)
     expect(withoutCatalog).not.toMatch(/send_whatsapp_catalog/)
   })
 

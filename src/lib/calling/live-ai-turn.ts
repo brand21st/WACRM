@@ -28,7 +28,7 @@ import {
   sendProductCards,
   sendWhatsAppCatalogMessage,
 } from '@/lib/ai/auto-reply'
-import { isWhatsAppCatalogRequest } from '@/lib/ai/catalog-intent'
+import { wantsWhatsAppCatalog } from '@/lib/ai/catalog-intent'
 import {
   loadShopifyConfig,
   retrieveShopifyStoreContent,
@@ -338,13 +338,30 @@ export async function runLiveAiTurn(args: {
     conversationId: call.conversation_id,
     contactId: call.contact_id,
   }
-  const catalogRequested =
-    catalogHolder.value ||
-    isWhatsAppCatalogRequest(transcript || latestUserMessage(modelMessages))
+  const catalogRequested = wantsWhatsAppCatalog({
+    customerText: transcript || latestUserMessage(modelMessages),
+    replyText: reply,
+    messages: modelMessages,
+    toolRequested: catalogHolder.value,
+  })
+  if (
+    !handoff &&
+    catalogRequested &&
+    shopify &&
+    productCards.length === 0 &&
+    shopifyTools.executeTool
+  ) {
+    try {
+      await shopifyTools.executeTool('list_new_arrivals', {})
+    } catch (err) {
+      console.warn('[live-ai] catalog product cards failed:', err)
+    }
+  }
+  if (!handoff && productCards.length > 0) {
+    await sendProductCards(sendArgs, productCards, shopify)
+  }
   if (!handoff && catalogRequested && metaCatalogId) {
     await sendWhatsAppCatalogMessage(sendArgs, reply)
-  } else if (!handoff && productCards.length > 0) {
-    await sendProductCards(sendArgs, productCards, shopify)
   }
   if (!handoff && orderCards.length > 0) {
     await sendOrderCards(sendArgs, orderCards)

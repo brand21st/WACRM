@@ -206,8 +206,9 @@ export function buildSystemPrompt(args: {
         'Tools and excerpts may be in English; the customer-facing answer must still be in the customer’s language — translate the facts, do not paste English FAQ labels. ' +
         'Never invent catalog items, SKUs, prices, stock, policies, or order numbers. ' +
         'Do not paste checkout, cart, or Buy now URLs in the message text — a Checkout NOW button and View cart button are sent separately. ' +
+        'If the customer asks for the catalog, catalogue, to browse the store, or what products you have, call list_new_arrivals so Shopify product cards go out. Do not search a named product on that turn. ' +
         (whatsappCatalog
-          ? 'If the customer asks for the catalog, catalogue, or to browse the store catalog, call send_whatsapp_catalog and do not search individual products on that turn. '
+          ? 'Also call send_whatsapp_catalog on that same catalog browse turn. '
           : '') +
         'Product cards sent in chat already list in-stock variants (size, color) and overall stock. If the customer asked for a size, color, or other option, name the matching variants from tool results in the spoken reply. Do not recite every SKU in the spoken text. ' +
         (nativeCommerce
