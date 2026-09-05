@@ -44,11 +44,11 @@ export async function buildConversationContext(
   if (error) throw error
 
   const rows = ((data ?? []) as DbMessage[]).reverse()
-  const messages = rows
+  const messages: ChatMessage[] = rows
     .filter((m) => m.content_text && m.content_text.trim())
     .filter((m) => !isPhotoWaitAck(m.content_text))
     .map((m) => ({
-      role: m.sender_type === 'customer' ? 'user' : 'assistant',
+      role: m.sender_type === 'customer' ? ('user' as const) : ('assistant' as const),
       content:
         m.sender_type === 'customer'
           ? formatButtonTapForModel(
