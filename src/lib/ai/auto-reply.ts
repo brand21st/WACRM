@@ -386,7 +386,11 @@ export async function dispatchInboundToAiReply(
       config.voiceReplyMode,
       inboundContentType,
     )
-    const wantsAudio = channels.includes('audio')
+    const fullAgentInboundVoice =
+      config.fullAgentEnabled &&
+      inboundContentType === 'audio' &&
+      ttsReady(config)
+    const wantsAudio = channels.includes('audio') || fullAgentInboundVoice
     const wantsText = channels.includes('text')
 
     // Realtime has no tool loop — skip it when Shopify catalog/orders
@@ -553,7 +557,7 @@ export async function dispatchInboundToAiReply(
     const hasVoiceScript = Boolean(voiceText)
     const compiledVoice =
       ttsReady(config) &&
-      config.voiceReplyMode !== 'text' &&
+      (config.voiceReplyMode !== 'text' || fullAgentInboundVoice) &&
       (hasVoiceScript || wantsAudio)
 
     const languageHint =

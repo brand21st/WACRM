@@ -791,6 +791,42 @@ describe('dispatchInboundToAiReply — voice modality', () => {
     )
   })
 
+  it('replies in voice on inbound audio when full-agent is on even if mode is text', async () => {
+    h.loadAiConfig.mockResolvedValue(
+      aiConfig({
+        fullAgentEnabled: true,
+        elevenlabsApiKey: 'xi-test',
+        voiceReplyMode: 'text',
+      }),
+    )
+    await dispatchInboundToAiReply({ ...ARGS, inboundContentType: 'audio' })
+    expect(h.synthesizeSpeech).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: 'Hello!',
+        whatsapp: true,
+      }),
+    )
+    expect(h.engineSendMedia).toHaveBeenCalledWith(
+      expect.objectContaining({ voice: true }),
+    )
+  })
+
+  it('falls back to text when full-agent inbound voice TTS fails', async () => {
+    h.loadAiConfig.mockResolvedValue(
+      aiConfig({
+        fullAgentEnabled: true,
+        elevenlabsApiKey: 'xi-test',
+        voiceReplyMode: 'text',
+      }),
+    )
+    h.synthesizeSpeech.mockRejectedValue(new Error('tts down'))
+    await dispatchInboundToAiReply({ ...ARGS, inboundContentType: 'audio' })
+    expect(h.engineSendMedia).not.toHaveBeenCalled()
+    expect(h.engineSendText).toHaveBeenCalledWith(
+      expect.objectContaining({ text: 'Hello!' }),
+    )
+  })
+
   it('does not speak website links in the voice note', async () => {
     h.loadAiConfig.mockResolvedValue(
       aiConfig({ elevenlabsApiKey: 'xi-test', voiceReplyMode: 'both' }),
