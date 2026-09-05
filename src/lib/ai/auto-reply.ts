@@ -1,4 +1,4 @@
-import { supabaseAdmin } from './admin-client'
+﻿import { supabaseAdmin } from './admin-client'
 import { loadAiConfig } from './config'
 import { buildConversationContext } from './context'
 import {
@@ -60,6 +60,7 @@ import {
   buildColorPickerRows,
   buildSizePickerRows,
   sizeRowsFromProduct,
+  handleFromProductUrl,
 } from '@/lib/shopify/match-variant'
 import { loadCommerceSettings } from '@/lib/shopify/commerce-config'
 import { nativeCommerceEnabled } from '@/lib/commerce/types'
@@ -1497,11 +1498,6 @@ async function liveImageForCard(
     console.warn('[ai auto-reply] live image fetch failed:', err)
     return null
   }
-}
-
-function handleFromProductUrl(url: string): string | null {
-  const match = url.match(/\/products\/([^/?#]+)/)
-  return match?.[1] ? decodeURIComponent(match[1]) : null
 }
 
 async function sendCatalogImage(

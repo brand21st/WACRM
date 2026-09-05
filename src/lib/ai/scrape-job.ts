@@ -140,9 +140,10 @@ export async function upsertScrapedDocument(
       })
       .select('id')
       .single()
-    if (error || !inserted) throw error ?? new Error('insert failed')
+    if (error || !inserted?.id) throw error ?? new Error('insert failed')
     documentId = inserted.id
   }
+  if (!documentId) throw new Error('insert failed')
 
   try {
     await ingestDocument(db, accountId, { embeddingsApiKey }, documentId, page.content)
