@@ -1,6 +1,13 @@
 import { describe, it, expect } from 'vitest'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { buildConversationContext } from './context'
+import {
+  applySwipeReplyContext,
+  buildConversationContext,
+  formatSwipeReplyNote,
+  loadQuotedParent,
+  resolveInboundSwipeReply,
+  SWIPE_REPLY_NOTE_PREFIX,
+} from './context'
 import { PHOTO_WAIT_ACK } from './photo-wait-ack'
 
 /** Minimal fake matching the query chain in buildConversationContext:
@@ -175,5 +182,197 @@ describe('buildConversationContext', () => {
       'conv-1',
     )
     expect(out).toEqual([{ role: 'user', content: 'real' }])
+  })
+
+  it('injects a swipe-reply parent as primary context even when it is not in last-N', async () => {
+    const quoted = {
+      id: 'parent-old',
+      sender_type: 'bot' as const,
+      content_type: 'interactive',
+      content_text: 'Red Bag — 49 USD',
+      interactive_payload: {
+        kind: 'cta_url' as const,
+        body: 'Red Bag — 49 USD',
+        display_text: 'View',
+        url: 'https://shop.example/products/red-bag',
+      },
+    }
+    const out = await buildConversationContext(
+      fakeDb([{ sender_type: 'customer', content_text: 'what size?' }]),
+      'conv-1',
+      undefined,
+      null,
+      quoted,
+    )
+    expect(out[0]).toEqual({
+      role: 'assistant',
+      content: `${SWIPE_REPLY_NOTE_PREFIX}\nRed Bag — 49 USD`,
+    })
+    expect(out[1]).toEqual({
+      role: 'user',
+      content: '[Replying to: "Red Bag — 49 USD"]\nwhat size?',
+    })
+  })
+
+  it('does not inject swipe-reply context when the parent body is empty', async () => {
+    const out = await buildConversationContext(
+      fakeDb([{ sender_type: 'customer', content_text: 'hello' }]),
+      'conv-1',
+      undefined,
+      null,
+      { id: 'empty', content_text: '   ' },
+    )
+    expect(out).toEqual([{ role: 'user', content: 'hello' }])
+  })
+})
+
+describe('applySwipeReplyContext / formatSwipeReplyNote', () => {
+  it('is a no-op without a parent', () => {
+    const messages = [{ role: 'user' as const, content: 'hi' }]
+    expect(applySwipeReplyContext(messages, null)).toEqual(messages)
+    expect(formatSwipeReplyNote(null)).toBe('')
+    expect(formatSwipeReplyNote({ id: 'x', content_text: '  ' })).toBe('')
+  })
+
+  it('prefers interactive payload body over content_text', () => {
+    expect(
+      formatSwipeReplyNote({
+        id: 'p1',
+        content_text: 'fallback',
+        interactive_payload: {
+          kind: 'buttons',
+          body: 'Product card body',
+          buttons: [{ id: 'a', title: 'A' }],
+        },
+      }),
+    ).toBe(`${SWIPE_REPLY_NOTE_PREFIX}\nProduct card body`)
+  })
+})
+
+describe('loadQuotedParent', () => {
+  it('returns the parent row scoped to the conversation', async () => {
+    const parent = {
+      id: 'parent-1',
+      sender_type: 'bot',
+      content_type: 'text',
+      content_text: 'Earlier offer',
+      interactive_payload: null,
+    }
+    const db = {
+      from: () => {
+        const chain = {
+          select: () => chain,
+          eq: () => chain,
+          maybeSingle: () => Promise.resolve({ data: parent, error: null }),
+        }
+        return chain
+      },
+    } as unknown as SupabaseClient
+    await expect(loadQuotedParent(db, 'conv-1', 'parent-1')).resolves.toEqual(parent)
+  })
+
+  it('returns null when the parent is missing', async () => {
+    const db = {
+      from: () => {
+        const chain = {
+          select: () => chain,
+          eq: () => chain,
+          maybeSingle: () => Promise.resolve({ data: null, error: null }),
+        }
+        return chain
+      },
+    } as unknown as SupabaseClient
+    await expect(loadQuotedParent(db, 'conv-1', 'missing')).resolves.toBeNull()
+  })
+})
+
+/** Filter-tracking fake matching resolveInboundSwipeReply's query chain. */
+function swipeReplyDb(rows: {
+  inbound?: { id: string; message_id: string; reply_to_message_id: string | null }
+  parent?: {
+    id: string
+    sender_type?: string
+    content_type?: string
+    content_text?: string | null
+    interactive_payload?: unknown
+  }
+}): SupabaseClient {
+  return {
+    from: () => {
+      const filters: Record<string, unknown> = {}
+      const chain = {
+        select: () => chain,
+        eq: (col: string, val: unknown) => {
+          filters[col] = val
+          return chain
+        },
+        order: () => chain,
+        limit: () => chain,
+        maybeSingle: () => {
+          if (typeof filters.message_id === 'string') {
+            const inbound = rows.inbound
+            return Promise.resolve({
+              data:
+                inbound && inbound.message_id === filters.message_id
+                  ? inbound
+                  : null,
+              error: null,
+            })
+          }
+          if (typeof filters.id === 'string') {
+            const parent = rows.parent
+            return Promise.resolve({
+              data: parent && parent.id === filters.id ? parent : null,
+              error: null,
+            })
+          }
+          if (filters.sender_type === 'customer') {
+            return Promise.resolve({ data: rows.inbound ?? null, error: null })
+          }
+          return Promise.resolve({ data: null, error: null })
+        },
+      }
+      return chain
+    },
+  } as unknown as SupabaseClient
+}
+
+describe('resolveInboundSwipeReply', () => {
+  const parent = {
+    id: 'parent-1',
+    sender_type: 'bot',
+    content_type: 'text',
+    content_text: 'We close at 8pm on Sundays.',
+    interactive_payload: null,
+  }
+
+  it('loads the parent from reply_to_message_id when the inbound wamid matches', async () => {
+    const db = swipeReplyDb({
+      inbound: {
+        id: 'inbound-1',
+        message_id: 'wamid.inbound',
+        reply_to_message_id: 'parent-1',
+      },
+      parent,
+    })
+    await expect(
+      resolveInboundSwipeReply(db, 'conv-1', 'wamid.inbound'),
+    ).resolves.toEqual({
+      inboundId: 'inbound-1',
+      quotedParent: parent,
+    })
+  })
+
+  it('returns the inbound id with no parent when reply_to_message_id is null', async () => {
+    const db = swipeReplyDb({
+      inbound: {
+        id: 'inbound-1',
+        message_id: 'wamid.inbound',
+        reply_to_message_id: null,
+      },
+    })
+    await expect(
+      resolveInboundSwipeReply(db, 'conv-1', 'wamid.inbound'),
+    ).resolves.toEqual({ inboundId: 'inbound-1', quotedParent: null })
   })
 })

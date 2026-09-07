@@ -462,6 +462,37 @@ describe('inbound webhook: atomic unread bump (#369)', () => {
   })
 })
 
+describe('inbound webhook: swipe-reply context.id', () => {
+  it('stores reply_to_message_id when the quoted parent is in messages', async () => {
+    h.state.replyContextParent = { id: 'parent-uuid' }
+    await runWebhook({
+      ...TEXT_MESSAGE,
+      id: 'wamid.REPLY1',
+      text: { body: 'what size?' },
+      context: { id: 'wamid.PARENT1' },
+    })
+
+    expect(h.state.upsertCalls).toHaveLength(1)
+    expect(h.state.upsertCalls[0].row).toMatchObject({
+      message_id: 'wamid.REPLY1',
+      content_text: 'what size?',
+      reply_to_message_id: 'parent-uuid',
+    })
+  })
+
+  it('stores null reply_to_message_id when the parent wamid is missing from the DB', async () => {
+    h.state.replyContextParent = null
+    await runWebhook({
+      ...TEXT_MESSAGE,
+      context: { id: 'wamid.UNKNOWN' },
+    })
+
+    expect(h.state.upsertCalls[0].row).toMatchObject({
+      reply_to_message_id: null,
+    })
+  })
+})
+
 describe('inbound webhook: template quick-reply buttons (#478)', () => {
   // A customer tapping a QUICK_REPLY button on a broadcast template.
   // `context.id` points at the template message we sent — which the

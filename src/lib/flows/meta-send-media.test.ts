@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 const h = vi.hoisted(() => ({
   sendMediaMessage: vi.fn(),
+  sendTextMessage: vi.fn(),
   decrypt: vi.fn((v: string) => v),
   inserts: [] as Record<string, unknown>[],
   updates: [] as { table: string; payload: Record<string, unknown> }[],
@@ -9,7 +10,7 @@ const h = vi.hoisted(() => ({
 
 vi.mock('@/lib/whatsapp/meta-api', () => ({
   sendMediaMessage: h.sendMediaMessage,
-  sendTextMessage: vi.fn(),
+  sendTextMessage: h.sendTextMessage,
   sendInteractiveButtons: vi.fn(),
   sendInteractiveList: vi.fn(),
 }))
@@ -71,12 +72,13 @@ vi.mock('./admin-client', () => ({
   }),
 }))
 
-import { engineSendMedia } from './meta-send'
+import { engineSendMedia, engineSendText } from './meta-send'
 
 beforeEach(() => {
   h.inserts.length = 0
   h.updates.length = 0
   h.sendMediaMessage.mockResolvedValue({ messageId: 'wamid.audio' })
+  h.sendTextMessage.mockResolvedValue({ messageId: 'wamid.text' })
 })
 
 describe('engineSendMedia — generated audio persistence', () => {
@@ -110,6 +112,59 @@ describe('engineSendMedia — generated audio persistence', () => {
       media_type: 'audio/mpeg',
       message_id: 'wamid.audio',
       status: 'sent',
+      ai_generated: true,
+    })
+  })
+
+  it('forwards contextMessageId and persists reply_to_message_id', async () => {
+    await engineSendMedia({
+      accountId: 'acct-1',
+      userId: 'user-1',
+      conversationId: 'conv-1',
+      contactId: 'contact-1',
+      kind: 'audio',
+      link: 'https://cdn.example/ai-reply.ogg',
+      mediaType: 'audio/ogg',
+      contentText: 'Quoted voice reply',
+      aiGenerated: true,
+      voice: true,
+      contextMessageId: 'wamid.inbound',
+      replyToMessageId: 'inbound-uuid',
+    })
+
+    expect(h.sendMediaMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        contextMessageId: 'wamid.inbound',
+      }),
+    )
+    expect(h.inserts[0]).toMatchObject({
+      reply_to_message_id: 'inbound-uuid',
+    })
+  })
+})
+
+describe('engineSendText — swipe-reply quote', () => {
+  it('forwards contextMessageId and persists reply_to_message_id', async () => {
+    await engineSendText({
+      accountId: 'acct-1',
+      userId: 'user-1',
+      conversationId: 'conv-1',
+      contactId: 'contact-1',
+      text: 'That size is in stock.',
+      aiGenerated: true,
+      contextMessageId: 'wamid.inbound',
+      replyToMessageId: 'inbound-uuid',
+    })
+
+    expect(h.sendTextMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: 'That size is in stock.',
+        contextMessageId: 'wamid.inbound',
+      }),
+    )
+    expect(h.inserts[0]).toMatchObject({
+      content_text: 'That size is in stock.',
+      reply_to_message_id: 'inbound-uuid',
       ai_generated: true,
     })
   })

@@ -1,6 +1,12 @@
 ﻿import { supabaseAdmin } from './admin-client'
 import { loadAiConfig } from './config'
-import { buildConversationContext } from './context'
+import {
+  applySwipeReplyContext,
+  buildConversationContext,
+  formatSwipeReplyNote,
+  resolveInboundSwipeReply,
+  SWIPE_REPLY_NOTE_PREFIX,
+} from './context'
 import {
   emptyContactMemory,
   formatCustomerMemoryBlock,
@@ -77,6 +83,7 @@ import {
   formatProductFocusNote,
   looksLikeNativeCartTalk,
   parseProductFocus,
+  productFocusFromMessage,
   saveProductFocus,
   scopeMessagesToProductFocus,
   wantsProductOrder,
@@ -207,11 +214,17 @@ export async function dispatchInboundToAiReply(
     )
       return
 
-    const messages = await buildConversationContext(db, conversationId)
+    const swipeReply = await resolveInboundSwipeReply(
+      db,
+      conversationId,
+      inboundMetaMessageId,
+    )
+    let messages = await buildConversationContext(db, conversationId)
     if (messages.length === 0) {
       if (inboundContentType !== 'audio') return
       messages.push({ role: 'user', content: INBOUND_VOICE_PLACEHOLDER })
     }
+    messages = applySwipeReplyContext(messages, swipeReply.quotedParent)
 
     // Account-wide throttle on the shared BYO key. The per-conversation
     // cap bounds one thread; this bounds a burst across many threads.
@@ -289,7 +302,7 @@ export async function dispatchInboundToAiReply(
       .eq('account_id', accountId)
       .maybeSingle()
 
-    const sendArgs = {
+    const sendArgsBase = {
       accountId,
       userId: configOwnerUserId,
       conversationId,
@@ -300,7 +313,7 @@ export async function dispatchInboundToAiReply(
 
     if (!replyLanguage?.locked && !languageChoiceOnly && !pinnedFocus) {
       await sendWelcomeLanguagePicker({
-        sendArgs,
+        sendArgs: sendArgsBase,
         firstName: customerName,
       })
       return
@@ -308,19 +321,28 @@ export async function dispatchInboundToAiReply(
 
     if (languageChoiceOnly && replyLanguage?.locked) {
       await engineSendText({
-        ...sendArgs,
+        ...sendArgsBase,
         text: languageLockConfirmation(replyLanguage),
         aiGenerated: true,
       })
       if (!priorCustomerQuestion(messages)) {
         await engineSendText({
-          ...sendArgs,
+          ...sendArgsBase,
           text: languageHelpAsk(replyLanguage),
           aiGenerated: true,
         })
         return
       }
     }
+
+    const sendArgs: SendArgs =
+      swipeReply.quotedParent && inboundMetaMessageId
+        ? {
+            ...sendArgsBase,
+            contextMessageId: inboundMetaMessageId,
+            replyToMessageId: swipeReply.inboundId ?? undefined,
+          }
+        : sendArgsBase
 
     // Deterministic, user-configured responders win over the LLM for
     // typed messages — unless full-agent mode is on. Voice notes and
@@ -409,6 +431,20 @@ export async function dispatchInboundToAiReply(
       : parseProductFocus(
           (conv as { ai_product_focus?: unknown }).ai_product_focus,
         )
+    if (
+      !productFocus &&
+      !productsTap &&
+      swipeReply.quotedParent
+    ) {
+      const fromQuote = productFocusFromMessage(swipeReply.quotedParent)
+      if (fromQuote) {
+        productFocus = {
+          ...fromQuote,
+          stage: 'focused',
+          setBy: 'reply_draft',
+        }
+      }
+    }
     if (productsTap && parseProductFocus(
       (conv as { ai_product_focus?: unknown }).ai_product_focus,
     )) {
@@ -430,6 +466,13 @@ export async function dispatchInboundToAiReply(
           content: formatProductFocusNote(productFocus),
         })
       }
+    }
+    const swipeNote = formatSwipeReplyNote(swipeReply.quotedParent)
+    if (
+      swipeNote &&
+      !messages.some((m) => m.content.startsWith(SWIPE_REPLY_NOTE_PREFIX))
+    ) {
+      messages.unshift({ role: 'assistant', content: swipeNote })
     }
     if (productFocus && shopify) {
       try {
@@ -1044,6 +1087,8 @@ type SendArgs = {
   userId: string
   conversationId: string
   contactId: string
+  contextMessageId?: string
+  replyToMessageId?: string
 }
 
 async function sendWelcomeLanguagePicker(args: {

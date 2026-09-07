@@ -46,6 +46,18 @@ const h = vi.hoisted(() => ({
     updatePayload: null as Record<string, unknown> | null,
     rpcCalls: [] as { name: string; args: unknown }[],
     contactName: null as string | null,
+    inboundMessage: null as {
+      id: string
+      message_id: string
+      reply_to_message_id: string | null
+    } | null,
+    quotedParent: null as {
+      id: string
+      sender_type?: string
+      content_type?: string
+      content_text?: string | null
+      interactive_payload?: Record<string, unknown> | null
+    } | null,
   },
 }))
 
@@ -83,7 +95,13 @@ vi.mock('@/lib/shopify', () => ({
     return tools
   },
 }))
-vi.mock('./context', () => ({ buildConversationContext: h.buildConversationContext }))
+vi.mock('./context', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./context')>()
+  return {
+    ...actual,
+    buildConversationContext: h.buildConversationContext,
+  }
+})
 vi.mock('./chat-memory', () => ({
   loadContactMemory: h.loadContactMemory,
   persistLanguageLock: h.persistLanguageLock,
@@ -150,6 +168,45 @@ vi.mock('./admin-client', () => ({
           in: () => chain,
           limit: () =>
             Promise.resolve({ data: h.state.autoResponders, error: null }),
+        }
+        return chain
+      }
+      if (table === 'messages') {
+        const filters: Record<string, unknown> = {}
+        const chain = {
+          select: () => chain,
+          eq: (col: string, val: unknown) => {
+            filters[col] = val
+            return chain
+          },
+          order: () => chain,
+          limit: () => chain,
+          maybeSingle: () => {
+            if (typeof filters.message_id === 'string') {
+              const inbound = h.state.inboundMessage
+              return Promise.resolve({
+                data:
+                  inbound && inbound.message_id === filters.message_id
+                    ? inbound
+                    : null,
+                error: null,
+              })
+            }
+            if (typeof filters.id === 'string') {
+              const parent = h.state.quotedParent
+              return Promise.resolve({
+                data: parent && parent.id === filters.id ? parent : null,
+                error: null,
+              })
+            }
+            if (filters.sender_type === 'customer') {
+              return Promise.resolve({
+                data: h.state.inboundMessage,
+                error: null,
+              })
+            }
+            return Promise.resolve({ data: null, error: null })
+          },
         }
         return chain
       }
@@ -226,6 +283,8 @@ beforeEach(() => {
   h.state.updatePayload = null
   h.state.rpcCalls = []
   h.state.contactName = null
+  h.state.inboundMessage = null
+  h.state.quotedParent = null
   h.loadAiConfig.mockResolvedValue(aiConfig())
   h.loadShopifyConfig.mockResolvedValue(null)
   h.loadCommerceSettings.mockResolvedValue({
@@ -430,7 +489,65 @@ describe('dispatchInboundToAiReply — eligibility gates', () => {
     expect(h.engineSendText).toHaveBeenCalledWith(
       expect.objectContaining({ conversationId: 'conv-1', text: 'Hello!' }),
     )
+    expect(h.engineSendText.mock.calls[0][0].contextMessageId).toBeUndefined()
     expect(h.engineSendTypingIndicator).not.toHaveBeenCalled()
+  })
+
+  it('does not inject swipe-reply context when the inbound has no reply_to', async () => {
+    h.state.inboundMessage = {
+      id: 'inbound-uuid',
+      message_id: 'wamid.inbound',
+      reply_to_message_id: null,
+    }
+    await dispatchInboundToAiReply({
+      ...ARGS,
+      inboundMetaMessageId: 'wamid.inbound',
+    })
+    const messages = h.generateReply.mock.calls[0][0].messages as { content: string }[]
+    expect(messages.some((m) => m.content.includes('PRIMARY CONTEXT'))).toBe(false)
+    expect(h.engineSendText).toHaveBeenCalledWith(
+      expect.objectContaining({ text: 'Hello!' }),
+    )
+    expect(h.engineSendText.mock.calls[0][0].contextMessageId).toBeUndefined()
+  })
+
+  it('injects the quoted parent as primary context and quotes the inbound send', async () => {
+    h.state.inboundMessage = {
+      id: 'inbound-uuid',
+      message_id: 'wamid.inbound',
+      reply_to_message_id: 'parent-1',
+    }
+    h.state.quotedParent = {
+      id: 'parent-1',
+      sender_type: 'bot',
+      content_type: 'text',
+      content_text: 'We close at 8pm on Sundays.',
+      interactive_payload: null,
+    }
+    h.buildConversationContext.mockResolvedValue([
+      { role: 'user', content: 'what size?' },
+    ])
+    await dispatchInboundToAiReply({
+      ...ARGS,
+      inboundMetaMessageId: 'wamid.inbound',
+    })
+    const messages = h.generateReply.mock.calls[0][0].messages as { role: string; content: string }[]
+    expect(messages[0]).toEqual({
+      role: 'assistant',
+      content:
+        'PRIMARY CONTEXT (customer swipe-replied to this message):\nWe close at 8pm on Sundays.',
+    })
+    expect(messages[1]).toEqual({
+      role: 'user',
+      content: '[Replying to: "We close at 8pm on Sundays."]\nwhat size?',
+    })
+    expect(h.engineSendText).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: 'Hello!',
+        contextMessageId: 'wamid.inbound',
+        replyToMessageId: 'inbound-uuid',
+      }),
+    )
   })
 
   it('skips auto-reply while a live WhatsApp call is in progress', async () => {

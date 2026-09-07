@@ -58,6 +58,10 @@ interface SendTextEngineArgs {
    *  badges it as an AI reply. Only the auto-reply bot sets this;
    *  deterministic Flow/automation sends leave it false. */
   aiGenerated?: boolean
+  /** Meta `wamid` of the inbound message to quote on WhatsApp. */
+  contextMessageId?: string
+  /** Internal `messages.id` of the inbound row this send replies to. */
+  replyToMessageId?: string
 }
 
 /**
@@ -109,6 +113,7 @@ export async function engineSendText(
       accessToken,
       to: phone,
       text: args.text,
+      contextMessageId: args.contextMessageId,
     })
     return r.messageId
   }
@@ -143,6 +148,7 @@ export async function engineSendText(
     message_id: waMessageId,
     status: 'sent',
     ai_generated: args.aiGenerated ?? false,
+    reply_to_message_id: args.replyToMessageId || null,
   })
   if (msgErr) {
     throw new Error(`sent to Meta but DB insert failed: ${msgErr.message}`)
@@ -180,6 +186,10 @@ interface SendMediaEngineArgs {
   aiGenerated?: boolean
   /** Audio-only — native WhatsApp voice note bubble (OGG/Opus + voice flag). */
   voice?: boolean
+  /** Meta `wamid` of the inbound message to quote on WhatsApp. */
+  contextMessageId?: string
+  /** Internal `messages.id` of the inbound row this send replies to. */
+  replyToMessageId?: string
 }
 
 /**
@@ -232,6 +242,7 @@ export async function engineSendMedia(
       caption: args.caption,
       filename: args.filename,
       voice: args.voice,
+      contextMessageId: args.contextMessageId,
     })
     return r.messageId
   }
@@ -275,6 +286,7 @@ export async function engineSendMedia(
     message_id: waMessageId,
     status: 'sent',
     ai_generated: args.aiGenerated ?? false,
+    reply_to_message_id: args.replyToMessageId || null,
   })
   if (msgErr) {
     throw new Error(`sent to Meta but DB insert failed: ${msgErr.message}`)
