@@ -9,7 +9,6 @@ import SalesJourneyBanner from "@/components/marketing/SalesJourneyBanner";
 import SalesAssistantSection from "@/components/marketing/SalesAssistantSection";
 import WhyWhatsApp from "@/components/marketing/WhyWhatsApp";
 import TickerBar from "@/components/marketing/TickerBar";
-import Testimonials from "@/components/marketing/Testimonials";
 import Onboarding from "@/components/marketing/Onboarding";
 import PricingSection from "@/components/marketing/PricingSection";
 import FAQ from "@/components/marketing/FAQ";
@@ -77,9 +76,6 @@ export default function LandingPage() {
 
       {/* Infinite Green Ticker Bar */}
       <TickerBar />
-
-      {/* Testimonials */}
-      <Testimonials />
 
       {/* Onboarding in 10 Minutes */}
       <Onboarding />

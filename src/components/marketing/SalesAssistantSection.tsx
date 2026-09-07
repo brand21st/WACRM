@@ -140,13 +140,19 @@ export default function SalesAssistantSection() {
             </div>
           </div>
 
-          <div className="feature-col-visual">
+          <div className="feature-col-visual" style={{ display: "flex", justifyContent: "center" }}>
             <Image
-              src="https://umsousercontent.com/lib_EyxlwrMuBuWXHRhZ/bfe60rjxdht3o9im.webp"
+              src="/images/vachat-sales-assistant.jpg"
               alt="VaChat AI Sales Assistant Interface for Shopify"
-              width={600}
-              height={500}
-              style={{ width: "100%", height: "auto", borderRadius: "12px", boxShadow: "0 10px 30px -10px rgba(0,0,0,0.08)" }}
+              width={682}
+              height={1024}
+              style={{
+                width: "100%",
+                maxWidth: "540px",
+                height: "auto",
+                borderRadius: "16px",
+                boxShadow: "0 15px 35px -10px rgba(0, 0, 0, 0.12)",
+              }}
             />
           </div>
         </div>

@@ -75,7 +75,7 @@ export default function Onboarding() {
                 href={APP_SIGNUP}
                 className="btn btn-primary btn-large"
               >
-                <span>Start Now for FREE</span>
+                <span>Start Now </span>
                 <svg viewBox="0 0 15 12" xmlns="http://www.w3.org/2000/svg">
                   <path d="M9.6 7H1a1 1 0 1 1 0-2h8.6L7 2.4A1 1 0 0 1 8.4 1l4.3 4.2c.2.3.3.5.3.8 0 .3-.1.5-.3.7L8.4 11A1 1 0 1 1 7 9.5L9.6 7z" fill="currentColor"></path>
                 </svg>
@@ -83,13 +83,19 @@ export default function Onboarding() {
             </div>
           </div>
 
-          <div className="onboard-visual">
+          <div className="onboard-visual" style={{ display: "flex", justifyContent: "center" }}>
             <Image
-              src="https://umsousercontent.com/lib_EyxlwrMuBuWXHRhZ/bfe60rjxdht3o9im.webp"
+              src="/images/vachat-waba-dashboard.png"
               alt="Get WABA Dashboard in 10 minutes"
-              width={600}
-              height={450}
-              style={{ width: "100%", height: "auto" }}
+              width={682}
+              height={1024}
+              style={{
+                width: "100%",
+                maxWidth: "520px",
+                height: "auto",
+                borderRadius: "16px",
+                boxShadow: "0 15px 40px rgba(0, 0, 0, 0.1)",
+              }}
             />
           </div>
         </div>

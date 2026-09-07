@@ -76,7 +76,6 @@ export default function Footer() {
               <li><a href="#education">Education &amp; EdTech</a></li>
               <li><a href="#real-estate">Real Estate</a></li>
               <li><a href="#finance">Fintech &amp; Banking</a></li>
-              <li><a href="#testimonials">Customer Stories</a></li>
             </ul>
           </div>
 

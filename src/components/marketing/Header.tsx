@@ -254,15 +254,6 @@ export default function Header({ onMenuToggle }: HeaderProps) {
                         </div>
                       </a>
                     </li>
-                    <li>
-                      <a href="#testimonials" className="flyout-link">
-                        <div className="flyout-icon">🏆</div>
-                        <div>
-                          <span className="flyout-title">Customer Stories</span>
-                          <span className="flyout-desc">How 210,000+ brands scale</span>
-                        </div>
-                      </a>
-                    </li>
                   </ul>
                 </div>
               </li>
