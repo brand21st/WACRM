@@ -872,6 +872,7 @@
       "colWhatsapp": "WhatsApp",
       "setProductCount": "상품 {count}개",
       "setSynced": "게시됨",
+      "setReviewPending": "WhatsApp 검토 대기",
       "setNotPublished": "미게시",
       "tabProducts": "상품",
       "tabCollections": "컬렉션",
@@ -951,6 +952,7 @@
       "add": "추가",
       "remove": "제거",
       "metaSynced": "WhatsApp에 게시됨",
+      "metaReviewPending": "WhatsApp이 이 컬렉션을 승인할 때까지 기다립니다. 몇 시간이 걸릴 수 있습니다.",
       "metaNotPublished": "아직 WhatsApp에 게시되지 않았습니다"
     },
     "analytics": {

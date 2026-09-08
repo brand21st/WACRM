@@ -85,6 +85,7 @@ export async function enqueueFullCatalogMetaSync(
     }
   }
 
+  // Refresh WhatsApp Catalogue collection covers after product items land.
   try {
     const collections = await listCollectionsByAccount(db, accountId)
     for (const collection of collections) {

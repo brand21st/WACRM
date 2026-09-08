@@ -255,7 +255,7 @@ export const SHOPIFY_LLM_TOOLS: LlmToolDef[] = [
 export const SEND_WHATSAPP_CATALOG_TOOL: LlmToolDef = {
   name: 'send_whatsapp_catalog',
   description:
-    'Send the WhatsApp catalog grouped by collection names (Kurti, Co-Ord Set, and similar headings). Call only when the customer asks for the catalog, catalogue, or to browse the store catalog. Do not call for named products, new arrivals, or photo match.',
+    'Send View catalog so WhatsApp opens Catalogue home (collection headings and See all). Call only when the customer asks for the catalog, catalogue, or to browse the store catalog. Do not call for named products, new arrivals, or photo match.',
   parameters: {
     type: 'object',
     properties: {},

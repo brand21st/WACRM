@@ -43,12 +43,14 @@ describe('catalogSetToJson', () => {
         title: 'Sarees',
         status: 'active',
         metaProductSetId: 'ps-1',
+        metaCollectionReview: 'pending',
         productCount: 2,
       }),
     ).toEqual(
       expect.objectContaining({
         metaProductSetId: 'ps-1',
         metaSynced: true,
+        metaCollectionReview: 'pending',
         productCount: 2,
       }),
     )

@@ -402,6 +402,52 @@ export function metaProductSetWriteBody(opts: {
   }
 }
 
+export type MetaProductSetReview = 'pending' | 'live'
+
+export function collectionReviewFromMetadata(opts: {
+  latestMetadata?: unknown
+  liveMetadata?: unknown
+}): MetaProductSetReview | null {
+  if (hasCollectionMetadata(opts.liveMetadata)) return 'live'
+  if (hasCollectionMetadata(opts.latestMetadata)) return 'pending'
+  return null
+}
+
+function hasCollectionMetadata(raw: unknown): boolean {
+  if (!raw || typeof raw !== 'object') return false
+  const row = raw as { cover_image_url?: unknown; description?: unknown }
+  return Boolean(
+    String(row.cover_image_url ?? '').trim() ||
+      String(row.description ?? '').trim(),
+  )
+}
+
+export async function readMetaProductSetReview(
+  productSetId: string,
+  accessToken: string,
+): Promise<MetaProductSetReview | null> {
+  const id = productSetId.trim()
+  if (!id) return null
+  const url = `${META_API_BASE}/${encodeURIComponent(id)}?fields=id,name,live_metadata,latest_metadata,product_count`
+  let res: Response
+  try {
+    res = await fetch(url, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    })
+  } catch {
+    return null
+  }
+  const body = (await res.json().catch(() => null)) as {
+    live_metadata?: unknown
+    latest_metadata?: unknown
+  } | null
+  if (!res.ok || !body) return null
+  return collectionReviewFromMetadata({
+    latestMetadata: body.latest_metadata,
+    liveMetadata: body.live_metadata,
+  })
+}
+
 function isSameProductSetFilterError(err: unknown): boolean {
   const message = err instanceof Error ? err.message : String(err)
   return /same filters already exists/i.test(message)

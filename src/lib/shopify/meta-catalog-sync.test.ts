@@ -16,6 +16,7 @@ vi.mock('@/lib/whatsapp/encryption', () => ({
 import {
   catalogIdLooksLikeWhatsAppAsset,
   catalogItemsFromProduct,
+  collectionReviewFromMetadata,
   explainMetaCatalogSyncError,
   syncMetaCatalog,
 } from './meta-catalog-sync'
@@ -171,5 +172,23 @@ describe('syncMetaCatalog', () => {
     expect(result.count).toBe(4)
     expect(enqueueFullCatalogMetaSync).toHaveBeenCalledWith(db, 'acct-a')
     expect(from).not.toHaveBeenCalledWith('shopify_catalog_products')
+  })
+})
+
+describe('collectionReviewFromMetadata', () => {
+  it('is live when live_metadata is present and pending when only latest exists', () => {
+    expect(
+      collectionReviewFromMetadata({
+        latestMetadata: { description: 'Kurti' },
+        liveMetadata: { description: 'Kurti', cover_image_url: 'https://cdn.example/k.jpg' },
+      }),
+    ).toBe('live')
+    expect(
+      collectionReviewFromMetadata({
+        latestMetadata: { description: 'Kurti' },
+        liveMetadata: null,
+      }),
+    ).toBe('pending')
+    expect(collectionReviewFromMetadata({})).toBeNull()
   })
 })

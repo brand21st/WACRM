@@ -60,6 +60,9 @@ export interface CatalogMedia {
   storagePath?: string | null
 }
 
+export const META_COLLECTION_REVIEWS = ['pending', 'live'] as const
+export type MetaCollectionReview = (typeof META_COLLECTION_REVIEWS)[number]
+
 export interface CatalogCollection {
   id: string
   accountId: string
@@ -67,6 +70,7 @@ export interface CatalogCollection {
   title: string
   status: CatalogStatus
   metaProductSetId?: string | null
+  metaCollectionReview?: MetaCollectionReview | null
   productCount?: number
   productIds?: string[]
 }

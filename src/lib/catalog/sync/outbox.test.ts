@@ -59,6 +59,18 @@ function createOutboxDb(opts?: {
       { product_id: 'prod-1', account_id: 'acct-a', retailer_id: 'BAG-RED' },
       { product_id: 'prod-2', account_id: 'acct-a', retailer_id: 'BAG-BLUE' },
     ],
+    catalog_collections: [
+      {
+        id: 'col-1',
+        account_id: 'acct-a',
+        handle: 'sarees',
+        title: 'Sarees',
+        status: 'active',
+      },
+    ],
+    catalog_product_collections: [
+      { account_id: 'acct-a', collection_id: 'col-1', product_id: 'prod-1' },
+    ],
   }
   let seq = 1
   const nextId = () => `outbox-${seq++}`
@@ -280,9 +292,9 @@ describe('catalog sync outbox', () => {
       .from('catalog_sync_outbox')
       .select('*')
       .eq('account_id', 'acct-a')
-    expect(data).toHaveLength(2)
-    expect(data?.every((row) => row.op === 'upsert')).toBe(true)
-    expect(enqueueCatalogMetaSync).toHaveBeenCalledTimes(2)
+    expect(data?.filter((row) => row.op === 'upsert')).toHaveLength(2)
+    expect(data?.some((row) => row.op === 'set_upsert')).toBe(true)
+    expect(enqueueCatalogMetaSync).toHaveBeenCalledTimes(3)
   })
 
   it('limits inline Graph work on full sync when Redis is down', async () => {

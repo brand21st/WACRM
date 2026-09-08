@@ -872,6 +872,7 @@
       "colWhatsapp": "WhatsApp",
       "setProductCount": "{count} products",
       "setSynced": "Published",
+      "setReviewPending": "Pending WhatsApp review",
       "setNotPublished": "Not published",
       "tabProducts": "Products",
       "tabCollections": "Collections",
@@ -951,6 +952,7 @@
       "add": "Add",
       "remove": "Remove",
       "metaSynced": "Published to WhatsApp",
+      "metaReviewPending": "Waiting for WhatsApp to approve this collection (often a few hours).",
       "metaNotPublished": "Not published to WhatsApp yet"
     },
     "analytics": {

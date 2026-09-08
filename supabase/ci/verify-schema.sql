@@ -64,6 +64,16 @@ BEGIN
     SELECT 1
     FROM information_schema.columns
     WHERE table_schema = 'public'
+      AND table_name = 'catalog_collections'
+      AND column_name = 'meta_collection_review'
+  ) THEN
+    RAISE EXCEPTION 'catalog_collections.meta_collection_review is missing — migration 084 did not apply';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
       AND table_name = 'shopify_configs'
       AND column_name = 'meta_catalog_ids'
   ) THEN

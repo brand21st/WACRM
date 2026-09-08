@@ -7,6 +7,7 @@ import {
   deleteMetaProductSet,
   findMetaProductSetIdByName,
   loadWhatsAppAccessToken,
+  readMetaProductSetReview,
   upsertMetaProductSet,
 } from '@/lib/shopify/meta-catalog-sync'
 import { isCustomerFacingCollection } from './catalog-message-sections'
@@ -111,16 +112,22 @@ export async function publishCatalogSetToMeta(
       coverImageUrl,
       description: collection.title,
     })
-    if (
-      isPrimary &&
-      productSetId &&
-      productSetId !== collection.metaProductSetId
-    ) {
-      await saveMetaProductSetId(
+    if (isPrimary && productSetId) {
+      if (productSetId !== collection.metaProductSetId) {
+        await saveMetaProductSetId(
+          db,
+          collection.accountId,
+          collection.id,
+          productSetId,
+        )
+      }
+      const review =
+        (await readMetaProductSetReview(productSetId, wa.token)) ?? 'pending'
+      await saveMetaCollectionReview(
         db,
         collection.accountId,
         collection.id,
-        productSetId,
+        review,
       )
     }
   }
@@ -256,7 +263,24 @@ async function saveMetaProductSetId(
 ): Promise<void> {
   const { error } = await db
     .from('catalog_collections')
-    .update({ meta_product_set_id: productSetId })
+    .update({
+      meta_product_set_id: productSetId,
+      ...(productSetId ? {} : { meta_collection_review: null }),
+    })
+    .eq('account_id', accountId)
+    .eq('id', collectionId)
+  if (error) throw error
+}
+
+async function saveMetaCollectionReview(
+  db: SupabaseClient,
+  accountId: string,
+  collectionId: string,
+  review: 'pending' | 'live',
+): Promise<void> {
+  const { error } = await db
+    .from('catalog_collections')
+    .update({ meta_collection_review: review })
     .eq('account_id', accountId)
     .eq('id', collectionId)
   if (error) throw error

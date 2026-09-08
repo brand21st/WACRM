@@ -1,5 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { parseCatalogStatus } from './status'
+import { parseCatalogStatus, parseMetaCollectionReview } from './status'
 import type {
   CatalogCollection,
   CatalogExternalId,
@@ -377,7 +377,7 @@ async function loadCollectionsForProducts(
   if (collectionIds.length === 0) return map
   const { data: collections, error: colErr } = await db
     .from('catalog_collections')
-    .select('id, account_id, handle, title, status, meta_product_set_id')
+    .select('id, account_id, handle, title, status, meta_product_set_id, meta_collection_review')
     .eq('account_id', accountId)
     .in('id', collectionIds)
   if (colErr) throw colErr
@@ -389,6 +389,7 @@ async function loadCollectionsForProducts(
       title: string
       status: string
       meta_product_set_id?: string | null
+      meta_collection_review?: string | null
     }[]).map((row) => [
       String(row.id),
       {
@@ -398,6 +399,7 @@ async function loadCollectionsForProducts(
         title: String(row.title),
         status: parseCatalogStatus(row.status),
         metaProductSetId: row.meta_product_set_id ?? null,
+        metaCollectionReview: parseMetaCollectionReview(row.meta_collection_review),
       } satisfies CatalogCollection,
     ]),
   )
@@ -473,7 +475,7 @@ export async function listCollectionsByAccount(
 ): Promise<CatalogCollection[]> {
   const { data, error } = await db
     .from('catalog_collections')
-    .select('id, account_id, handle, title, status, meta_product_set_id')
+    .select('id, account_id, handle, title, status, meta_product_set_id, meta_collection_review')
     .eq('account_id', accountId)
     .order('title', { ascending: true })
   if (error) throw error
@@ -484,6 +486,7 @@ export async function listCollectionsByAccount(
     title: string
     status: string
     meta_product_set_id?: string | null
+    meta_collection_review?: string | null
   }[]
   const counts = await countProductsByCollection(
     db,
@@ -497,6 +500,7 @@ export async function listCollectionsByAccount(
     title: row.title,
     status: parseCatalogStatus(row.status),
     metaProductSetId: row.meta_product_set_id ?? null,
+    metaCollectionReview: parseMetaCollectionReview(row.meta_collection_review),
     productCount: counts.get(row.id) ?? 0,
   }))
 }
@@ -508,7 +512,7 @@ export async function getCollectionById(
 ): Promise<CatalogCollection | null> {
   const { data, error } = await db
     .from('catalog_collections')
-    .select('id, account_id, handle, title, status, meta_product_set_id')
+    .select('id, account_id, handle, title, status, meta_product_set_id, meta_collection_review')
     .eq('account_id', accountId)
     .eq('id', collectionId)
     .maybeSingle()
@@ -522,6 +526,7 @@ export async function getCollectionById(
     title: String(data.title),
     status: parseCatalogStatus(String(data.status)),
     metaProductSetId: data.meta_product_set_id ? String(data.meta_product_set_id) : null,
+    metaCollectionReview: parseMetaCollectionReview(data.meta_collection_review),
     productCount: productIds.length,
     productIds,
   }

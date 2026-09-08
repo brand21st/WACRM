@@ -165,10 +165,11 @@ describe('catalog set Meta sync', () => {
     expect(body.filter).not.toContain('BAG-BLUE')
     const { data } = await db
       .from('catalog_collections')
-      .select('meta_product_set_id')
+      .select('meta_product_set_id, meta_collection_review')
       .eq('id', 'col-1')
       .maybeSingle()
     expect(data?.meta_product_set_id).toBe('ps-99')
+    expect(data?.meta_collection_review).toBe('pending')
   })
 
   it('keeps the local set when Graph throws', async () => {

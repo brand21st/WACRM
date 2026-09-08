@@ -20,6 +20,7 @@ export function catalogSetToJson(set: CatalogCollection) {
     productIds: set.productIds ?? [],
     metaProductSetId: set.metaProductSetId ?? null,
     metaSynced: Boolean(set.metaProductSetId),
+    metaCollectionReview: set.metaCollectionReview ?? null,
   }
 }
 

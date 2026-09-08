@@ -67,6 +67,7 @@ interface CatalogSetListItem {
   title: string;
   productCount: number;
   metaSynced: boolean;
+  metaCollectionReview?: 'pending' | 'live' | null;
 }
 
 function formatWhen(value: string | null, fallback: string): string {
@@ -432,8 +433,20 @@ export function CatalogWorkspace({
                         {t('setProductCount', { count: set.productCount ?? 0 })}
                       </TableCell>
                       <TableCell>
-                        <Badge variant={set.metaSynced ? 'secondary' : 'outline'}>
-                          {set.metaSynced ? t('setSynced') : t('setNotPublished')}
+                        <Badge
+                          variant={
+                            set.metaCollectionReview === 'live'
+                              ? 'secondary'
+                              : 'outline'
+                          }
+                        >
+                          {set.metaCollectionReview === 'live'
+                            ? t('setSynced')
+                            : set.metaCollectionReview === 'pending'
+                              ? t('setReviewPending')
+                              : set.metaSynced
+                                ? t('setSynced')
+                                : t('setNotPublished')}
                         </Badge>
                       </TableCell>
                     </TableRow>

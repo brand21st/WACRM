@@ -22,6 +22,7 @@ interface CatalogCollection {
   productIds: string[];
   productCount: number;
   metaSynced: boolean;
+  metaCollectionReview?: 'pending' | 'live' | null;
 }
 
 export function CollectionEditor({ collectionId }: { collectionId?: string }) {
@@ -39,6 +40,9 @@ export function CollectionEditor({ collectionId }: { collectionId?: string }) {
   const [products, setProducts] = useState<CatalogListItem[]>([]);
   const [search, setSearch] = useState('');
   const [metaSynced, setMetaSynced] = useState(false);
+  const [metaCollectionReview, setMetaCollectionReview] = useState<
+    'pending' | 'live' | null
+  >(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -63,6 +67,7 @@ export function CollectionEditor({ collectionId }: { collectionId?: string }) {
         setStatus(collection.status ?? 'active');
         setProductIds(collection.productIds ?? []);
         setMetaSynced(Boolean(collection.metaSynced));
+        setMetaCollectionReview(collection.metaCollectionReview ?? null);
       } catch (err) {
         toast.error(err instanceof Error ? err.message : t('loadFailed'));
       } finally {
@@ -126,6 +131,7 @@ export function CollectionEditor({ collectionId }: { collectionId?: string }) {
         setHandle(collection.handle);
         setProductIds(collection.productIds ?? []);
         setMetaSynced(Boolean(collection.metaSynced));
+        setMetaCollectionReview(collection.metaCollectionReview ?? null);
       }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : t('saveFailed'));
@@ -183,7 +189,13 @@ export function CollectionEditor({ collectionId }: { collectionId?: string }) {
           </h1>
           {!isNew ? (
             <p className="mt-1 text-sm text-muted-foreground">
-              {metaSynced ? t('metaSynced') : t('metaNotPublished')}
+              {metaCollectionReview === 'live'
+                ? t('metaSynced')
+                : metaCollectionReview === 'pending'
+                  ? t('metaReviewPending')
+                  : metaSynced
+                    ? t('metaSynced')
+                    : t('metaNotPublished')}
             </p>
           ) : null}
         </div>

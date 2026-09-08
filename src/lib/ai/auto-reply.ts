@@ -33,7 +33,7 @@ import { speakableFirstName } from './customer-name'
 import { buildHandoffSummary } from './handoff'
 import { logAiUsage } from './usage'
 import { latestUserMessage } from './query'
-import { engineSendText, engineSendMedia, engineSendTypingIndicator, engineSendInteractiveButtons, engineSendInteractiveList, engineSendCtaUrl, engineSendCatalogMessage, engineSendProductList } from '@/lib/flows/meta-send'
+import { engineSendText, engineSendMedia, engineSendTypingIndicator, engineSendInteractiveButtons, engineSendInteractiveList, engineSendCtaUrl, engineSendCatalogMessage } from '@/lib/flows/meta-send'
 import { checkRateLimit, RATE_LIMITS } from '@/lib/rate-limit'
 import {
   INBOUND_VOICE_PLACEHOLDER,
@@ -118,7 +118,6 @@ import {
 } from '@/lib/catalog/intelligence/recommend'
 import { mergeAndPersistShoppingContext } from '@/lib/catalog/intelligence/shopping-context'
 import { recordCatalogProductEvents } from '@/lib/catalog/analytics/events'
-import { buildCatalogCollectionSections } from '@/lib/catalog/sync/catalog-message-sections'
 
 interface DispatchArgs {
   /** Tenancy key — drives config, contact, and whatsapp_config lookups. */
@@ -1904,27 +1903,6 @@ export async function sendWhatsAppCatalogMessage(
 ): Promise<boolean> {
   const body = (bodyText.trim() || CATALOG_MESSAGE_FALLBACK).slice(0, 1024)
   try {
-    const db = supabaseAdmin()
-    const settings = await loadCommerceSettings(db, sendArgs.accountId).catch(() => null)
-    const catalogId = settings?.metaCatalogId?.trim() ?? ''
-    const sections = catalogId
-      ? await buildCatalogCollectionSections(db, sendArgs.accountId).catch((err) => {
-          console.warn('[ai auto-reply] collection catalog sections failed:', err)
-          return []
-        })
-      : []
-    if (catalogId && sections.length > 0) {
-      await engineSendProductList({
-        ...sendArgs,
-        catalogId,
-        headerText: 'Catalogue',
-        bodyText: body,
-        sections,
-        productRetailerIds: sections.flatMap((section) => section.productRetailerIds),
-        aiGenerated: true,
-      })
-      return true
-    }
     await engineSendCatalogMessage({
       ...sendArgs,
       bodyText: body,

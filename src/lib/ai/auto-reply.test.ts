@@ -2362,7 +2362,7 @@ describe('dispatchInboundToAiReply — cart offer', () => {
     expect(h.engineSendProductList).not.toHaveBeenCalled()
   })
 
-  it('sends a collection-grouped product list when catalog collections exist', async () => {
+  it('opens WhatsApp Catalogue when the customer asks for the catalog', async () => {
     h.loadAiConfig.mockResolvedValue(aiConfig({ fullAgentEnabled: true }))
     h.buildConversationContext.mockResolvedValue([
       { role: 'user', content: 'show catalog' },
@@ -2383,30 +2383,20 @@ describe('dispatchInboundToAiReply — cart offer', () => {
       hasRazorpayWebhookSecret: false,
       shipBeneficiary: null,
     })
-    h.buildCatalogCollectionSections.mockResolvedValue([
-      { title: 'Kurti', productRetailerIds: ['K1', 'K2'] },
-      { title: 'Co-Ord Set', productRetailerIds: ['C1'] },
-    ])
     h.generateReply.mockImplementation(async (args: { executeTool?: Function }) => {
       if (args.executeTool) await args.executeTool('send_whatsapp_catalog', {})
-      return { text: 'Browse by collection.', handoff: false }
+      return { text: 'Browse our catalog.', handoff: false }
     })
 
     await dispatchInboundToAiReply(ARGS)
 
-    expect(h.engineSendProductList).toHaveBeenCalledWith(
+    expect(h.engineSendCatalogMessage).toHaveBeenCalledWith(
       expect.objectContaining({
-        catalogId: '1234567890',
-        headerText: 'Catalogue',
-        bodyText: 'Browse by collection.',
-        sections: [
-          { title: 'Kurti', productRetailerIds: ['K1', 'K2'] },
-          { title: 'Co-Ord Set', productRetailerIds: ['C1'] },
-        ],
+        bodyText: 'Browse our catalog.',
         aiGenerated: true,
       }),
     )
-    expect(h.engineSendCatalogMessage).not.toHaveBeenCalled()
+    expect(h.engineSendProductList).not.toHaveBeenCalled()
   })
 
   it('sends Shopify product cards when the customer asks what products you have', async () => {
