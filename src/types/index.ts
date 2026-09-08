@@ -45,6 +45,11 @@ export interface Profile {
    * `@/lib/auth/roles` rather than comparing this string directly.
    */
   account_role?: AccountRole;
+  /**
+   * Owner WhatsApp number collected at signup (digits only).
+   * Null for Google OAuth and accounts created before this column.
+   */
+  whatsapp_number?: string | null;
   created_at: string;
 }
 

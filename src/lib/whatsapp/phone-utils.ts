@@ -41,6 +41,16 @@ export function isValidE164(phone: string): boolean {
 }
 
 /**
+ * Canonical WhatsApp number for profile storage: digits only, no +.
+ * Returns null when the input is empty or not E.164-like after sanitizing.
+ */
+export function parseWhatsAppNumber(input: string): string | null {
+  const digits = sanitizePhoneForMeta(input.trim())
+  if (!digits || !isValidE164(digits)) return null
+  return digits
+}
+
+/**
  * Generate plausible phone number variants for retry when Meta's
  * sandbox rejects a number with error #131030 ("not in allowed list").
  *

@@ -3,6 +3,7 @@ import { NextRequest } from 'next/server'
 
 const exchangeCodeForSession = vi.fn()
 const cookieWrites: Array<{ name: string; value: string }> = []
+const profileWrites: Array<{ table: string; row: unknown }> = []
 
 vi.mock('@supabase/ssr', () => ({
   createServerClient: (
@@ -31,6 +32,23 @@ vi.mock('@supabase/ssr', () => ({
         return result
       },
     },
+    from: (table: string) => ({
+      update: (row: unknown) => {
+        const builder = {
+          eq() {
+            return builder
+          },
+          is() {
+            return builder
+          },
+          then(resolve: (value: { error: null }) => unknown) {
+            profileWrites.push({ table, row })
+            return Promise.resolve(resolve({ error: null }))
+          },
+        }
+        return builder
+      },
+    }),
   }),
 }))
 
@@ -41,6 +59,7 @@ beforeEach(() => {
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = 'anon-key'
   exchangeCodeForSession.mockReset()
   cookieWrites.length = 0
+  profileWrites.length = 0
 })
 
 afterEach(() => {
@@ -102,5 +121,22 @@ describe('GET /auth/callback', () => {
       new NextRequest('https://app.test/auth/callback?code=nope'),
     )
     expect(res.headers.get('location')).toContain('error=exchange_failed')
+  })
+
+  it('copies signup WhatsApp metadata onto the profile', async () => {
+    exchangeCodeForSession.mockResolvedValue({
+      data: {
+        user: {
+          id: 'user-1',
+          app_metadata: {},
+          user_metadata: { whatsapp_number: '919876543210' },
+        },
+      },
+      error: null,
+    })
+    await GET(new NextRequest('https://app.test/auth/callback?code=abc'))
+    expect(profileWrites).toEqual([
+      { table: 'profiles', row: { whatsapp_number: '919876543210' } },
+    ])
   })
 })

@@ -13,6 +13,7 @@ import {
 // Supabase getUser() round-trip — it can hang or slow webhook acks.
 const PUBLIC_API_PREFIXES = [
   '/api/health',
+  '/api/geo/country',
   '/api/whatsapp/webhook',
   '/api/shopify/webhook',
   '/api/whatsapp/broadcast/cron',

@@ -153,6 +153,16 @@ describe("middleware — refreshed auth cookies survive redirects", () => {
     expect(res.status).toBeLessThan(400);
   });
 
+  it("passes through /api/geo/country without a session", async () => {
+    mockUser = null;
+
+    const res = await middleware(
+      new NextRequest("https://app.test/api/geo/country"),
+    );
+    expect(res.headers.get("location")).toBeNull();
+    expect(res.status).toBeLessThan(400);
+  });
+
   it("passes through (no redirect) for a signed-in user on a protected page", async () => {
     mockUser = { id: "user-1" };
     refreshedCookies = [ROTATED];

@@ -6,6 +6,13 @@ import { Loader2, Upload, Trash2, Mail, CircleAlert } from 'lucide-react';
 
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/hooks/use-auth';
+import {
+  composeWhatsAppNumber,
+  DEFAULT_COUNTRY_ISO2,
+  formatWhatsAppDisplay,
+  splitWhatsAppNumber,
+} from '@/lib/geo/dial-codes';
+import { WhatsAppNumberField } from '@/components/auth/whatsapp-number-field';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -39,6 +46,8 @@ export function ProfileForm() {
 
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
+  const [whatsappCountry, setWhatsappCountry] = useState(DEFAULT_COUNTRY_ISO2);
+  const [whatsappNational, setWhatsappNational] = useState('');
   const [pendingAvatar, setPendingAvatar] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [removeAvatar, setRemoveAvatar] = useState(false);
@@ -50,6 +59,9 @@ export function ProfileForm() {
     if (!profile) return;
     setFullName(profile.full_name ?? '');
     setEmail(profile.email ?? '');
+    const split = splitWhatsAppNumber(profile.whatsapp_number ?? '');
+    setWhatsappCountry(split.iso2);
+    setWhatsappNational(split.national);
   }, [profile]);
 
   // Cleanup object URLs to avoid leaks.
@@ -111,6 +123,13 @@ export function ProfileForm() {
       toast.error(t('invalidEmail'));
       return;
     }
+    const parsedWhatsapp = whatsappNational.trim()
+      ? composeWhatsAppNumber(whatsappCountry, whatsappNational)
+      : null;
+    if (whatsappNational.trim() && !parsedWhatsapp) {
+      toast.error(t('invalidWhatsapp'));
+      return;
+    }
 
     setSaving(true);
     try {
@@ -139,16 +158,24 @@ export function ProfileForm() {
         nextAvatarUrl = null;
       }
 
-      // Persist name + avatar to profiles.
+      // Persist name + avatar + WhatsApp to profiles.
       const { error: updateError } = await supabase
         .from('profiles')
         .update({
           full_name: trimmedName,
           avatar_url: nextAvatarUrl,
+          whatsapp_number: parsedWhatsapp,
         })
         .eq('user_id', user.id);
       if (updateError) {
         throw new Error(t('saveFailed', { message: updateError.message }));
+      }
+
+      const { error: metaError } = await supabase.auth.updateUser({
+        data: { whatsapp_number: parsedWhatsapp },
+      });
+      if (metaError) {
+        console.error('[ProfileForm] user_metadata whatsapp_number', metaError.message);
       }
 
       // Email change goes through Supabase Auth, which emails a
@@ -191,10 +218,16 @@ export function ProfileForm() {
     }
   };
 
+  const storedWhatsapp = profile?.whatsapp_number ?? null;
+  const nextWhatsapp = whatsappNational.trim()
+    ? composeWhatsAppNumber(whatsappCountry, whatsappNational)
+    : null;
   const dirty =
     !!profile &&
     (fullName.trim() !== (profile.full_name ?? '') ||
       email.trim().toLowerCase() !== (profile.email ?? '').toLowerCase() ||
+      nextWhatsapp !== storedWhatsapp ||
+      (whatsappNational.trim() !== '' && nextWhatsapp === null) ||
       pendingAvatar !== null ||
       removeAvatar);
 
@@ -304,6 +337,20 @@ export function ProfileForm() {
             )}
           </div>
 
+          <WhatsAppNumberField
+            id="profile-whatsapp"
+            iso2={whatsappCountry}
+            national={whatsappNational}
+            onIso2Change={setWhatsappCountry}
+            onNationalChange={setWhatsappNational}
+            autoDetect={profile != null && !profile.whatsapp_number}
+            disabled={saving}
+            countryLabel={t('whatsappCountryLabel')}
+            numberLabel={t('whatsappNumber')}
+            nationalPlaceholder={t('whatsappPlaceholder')}
+            hint={t('whatsappHint')}
+          />
+
           {/* Read-only block */}
           <div className="rounded-lg border border-border bg-muted p-4">
             <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
@@ -319,6 +366,12 @@ export function ProfileForm() {
               <div>
                 <dt className="text-muted-foreground">{t('joined')}</dt>
                 <dd className="mt-0.5 text-foreground">{joined}</dd>
+              </div>
+              <div className="sm:col-span-2">
+                <dt className="text-muted-foreground">{t('whatsappNumber')}</dt>
+                <dd className="mt-0.5 text-foreground">
+                  {formatWhatsAppDisplay(profile?.whatsapp_number) || '—'}
+                </dd>
               </div>
               <div className="sm:col-span-2">
                 <dt className="text-muted-foreground">{t('userId')}</dt>

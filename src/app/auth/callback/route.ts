@@ -5,6 +5,7 @@ import {
   authCallbackLoginError,
   postAuthPath,
 } from '@/lib/auth/callback'
+import { persistProfileWhatsApp } from '@/lib/auth/persist-whatsapp'
 
 /**
  * PKCE landing for email confirmation, Google OAuth, and password
@@ -56,6 +57,14 @@ export async function GET(request: NextRequest) {
   const { data, error } = await supabase.auth.exchangeCodeForSession(code)
   if (error) {
     return redirectToLogin(origin, 'exchange_failed')
+  }
+
+  if (data.user?.id) {
+    await persistProfileWhatsApp(
+      supabase,
+      data.user.id,
+      data.user.user_metadata?.whatsapp_number,
+    )
   }
 
   const dest = postAuthPath({

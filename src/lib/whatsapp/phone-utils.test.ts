@@ -3,6 +3,7 @@ import {
   isRecipientNotAllowedError,
   isValidE164,
   normalizePhone,
+  parseWhatsAppNumber,
   phoneVariants,
   phonesMatch,
   sanitizePhoneForMeta,
@@ -89,6 +90,20 @@ describe("isValidE164", () => {
 
   it("rejects the empty string", () => {
     expect(isValidE164("")).toBe(false);
+  });
+});
+
+describe("parseWhatsAppNumber", () => {
+  it("returns digits-only E.164 for formatted input", () => {
+    expect(parseWhatsAppNumber("+91 98765 43210")).toBe("919876543210");
+    expect(parseWhatsAppNumber("  +1 (415) 555-1212  ")).toBe("14155551212");
+  });
+
+  it("returns null for empty or invalid input", () => {
+    expect(parseWhatsAppNumber("")).toBeNull();
+    expect(parseWhatsAppNumber("   ")).toBeNull();
+    expect(parseWhatsAppNumber("12345")).toBeNull();
+    expect(parseWhatsAppNumber("00 44 7000 000000")).toBeNull();
   });
 });
 

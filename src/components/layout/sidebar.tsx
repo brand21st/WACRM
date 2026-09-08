@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
+import { formatWhatsAppDisplay } from "@/lib/geo/dial-codes";
 import { useTotalUnread } from "@/hooks/use-total-unread";
 import { useUnreadNotifications } from "@/hooks/use-unread-notifications";
 import {
@@ -542,6 +543,11 @@ export function Sidebar({
                 <p className="truncate text-xs text-muted-foreground">
                   {profile?.email ?? ""}
                 </p>
+                {profile?.whatsapp_number ? (
+                  <p className="truncate text-xs text-muted-foreground">
+                    {formatWhatsAppDisplay(profile.whatsapp_number)}
+                  </p>
+                ) : null}
               </div>
             </DropdownMenuTrigger>
             <DropdownMenuContent

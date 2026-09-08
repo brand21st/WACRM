@@ -10,6 +10,9 @@ import {
   signupDestination,
   signupEmailRedirectTo,
 } from "@/lib/auth/callback";
+import { persistProfileWhatsApp } from "@/lib/auth/persist-whatsapp";
+import { composeWhatsAppNumber, DEFAULT_COUNTRY_ISO2 } from "@/lib/geo/dial-codes";
+import { WhatsAppNumberField } from "@/components/auth/whatsapp-number-field";
 import { ArrowLeft, Eye, EyeOff, CheckCircle } from "lucide-react";
 
 export default function SignupPage() {
@@ -27,6 +30,8 @@ function SignupPageInner() {
 
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
+  const [whatsappCountry, setWhatsappCountry] = useState(DEFAULT_COUNTRY_ISO2);
+  const [whatsappNational, setWhatsappNational] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -55,6 +60,15 @@ function SignupPageInner() {
       return;
     }
 
+    const parsedWhatsapp = composeWhatsAppNumber(
+      whatsappCountry,
+      whatsappNational,
+    );
+    if (!parsedWhatsapp) {
+      setError(t("invalidWhatsapp"));
+      return;
+    }
+
     if (!isSupabaseConfigured()) {
       setError(t("notConfigured"));
       return;
@@ -74,6 +88,7 @@ function SignupPageInner() {
         options: {
           data: {
             full_name: fullName,
+            whatsapp_number: parsedWhatsapp,
           },
           emailRedirectTo,
         },
@@ -92,6 +107,14 @@ function SignupPageInner() {
       }
 
       if (data.session) {
+        if (data.user?.id) {
+          await persistProfileWhatsApp(
+            supabase,
+            data.user.id,
+            parsedWhatsapp,
+            { onlyIfEmpty: false },
+          );
+        }
         const {
           data: { user },
         } = await supabase.auth.getUser();
@@ -229,6 +252,20 @@ function SignupPageInner() {
                 className="h-12 w-full rounded-lg border border-slate-200 dark:border-border bg-white dark:bg-muted/40 px-3.5 text-sm text-slate-900 dark:text-foreground placeholder:text-slate-400 focus:border-[#00794c] focus:outline-none focus:ring-2 focus:ring-[#00794c]/20 transition-all"
               />
             </div>
+
+            <WhatsAppNumberField
+              id="whatsappNumber"
+              iso2={whatsappCountry}
+              national={whatsappNational}
+              onIso2Change={setWhatsappCountry}
+              onNationalChange={setWhatsappNational}
+              autoDetect
+              required
+              countryLabel={t("whatsappCountryLabel")}
+              numberLabel={t("whatsappLabel")}
+              nationalPlaceholder={t("whatsappPlaceholder")}
+              hint={t("whatsappHint")}
+            />
 
             <div className="flex flex-col gap-1.5">
               <label

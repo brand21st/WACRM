@@ -6,6 +6,7 @@ import { useTranslations } from 'next-intl';
 
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/hooks/use-auth';
+import { formatWhatsAppDisplay } from '@/lib/geo/dial-codes';
 import { useTheme } from '@/hooks/use-theme';
 import { THEMES } from '@/lib/themes';
 import { CURRENCIES } from '@/lib/currency';
@@ -288,6 +289,11 @@ export function SettingsOverview({
           {profile?.email ? (
             <div className="truncate text-sm text-muted-foreground">
               {profile.email}
+            </div>
+          ) : null}
+          {profile?.whatsapp_number ? (
+            <div className="truncate text-sm text-muted-foreground">
+              {formatWhatsAppDisplay(profile.whatsapp_number)}
             </div>
           ) : null}
         </div>

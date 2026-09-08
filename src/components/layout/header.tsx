@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@/hooks/use-auth";
+import { formatWhatsAppDisplay } from "@/lib/geo/dial-codes";
 import { LogOut, Menu, Settings as SettingsIcon, User } from "lucide-react";
 import {
   Avatar,
@@ -125,6 +126,11 @@ export function Header({ onOpenSidebar }: HeaderProps) {
             <p className="truncate text-xs text-muted-foreground">
               {profile?.email ?? ""}
             </p>
+            {profile?.whatsapp_number ? (
+              <p className="truncate text-xs text-muted-foreground">
+                {formatWhatsAppDisplay(profile.whatsapp_number)}
+              </p>
+            ) : null}
           </div>
           <DropdownMenuSeparator className="bg-border" />
           <DropdownMenuItem

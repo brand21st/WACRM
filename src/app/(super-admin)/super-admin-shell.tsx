@@ -4,18 +4,19 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
-import { LayoutDashboard, LogOut, Package, Settings, Sparkles, Users } from "lucide-react";
+import { LayoutDashboard, LogOut, Package, Settings, Sparkles, UserPlus, Users } from "lucide-react";
 import { AuthProvider, useAuth } from "@/hooks/use-auth";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 
 const NAV: Array<{
   href: string
-  labelKey: "overview" | "accounts" | "ai" | "packages" | "settings"
+  labelKey: "overview" | "signups" | "accounts" | "ai" | "packages" | "settings"
   icon: typeof LayoutDashboard
   exact?: boolean
 }> = [
   { href: "/super-admin", labelKey: "overview", icon: LayoutDashboard, exact: true },
+  { href: "/super-admin/signups", labelKey: "signups", icon: UserPlus },
   { href: "/super-admin/accounts", labelKey: "accounts", icon: Users },
   { href: "/super-admin/ai", labelKey: "ai", icon: Sparkles },
   { href: "/super-admin/packages", labelKey: "packages", icon: Package },
