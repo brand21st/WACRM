@@ -482,7 +482,7 @@ export async function dispatchInboundToAiReply(
       messages.unshift({ role: 'assistant', content: swipeNote })
     }
     const catalogConfig = shopify ?? catalogOnlyStoreConfig(accountId, {
-      metaCatalogId: commerce?.metaCatalogId ?? shopify?.metaCatalogId ?? null,
+      metaCatalogId: commerce?.metaCatalogId ?? null,
     })
     if (productFocus) {
       try {
