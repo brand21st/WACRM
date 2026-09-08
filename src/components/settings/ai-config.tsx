@@ -313,7 +313,9 @@ export function AiConfig() {
               </p>
               <Select
                 value={followUpDelayPreset}
-                onValueChange={setFollowUpDelayPreset}
+                onValueChange={(v) => {
+                  if (v) setFollowUpDelayPreset(v)
+                }}
                 disabled={disabled || !autoReplyEnabled || !followUpEnabled}
               >
                 <SelectTrigger id="ai-follow-up-delay" className="w-full sm:w-[16rem]">
@@ -342,9 +344,11 @@ export function AiConfig() {
                   />
                   <Select
                     value={customDelayUnit}
-                    onValueChange={(v) =>
-                      setCustomDelayUnit(v as 'minutes' | 'hours')
-                    }
+                    onValueChange={(v) => {
+                      if (v === 'minutes' || v === 'hours') {
+                        setCustomDelayUnit(v)
+                      }
+                    }}
                     disabled={disabled || !autoReplyEnabled || !followUpEnabled}
                   >
                     <SelectTrigger className="w-[8.5rem]">
