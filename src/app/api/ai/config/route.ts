@@ -9,6 +9,7 @@ import { chatKeyForProvider, loadPlatformAiSettings } from '@/lib/ai/platform-se
 import type { AiProvider } from '@/lib/ai/types'
 import { parseVoiceReplyMode } from '@/lib/ai/voice'
 import { parseRealtimeVoice } from '@/lib/ai/realtime/voices'
+import { parseFollowUpDelayMinutes } from '@/lib/ai/follow-up-delay'
 
 function bad(message: string) {
   return NextResponse.json({ error: message }, { status: 400 })
@@ -28,7 +29,7 @@ export async function GET() {
     const { data, error } = await supabase
       .from('ai_configs')
       .select(
-        'provider, model, system_prompt, is_active, auto_reply_enabled, auto_reply_unlimited, auto_reply_max_per_conversation, handoff_agent_id, elevenlabs_voice_id, voice_provider, sarvam_speaker, sarvam_language_code, sarvam_pace, sarvam_temperature, stt_enabled, tts_enabled, voice_reply_mode, typing_indicator_enabled, full_agent_enabled, realtime_voice_enabled, realtime_voice',
+        'provider, model, system_prompt, is_active, auto_reply_enabled, auto_reply_unlimited, auto_reply_max_per_conversation, handoff_agent_id, elevenlabs_voice_id, voice_provider, sarvam_speaker, sarvam_language_code, sarvam_pace, sarvam_temperature, stt_enabled, tts_enabled, voice_reply_mode, typing_indicator_enabled, full_agent_enabled, realtime_voice_enabled, realtime_voice, follow_up_enabled, follow_up_delay_minutes',
       )
       .eq('account_id', accountId)
       .maybeSingle()
@@ -168,6 +169,17 @@ export async function POST(request: Request) {
     const realtimeVoice =
       'realtime_voice' in body ? parseRealtimeVoice(body.realtime_voice) : undefined
 
+    const followUpEnabled =
+      'follow_up_enabled' in body ? body.follow_up_enabled === true : undefined
+    let followUpDelayMinutes: number | undefined
+    if ('follow_up_delay_minutes' in body) {
+      const parsed = parseFollowUpDelayMinutes(body.follow_up_delay_minutes)
+      if (parsed == null) {
+        return bad('follow_up_delay_minutes must be between 1 and 1440')
+      }
+      followUpDelayMinutes = parsed
+    }
+
     const { data: existing } = await supabase
       .from('ai_configs')
       .select('id, provider, model')
@@ -208,6 +220,12 @@ export async function POST(request: Request) {
     }
     if (realtimeVoice !== undefined) {
       shared.realtime_voice = realtimeVoice
+    }
+    if (followUpEnabled !== undefined) {
+      shared.follow_up_enabled = followUpEnabled
+    }
+    if (followUpDelayMinutes !== undefined) {
+      shared.follow_up_delay_minutes = followUpDelayMinutes
     }
 
     if (existing) {

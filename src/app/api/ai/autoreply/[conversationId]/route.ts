@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { requireRole, toErrorResponse } from '@/lib/auth/account'
 import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rate-limit'
+import { cancelConversationFollowUp } from '@/lib/ai/follow-up'
 
 type Params = { params: Promise<{ conversationId: string }> }
 
@@ -94,6 +95,16 @@ export async function POST(request: Request, { params }: Params) {
         { error: 'Failed to update conversation' },
         { status: 500 },
       )
+    }
+
+    if (paused) {
+      await cancelConversationFollowUp({
+        db: supabase,
+        accountId,
+        conversationId,
+      }).catch((err) => {
+        console.warn('[ai/autoreply] follow-up cancel failed:', err)
+      })
     }
 
     return NextResponse.json({ success: true, paused })

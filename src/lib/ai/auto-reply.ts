@@ -34,6 +34,7 @@ import { buildHandoffSummary } from './handoff'
 import { logAiUsage } from './usage'
 import { latestUserMessage } from './query'
 import { engineSendText, engineSendMedia, engineSendTypingIndicator, engineSendInteractiveButtons, engineSendInteractiveList, engineSendCtaUrl, engineSendCatalogMessage } from '@/lib/flows/meta-send'
+import { scheduleConversationFollowUp } from './follow-up'
 import { checkRateLimit, RATE_LIMITS } from '@/lib/rate-limit'
 import {
   INBOUND_VOICE_PLACEHOLDER,
@@ -180,8 +181,8 @@ export async function dispatchInboundToAiReply(
     isFirstInbound = false,
   } = args
 
+  const db = supabaseAdmin()
   try {
-    const db = supabaseAdmin()
 
     const config = await loadAiConfig(db, accountId)
     if (!config || !config.autoReplyEnabled) return
@@ -1022,6 +1023,14 @@ export async function dispatchInboundToAiReply(
     if (speakAfterText) await sendShoppingAudio()
   } catch (err) {
     console.error('[ai auto-reply] dispatch failed:', err)
+  } finally {
+    await scheduleConversationFollowUp({
+      db,
+      accountId,
+      conversationId,
+    }).catch((err) => {
+      console.warn('[ai auto-reply] follow-up schedule failed:', err)
+    })
   }
 }
 

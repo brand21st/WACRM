@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { accountMayUseAi } from '@/lib/billing/entitlements'
 import type { AiConfig } from './types'
 import { parseRealtimeVoice } from './realtime/voices'
+import { followUpDelayMinutesOrDefault } from './follow-up-delay'
 import {
   parseSarvamLanguage,
   parseSarvamPace,
@@ -41,10 +42,12 @@ interface AiConfigRow {
   full_agent_enabled: boolean | null
   realtime_voice_enabled: boolean | null
   realtime_voice: string | null
+  follow_up_enabled: boolean | null
+  follow_up_delay_minutes: number | null
 }
 
 const CONFIG_COLUMNS =
-  'provider, model, api_key, system_prompt, is_active, auto_reply_enabled, auto_reply_unlimited, auto_reply_max_per_conversation, handoff_agent_id, embeddings_api_key, elevenlabs_api_key, elevenlabs_voice_id, voice_provider, sarvam_api_key, sarvam_speaker, sarvam_language_code, sarvam_pace, sarvam_temperature, stt_enabled, tts_enabled, voice_reply_mode, typing_indicator_enabled, full_agent_enabled, realtime_voice_enabled, realtime_voice'
+  'provider, model, api_key, system_prompt, is_active, auto_reply_enabled, auto_reply_unlimited, auto_reply_max_per_conversation, handoff_agent_id, embeddings_api_key, elevenlabs_api_key, elevenlabs_voice_id, voice_provider, sarvam_api_key, sarvam_speaker, sarvam_language_code, sarvam_pace, sarvam_temperature, stt_enabled, tts_enabled, voice_reply_mode, typing_indicator_enabled, full_agent_enabled, realtime_voice_enabled, realtime_voice, follow_up_enabled, follow_up_delay_minutes'
 
 /**
  * Load the account's AI behaviour plus hosted platform keys.
@@ -115,6 +118,8 @@ export async function loadAiConfig(
     fullAgentEnabled: row.full_agent_enabled === true,
     realtimeVoiceEnabled: row.realtime_voice_enabled === true,
     realtimeVoice: parseRealtimeVoice(row.realtime_voice),
+    followUpEnabled: row.follow_up_enabled === true,
+    followUpDelayMinutes: followUpDelayMinutesOrDefault(row.follow_up_delay_minutes),
   }
 }
 

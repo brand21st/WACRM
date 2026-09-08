@@ -6,6 +6,7 @@ import { processCallRecordingJob } from '@/lib/queue/processors/call-recording'
 import { processCatalogEmbed } from '@/lib/queue/processors/catalog-embed'
 import { processCatalogMetaSync } from '@/lib/queue/processors/catalog-meta-sync'
 import { processKnowledgeScrape } from '@/lib/queue/processors/knowledge-scrape'
+import { processAiConversationFollowUp } from '@/lib/queue/processors/ai-conversation-follow-up'
 import {
   QUEUE_NAMES,
   WORKER_CONCURRENCY,
@@ -78,6 +79,17 @@ export function createQueueWorkers(connection: ConnectionOptions): Worker[] {
         connection,
         concurrency: WORKER_CONCURRENCY.catalogEmbed,
         lockDuration: WORKER_LOCK_MS.catalogEmbed,
+      },
+    ),
+    new Worker(
+      QUEUE_NAMES.aiConversationFollowUp,
+      async (job) => {
+        await processAiConversationFollowUp(job.data)
+      },
+      {
+        connection,
+        concurrency: WORKER_CONCURRENCY.aiConversationFollowUp,
+        lockDuration: WORKER_LOCK_MS.aiConversationFollowUp,
       },
     ),
   ]

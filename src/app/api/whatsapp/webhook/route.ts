@@ -11,6 +11,7 @@ import { verifyMetaWebhookSignature } from '@/lib/whatsapp/webhook-signature'
 import { runAutomationsForTrigger } from '@/lib/automations/engine'
 import { dispatchInboundToFlows } from '@/lib/flows/engine'
 import { dispatchInboundToAiReply } from '@/lib/ai/auto-reply'
+import { cancelConversationFollowUp } from '@/lib/ai/follow-up'
 import { isLanguagePickerReply } from '@/lib/ai/language-picker'
 import { loadAiConfig } from '@/lib/ai/config'
 import { loadAccountPlatformFlags } from '@/lib/ai/platform-settings'
@@ -914,6 +915,13 @@ async function processMessage(
   // update above so the write can be gated on the row's CURRENT status in
   // SQL — see the helper for why that matters.
   await reopenClosedConversation(supabaseAdmin(), conversation)
+
+  await cancelConversationFollowUp({
+    accountId,
+    conversationId: conversation.id,
+  }).catch((err) => {
+    console.warn('[webhook] follow-up cancel failed:', err)
+  })
 
   if (message.type === 'order') {
     await handleInboundWhatsAppOrder({

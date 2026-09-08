@@ -2,6 +2,7 @@ import { Queue, type QueueOptions } from 'bullmq'
 
 import type {
   AiChatReplyJob,
+  AiConversationFollowUpJob,
   AiVoiceInboundJob,
   CallRecordingJob,
   CatalogEmbedJob,
@@ -18,6 +19,7 @@ type QueueMap = {
   knowledgeScrape: Queue
   catalogMetaSync: Queue
   catalogEmbed: Queue
+  aiConversationFollowUp: Queue
 }
 
 let queues: QueueMap | null = null
@@ -47,6 +49,7 @@ function getQueues(): QueueMap | null {
     knowledgeScrape: new Queue(QUEUE_NAMES.knowledgeScrape, opts),
     catalogMetaSync: new Queue(QUEUE_NAMES.catalogMetaSync, opts),
     catalogEmbed: new Queue(QUEUE_NAMES.catalogEmbed, opts),
+    aiConversationFollowUp: new Queue(QUEUE_NAMES.aiConversationFollowUp, opts),
   }
   return queues
 }
@@ -61,12 +64,14 @@ async function addJob(
   name: string,
   data: object,
   jobId: string,
+  delayMs?: number,
 ): Promise<boolean> {
   if (!queue) return false
   try {
     await queue.add(name, data, {
       ...DEFAULT_JOB_OPTIONS,
       jobId,
+      ...(delayMs && delayMs > 0 ? { delay: delayMs } : {}),
     })
     // Duplicate custom jobIds are ignored without throwing.
     return true
@@ -163,4 +168,32 @@ export async function enqueueCatalogEmbed(
     data,
     data.productId,
   )
+}
+
+export async function enqueueAiConversationFollowUp(
+  data: AiConversationFollowUpJob,
+  delayMs: number,
+): Promise<boolean> {
+  return addJob(
+    getQueues()?.aiConversationFollowUp,
+    QUEUE_NAMES.aiConversationFollowUp,
+    data,
+    data.followUpId,
+    delayMs,
+  )
+}
+
+export async function removeAiConversationFollowUp(
+  followUpId: string,
+): Promise<void> {
+  const queue = getQueues()?.aiConversationFollowUp
+  if (!queue) return
+  try {
+    await queue.remove(followUpId)
+  } catch (err) {
+    console.warn(
+      '[queue] remove ai-conversation-follow-up failed:',
+      err instanceof Error ? err.message : err,
+    )
+  }
 }

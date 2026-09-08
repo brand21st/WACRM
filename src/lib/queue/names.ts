@@ -7,6 +7,7 @@ export const QUEUE_NAMES = {
   knowledgeScrape: 'knowledge-scrape',
   catalogMetaSync: 'catalog-meta-sync',
   catalogEmbed: 'catalog-embed',
+  aiConversationFollowUp: 'ai-conversation-follow-up',
 } as const
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES]
@@ -25,6 +26,7 @@ export const WORKER_CONCURRENCY = {
   knowledgeScrape: 2,
   catalogMetaSync: 2,
   catalogEmbed: 2,
+  aiConversationFollowUp: 4,
 } as const
 
 export const WORKER_LOCK_MS = {
@@ -34,4 +36,5 @@ export const WORKER_LOCK_MS = {
   knowledgeScrape: 300_000,
   catalogMetaSync: 120_000,
   catalogEmbed: 180_000,
+  aiConversationFollowUp: 120_000,
 } as const

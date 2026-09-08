@@ -24,6 +24,8 @@ export interface GenerateArgs {
   customerName?: string | null
   /** Locked reply language — rewrite stays here even if the last turn mixed English. */
   replyLanguage?: ChatLanguageLock | null
+  /** Keep model JSON intact (conversation follow-up). */
+  skipSpokenRewrite?: boolean
 }
 
 /**
@@ -60,6 +62,7 @@ export async function generateReply(args: GenerateArgs): Promise<GenerateResult>
   }
 
   const parsed = parseGeneration(result.text, result.usage)
+  if (args.skipSpokenRewrite) return parsed
   const language = shouldRewriteSpoken({
     draft: parsed.text,
     handoff: parsed.handoff,

@@ -38,6 +38,7 @@ const h = vi.hoisted(() => ({
   synthesizeSpeech: vi.fn(),
   uploadGeneratedAudio: vi.fn(),
   rehostPublicImage: vi.fn(),
+  scheduleConversationFollowUp: vi.fn(),
   realtimeTurn: vi.fn(),
   pcm16ToOggOpus: vi.fn(),
   state: {
@@ -163,6 +164,9 @@ vi.mock('@/lib/elevenlabs/storage', () => ({
 }))
 vi.mock('@/lib/storage/generated-media', () => ({
   rehostPublicImage: h.rehostPublicImage,
+}))
+vi.mock('./follow-up', () => ({
+  scheduleConversationFollowUp: h.scheduleConversationFollowUp,
 }))
 vi.mock('./realtime', () => ({ realtimeTurn: h.realtimeTurn }))
 vi.mock('@/lib/audio/pcm-to-opus', () => ({
@@ -306,6 +310,7 @@ beforeEach(() => {
   h.state.contactName = null
   h.state.inboundMessage = null
   h.state.quotedParent = null
+  h.scheduleConversationFollowUp.mockReset().mockResolvedValue(undefined)
   h.loadAiConfig.mockResolvedValue(aiConfig())
   h.loadShopifyConfig.mockResolvedValue(null)
   h.buildCatalogCollectionSections.mockResolvedValue([])
@@ -515,6 +520,12 @@ describe('dispatchInboundToAiReply — eligibility gates', () => {
     )
     expect(h.engineSendText.mock.calls[0][0].contextMessageId).toBeUndefined()
     expect(h.engineSendTypingIndicator).not.toHaveBeenCalled()
+    expect(h.scheduleConversationFollowUp).toHaveBeenCalledWith(
+      expect.objectContaining({
+        accountId: ARGS.accountId,
+        conversationId: ARGS.conversationId,
+      }),
+    )
   })
 
   it('does not inject swipe-reply context when the inbound has no reply_to', async () => {

@@ -74,10 +74,14 @@ BEGIN
     SELECT 1
     FROM information_schema.columns
     WHERE table_schema = 'public'
-      AND table_name = 'shopify_configs'
-      AND column_name = 'meta_catalog_ids'
+      AND table_name = 'ai_configs'
+      AND column_name = 'follow_up_delay_minutes'
   ) THEN
-    RAISE EXCEPTION 'shopify_configs.meta_catalog_ids is missing — migration 081 did not apply';
+    RAISE EXCEPTION 'ai_configs.follow_up_delay_minutes is missing — migration 085 did not apply';
+  END IF;
+
+  IF to_regclass('public.conversation_follow_ups') IS NULL THEN
+    RAISE EXCEPTION 'public.conversation_follow_ups is missing — migration 085 did not apply';
   END IF;
 
   RAISE NOTICE 'schema verification passed';

@@ -75,3 +75,10 @@ export interface CatalogEmbedJob {
   accountId: string
   productId: string
 }
+
+export interface AiConversationFollowUpJob {
+  accountId: string
+  conversationId: string
+  followUpId: string
+  triggeringMessageId: string
+}

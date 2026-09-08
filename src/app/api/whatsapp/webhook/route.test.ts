@@ -235,6 +235,9 @@ vi.mock('@/lib/queue/enqueue', () => ({
 vi.mock('@/lib/ai/transcribe-inbound', () => ({
   transcribeInboundVoiceNote: h.transcribeInboundVoiceNote,
 }))
+vi.mock('@/lib/ai/follow-up', () => ({
+  cancelConversationFollowUp: vi.fn(async () => undefined),
+}))
 vi.mock('@/lib/ai/config', () => ({
   loadAiConfig: h.loadAiConfig,
 }))
@@ -249,6 +252,7 @@ vi.mock('@/lib/webhooks/deliver', () => ({
 }))
 
 import { GET, POST } from './route'
+import { cancelConversationFollowUp } from '@/lib/ai/follow-up'
 import { getMediaUrl, downloadMedia } from '@/lib/whatsapp/meta-api'
 
 const mockGetMediaUrl = vi.mocked(getMediaUrl)
@@ -383,6 +387,12 @@ describe('inbound webhook: idempotent insert (#367)', () => {
     expect(h.state.rpcCalls).toHaveLength(1)
     expect(h.dispatchInboundToFlows).toHaveBeenCalledTimes(1)
     expect(h.dispatchWebhookEvent).toHaveBeenCalledTimes(1)
+    expect(cancelConversationFollowUp).toHaveBeenCalledWith(
+      expect.objectContaining({
+        accountId: 'acc-1',
+        conversationId: 'conv-1',
+      }),
+    )
   })
 
   it('a replayed delivery is a no-op: no unread bump, no fan-out', async () => {
@@ -394,6 +404,7 @@ describe('inbound webhook: idempotent insert (#367)', () => {
     expect(h.state.upsertCalls).toHaveLength(1)
     // None of the downstream side effects fire on a replay.
     expect(h.state.rpcCalls).toHaveLength(0)
+    expect(cancelConversationFollowUp).not.toHaveBeenCalled()
     expect(h.dispatchInboundToFlows).not.toHaveBeenCalled()
     expect(h.runAutomationsForTrigger).not.toHaveBeenCalled()
     expect(h.dispatchInboundToAiReply).not.toHaveBeenCalled()

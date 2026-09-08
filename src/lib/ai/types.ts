@@ -69,6 +69,10 @@ export interface AiConfig {
   realtimeVoiceEnabled: boolean
   /** OpenAI Realtime output voice. Null uses the application default. */
   realtimeVoice: string | null
+  /** One silent-thread follow-up after an AI reply. Default off. */
+  followUpEnabled: boolean
+  /** Minutes to wait before that follow-up (1–1440). */
+  followUpDelayMinutes: number
 }
 
 /**
@@ -93,6 +97,8 @@ export const AI_VOICE_DEFAULTS: Pick<
   | 'fullAgentEnabled'
   | 'realtimeVoiceEnabled'
   | 'realtimeVoice'
+  | 'followUpEnabled'
+  | 'followUpDelayMinutes'
 > = {
   elevenlabsApiKey: null,
   elevenlabsVoiceId: null,
@@ -109,6 +115,8 @@ export const AI_VOICE_DEFAULTS: Pick<
   fullAgentEnabled: false,
   realtimeVoiceEnabled: false,
   realtimeVoice: null,
+  followUpEnabled: false,
+  followUpDelayMinutes: 30,
 }
 
 /** A single conversation turn in the shape both providers accept. */

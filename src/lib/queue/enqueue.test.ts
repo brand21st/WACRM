@@ -19,6 +19,7 @@ import {
   enqueueCallRecording,
   enqueueCatalogEmbed,
   enqueueCatalogMetaSync,
+  enqueueAiConversationFollowUp,
   enqueueKnowledgeScrape,
   isDuplicateJobError,
   resetQueuesForTests,
@@ -144,6 +145,26 @@ describe('enqueue helpers', () => {
       'knowledge-scrape',
       { jobId: 'scrape-1', accountId: 'acc-1' },
       expect.objectContaining({ jobId: 'scrape-1' }),
+    )
+  })
+
+  it('adds a delayed conversation follow-up job', async () => {
+    mockGetBullmqConnection.mockReturnValue({ host: '127.0.0.1', port: 6379 } as never)
+    await expect(
+      enqueueAiConversationFollowUp(
+        {
+          accountId: 'acc-1',
+          conversationId: 'conv-1',
+          followUpId: 'fu-1',
+          triggeringMessageId: 'msg-bot',
+        },
+        15 * 60_000,
+      ),
+    ).resolves.toBe(true)
+    expect(add).toHaveBeenCalledWith(
+      'ai-conversation-follow-up',
+      expect.objectContaining({ followUpId: 'fu-1' }),
+      expect.objectContaining({ jobId: 'fu-1', delay: 15 * 60_000 }),
     )
   })
 

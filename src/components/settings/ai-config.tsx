@@ -31,6 +31,12 @@ import type { AccountMember } from '@/types';
 import { fetchAccountMembers, memberLabel } from '@/lib/account/members';
 import { useTranslations } from 'next-intl';
 import Link from 'next/link';
+import {
+  FOLLOW_UP_DELAY_PRESETS_MINUTES,
+  customFollowUpToMinutes,
+  isFollowUpDelayPreset,
+  FOLLOW_UP_DELAY_DEFAULT_MINUTES,
+} from '@/lib/ai/follow-up-delay';
 
 // Radix Select can't use an empty-string item value, so the "leave
 // unassigned" choice gets a sentinel that maps to null in the payload.
@@ -60,6 +66,14 @@ export function AiConfig() {
   // Empty string = leave unassigned (shared queue).
   const [handoffAgentId, setHandoffAgentId] = useState('');
   const [members, setMembers] = useState<AccountMember[]>([]);
+  const [followUpEnabled, setFollowUpEnabled] = useState(false);
+  const [followUpDelayPreset, setFollowUpDelayPreset] = useState<string>(
+    String(FOLLOW_UP_DELAY_DEFAULT_MINUTES),
+  );
+  const [customDelayAmount, setCustomDelayAmount] = useState('45');
+  const [customDelayUnit, setCustomDelayUnit] = useState<'minutes' | 'hours'>(
+    'minutes',
+  );
 
   // Guard keyed on the account (not a bare boolean) so an in-place
   // account switch — ownership transfer, multi-account membership —
@@ -85,6 +99,21 @@ export function AiConfig() {
         setMaxAutoReplyMode(data.auto_reply_unlimited ? 'unlimited' : 'limit');
         setMaxPerConversation(data.auto_reply_max_per_conversation ?? 3);
         setHandoffAgentId(data.handoff_agent_id ?? '');
+        setFollowUpEnabled(data.follow_up_enabled === true);
+        const minutes =
+          Number(data.follow_up_delay_minutes) || FOLLOW_UP_DELAY_DEFAULT_MINUTES;
+        if (isFollowUpDelayPreset(minutes)) {
+          setFollowUpDelayPreset(String(minutes));
+        } else {
+          setFollowUpDelayPreset('custom');
+          if (minutes % 60 === 0 && minutes >= 60) {
+            setCustomDelayAmount(String(minutes / 60));
+            setCustomDelayUnit('hours');
+          } else {
+            setCustomDelayAmount(String(minutes));
+            setCustomDelayUnit('minutes');
+          }
+        }
       }
     } catch {
       toast.error(t('loadFailed'));
@@ -103,6 +132,14 @@ export function AiConfig() {
     void fetchAccountMembers().then(setMembers);
   }, [accountId, fetchConfig]);
 
+  const resolvedFollowUpDelayMinutes = () => {
+    if (followUpDelayPreset === 'custom') {
+      return customFollowUpToMinutes(customDelayAmount, customDelayUnit);
+    }
+    const n = Number(followUpDelayPreset);
+    return Number.isFinite(n) ? n : FOLLOW_UP_DELAY_DEFAULT_MINUTES;
+  };
+
   const buildBody = () => ({
     system_prompt: systemPrompt.trim() || null,
     is_active: isActive,
@@ -111,9 +148,16 @@ export function AiConfig() {
     auto_reply_unlimited: maxAutoReplyMode === 'unlimited',
     auto_reply_max_per_conversation: maxPerConversation,
     handoff_agent_id: handoffAgentId || null,
+    follow_up_enabled: followUpEnabled,
+    follow_up_delay_minutes: resolvedFollowUpDelayMinutes(),
   });
 
   const handleSave = async () => {
+    const delay = resolvedFollowUpDelayMinutes();
+    if (delay == null) {
+      toast.error(t('followUpDelayInvalid'));
+      return;
+    }
     setSaving(true);
     try {
       const res = await fetch('/api/ai/config', {
@@ -244,6 +288,79 @@ export function AiConfig() {
                 onCheckedChange={setAutoReplyEnabled}
                 disabled={disabled || !isActive}
               />
+            </div>
+
+            <div className="flex items-center justify-between gap-4 rounded-md border border-border p-3">
+              <div>
+                <p className="text-sm font-medium text-foreground">
+                  {t('followUp')}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {t('followUpDesc')}
+                </p>
+              </div>
+              <Switch
+                checked={followUpEnabled}
+                onCheckedChange={setFollowUpEnabled}
+                disabled={disabled || !autoReplyEnabled}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="ai-follow-up-delay">{t('followUpDelay')}</Label>
+              <p className="text-xs text-muted-foreground">
+                {t('followUpDelayDesc')}
+              </p>
+              <Select
+                value={followUpDelayPreset}
+                onValueChange={setFollowUpDelayPreset}
+                disabled={disabled || !autoReplyEnabled || !followUpEnabled}
+              >
+                <SelectTrigger id="ai-follow-up-delay" className="w-full sm:w-[16rem]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {FOLLOW_UP_DELAY_PRESETS_MINUTES.map((minutes) => (
+                    <SelectItem key={minutes} value={String(minutes)}>
+                      {t(`followUpPreset${minutes}`)}
+                    </SelectItem>
+                  ))}
+                  <SelectItem value="custom">{t('followUpDelayCustom')}</SelectItem>
+                </SelectContent>
+              </Select>
+              {followUpDelayPreset === 'custom' ? (
+                <div className="flex items-center gap-2">
+                  <Input
+                    type="number"
+                    min={1}
+                    max={1440}
+                    value={customDelayAmount}
+                    onChange={(e) => setCustomDelayAmount(e.target.value)}
+                    disabled={disabled || !autoReplyEnabled || !followUpEnabled}
+                    className="w-24"
+                    aria-label={t('followUpDelay')}
+                  />
+                  <Select
+                    value={customDelayUnit}
+                    onValueChange={(v) =>
+                      setCustomDelayUnit(v as 'minutes' | 'hours')
+                    }
+                    disabled={disabled || !autoReplyEnabled || !followUpEnabled}
+                  >
+                    <SelectTrigger className="w-[8.5rem]">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="minutes">
+                        {t('followUpDelayMinutes')}
+                      </SelectItem>
+                      <SelectItem value="hours">
+                        {t('followUpDelayHours')}
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              ) : null}
             </div>
 
             <div className="flex items-center justify-between gap-4 rounded-md border border-border p-3">

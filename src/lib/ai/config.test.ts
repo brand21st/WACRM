@@ -212,6 +212,8 @@ describe('AI_VOICE_DEFAULTS', () => {
       fullAgentEnabled: false,
       realtimeVoiceEnabled: false,
       realtimeVoice: null,
+      followUpEnabled: false,
+      followUpDelayMinutes: 30,
     })
   })
 })

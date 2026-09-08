@@ -46,6 +46,7 @@ import {
 } from '@/lib/whatsapp/interactive';
 import { decrypt, encrypt, isLegacyFormat } from '@/lib/whatsapp/encryption';
 import { supabaseAdmin } from '@/lib/flows/admin-client';
+import { cancelConversationFollowUp } from '@/lib/ai/follow-up';
 import {
   sanitizePhoneForMeta,
   isValidE164,
@@ -590,6 +591,14 @@ export async function sendMessageToConversation(
       updated_at: new Date().toISOString(),
     })
     .eq('id', conversationId);
+
+  await cancelConversationFollowUp({
+    db,
+    accountId,
+    conversationId,
+  }).catch((err) => {
+    console.warn('[send-message] follow-up cancel failed:', err);
+  });
 
   if (replyParent) {
     const extracted = productFocusFromMessage(replyParent)

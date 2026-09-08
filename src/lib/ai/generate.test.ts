@@ -335,4 +335,24 @@ describe('generateReply — spoken rewrite', () => {
 
     expect(res.text).toBe('stiff formal draft')
   })
+
+  it('keeps JSON drafts when spoken rewrite is skipped', async () => {
+    const json = '{"action":"send","message":"Still looking at the blue kurti?","reason":"product_inquiry"}'
+    const fetchMock = vi.fn().mockResolvedValueOnce(
+      okResponse({
+        choices: [{ message: { content: json } }],
+      }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const res = await generateReply({
+      config: config({ provider: 'openai' }),
+      systemPrompt: 'sys',
+      messages: [{ role: 'user', content: 'ethra und alle' }],
+      skipSpokenRewrite: true,
+    })
+
+    expect(res.text).toBe(json)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
 })
