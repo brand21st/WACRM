@@ -19,11 +19,17 @@ function LoginPageInner() {
   const searchParams = useSearchParams();
   const inviteToken = searchParams.get("invite");
   const t = useTranslations("LoginPage");
+  const callbackError = searchParams.get("error");
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(() => {
+    if (!callbackError) return null;
+    if (callbackError === "missing_code") return t("authErrorMissingCode");
+    if (callbackError === "exchange_failed") return t("authErrorExchangeFailed");
+    return t("authErrorGeneric");
+  });
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
   const supabase = createClient();

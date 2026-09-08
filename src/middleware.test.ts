@@ -98,6 +98,31 @@ describe("middleware — refreshed auth cookies survive redirects", () => {
     expect(res.cookies.get(ROTATED.name)?.value).toBe(ROTATED.value);
   });
 
+  it("redirects a signed-in user on /signup?invite= to /join/<token>", async () => {
+    mockUser = { id: "user-1" };
+    refreshedCookies = [ROTATED];
+
+    const res = await middleware(
+      new NextRequest("https://app.test/signup?invite=abc123"),
+    );
+
+    expect(res.headers.get("location")).toContain("/join/abc123");
+    expect(res.cookies.get(ROTATED.name)?.value).toBe(ROTATED.value);
+  });
+
+  it("does not bounce /auth/callback to the dashboard before the code exchange", async () => {
+    mockUser = { id: "user-1" };
+    refreshedCookies = [ROTATED];
+
+    const res = await middleware(
+      new NextRequest("https://app.test/auth/callback?code=abc"),
+    );
+
+    expect(res.headers.get("location")).toBeNull();
+    expect(res.status).toBeLessThan(400);
+    expect(res.cookies.get(ROTATED.name)?.value).toBe(ROTATED.value);
+  });
+
   it("passes through public legal pages without a session", async () => {
     mockUser = null;
 
