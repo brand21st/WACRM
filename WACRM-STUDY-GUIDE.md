@@ -289,7 +289,7 @@ node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 
 | Variable | Purpose |
 |----------|---------|
-| `AUTOMATION_CRON_SECRET` | Protects `GET /api/automations/cron`, `/api/flows/cron`, `/api/shopify/notifications/cron`, `/api/whatsapp/broadcast/cron`, and `/api/voice/cron` |
+| `AUTOMATION_CRON_SECRET` | Protects `GET /api/automations/cron` (also drains AI follow-ups), `/api/ai/follow-up/cron`, `/api/flows/cron`, `/api/shopify/notifications/cron`, `/api/whatsapp/broadcast/cron`, and `/api/voice/cron` |
 | `META_APP_ID` | Required for image-header message templates |
 | `AI_REQUEST_TIMEOUT_MS` | AI call timeout (default `30000`) |
 | `AI_CONTEXT_MESSAGE_LIMIT` | Messages sent to AI (default `20`) |
@@ -497,6 +497,11 @@ curl -s -H "x-cron-secret: <AUTOMATION_CRON_SECRET>" \
 ```
 * * * * * curl -s -H "x-cron-secret: <secret>" https://<domain>/api/automations/cron > /dev/null
 ```
+
+The automations tick also drains due AI conversation follow-ups
+(silent-thread messages after an assistant reply). A dedicated
+`GET /api/ai/follow-up/cron` exists but is optional once
+`/api/automations/cron` or the BullMQ worker is running.
 
 Also schedule `GET /api/flows/cron` if using Flows,
 `GET /api/shopify/notifications/cron` if using delayed Shopify

@@ -111,14 +111,15 @@ Do not require `.env.local` on the server. Full checklist:
   inline processing / `voice_inbound_jobs`.
 - Automations, flows, Shopify notifications, broadcasts, and billing
   still use HTTP cron. Point an external scheduler at
-  `GET /api/automations/cron`, `GET /api/flows/cron`,
+  `GET /api/automations/cron` (this tick also drains due AI
+  conversation follow-ups), `GET /api/flows/cron`,
   `GET /api/shopify/notifications/cron`,
   `GET /api/whatsapp/broadcast/cron`, and
   `GET /api/billing/cron`, sending the shared secret in the
   `x-cron-secret` header (`AUTOMATION_CRON_SECRET`, see
-  `.env.local.example`). `/api/voice/cron` is an optional fallback if
-  Redis is unavailable — it is no longer required when the worker is
-  running.
+  `.env.local.example`). `/api/voice/cron` and
+  `/api/ai/follow-up/cron` are optional fallbacks if Redis is
+  unavailable — they are not required when the worker is running.
 - Nginx config lives in `deploy/nginx/` and is **baked into the nginx
   image** (Coolify cannot bind-mount git files as regular files).
   The webhook location disables proxy buffering so Meta's POST is not

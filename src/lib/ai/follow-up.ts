@@ -245,6 +245,11 @@ export async function processConversationFollowUp(args: {
     }
 
     if (generated.action !== 'send' || !generated.message) {
+      console.info('[follow-up] skip', {
+        reason: 'ai_skip',
+        followUpId: claimed.id,
+        modelReason: generated.reason,
+      })
       await finishSkip(db, claimed.id, 'ai_skip')
       return
     }

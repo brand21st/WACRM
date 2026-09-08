@@ -7,6 +7,10 @@ import { drainDueConversationFollowUps } from '@/lib/ai/follow-up'
 /**
  * Drain due conversation follow-ups if Redis delayed jobs were lost.
  * Same `x-cron-secret` / `AUTOMATION_CRON_SECRET` as other crons.
+ *
+ * Production also drains from `GET /api/automations/cron` (already on
+ * the minute pinger) and from the BullMQ worker every 30s, so this
+ * dedicated route is optional once those are running.
  */
 export async function GET(request: Request) {
   const expected = process.env.AUTOMATION_CRON_SECRET

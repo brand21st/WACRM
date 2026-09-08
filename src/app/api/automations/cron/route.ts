@@ -1,5 +1,6 @@
 import { timingSafeEqual } from 'node:crypto'
 import { NextResponse } from 'next/server'
+import { drainDueConversationFollowUps } from '@/lib/ai/follow-up'
 import { supabaseAdmin } from '@/lib/automations/admin-client'
 import { resumePendingExecution } from '@/lib/automations/engine'
 import type { AutomationContext } from '@/lib/automations/engine'
@@ -9,6 +10,10 @@ import type { AutomationContext } from '@/lib/automations/engine'
  * on a schedule (Vercel Cron / external pinger) — requires a shared
  * secret via the `x-cron-secret` header to match
  * `AUTOMATION_CRON_SECRET`.
+ *
+ * Also drains due conversation follow-ups. Redis delayed jobs are the
+ * primary path; this tick is the backup when the worker missed them.
+ * Dedicated `GET /api/ai/follow-up/cron` still exists.
  *
  * The claim step (status = 'running') serves as a simple lock so
  * overlapping invocations don't double-process rows. Best-effort
@@ -31,6 +36,11 @@ export async function GET(request: Request) {
   }
 
   const admin = supabaseAdmin()
+  const followUps = await drainDueConversationFollowUps(admin).catch((err) => {
+    console.error('[automations/cron] follow-up drain failed:', err)
+    return { processed: 0 }
+  })
+
   const { data: due, error } = await admin
     .from('automation_pending_executions')
     .select('*')
@@ -40,7 +50,9 @@ export async function GET(request: Request) {
     .limit(50)
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  if (!due || due.length === 0) return NextResponse.json({ processed: 0 })
+  if (!due || due.length === 0) {
+    return NextResponse.json({ processed: 0, followUps: followUps.processed })
+  }
 
   let processed = 0
   for (const row of due) {
@@ -70,5 +82,5 @@ export async function GET(request: Request) {
     processed++
   }
 
-  return NextResponse.json({ processed })
+  return NextResponse.json({ processed, followUps: followUps.processed })
 }
