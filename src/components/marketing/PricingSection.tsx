@@ -44,6 +44,8 @@ const pricingPlans: PricingPlan[] = [
     ctaText: "Start Now",
     ctaHref: APP_SIGNUP,
     features: [
+      { id: "meta_api", name: "Official Meta WhatsApp API", isIncluded: true },
+      { id: "free_setup", name: "Free Setup & Onboarding", isIncluded: true },
       { id: "accounts", name: "WhatsApp Account Limit", value: "1" },
       { id: "members", name: "Team Members", value: "1" },
       { id: "contacts", name: "Contact Limit", value: "1,000" },
@@ -75,6 +77,8 @@ const pricingPlans: PricingPlan[] = [
     ctaText: "Start Now",
     ctaHref: APP_SIGNUP,
     features: [
+      { id: "meta_api", name: "Official Meta WhatsApp API", isIncluded: true },
+      { id: "free_setup", name: "Free Setup & Onboarding", isIncluded: true },
       { id: "accounts", name: "WhatsApp Account Limit", value: "3" },
       { id: "members", name: "Team Members", value: "3" },
       { id: "contacts", name: "Contact Limit", value: "10,000" },
@@ -104,6 +108,8 @@ const pricingPlans: PricingPlan[] = [
     ctaText: "Start Now",
     ctaHref: APP_SIGNUP,
     features: [
+      { id: "meta_api", name: "Official Meta WhatsApp API", isIncluded: true },
+      { id: "free_setup", name: "Free Setup & Onboarding", isIncluded: true },
       { id: "accounts", name: "WhatsApp Account Limit", value: "Unlimited" },
       { id: "members", name: "Team Members", value: "Unlimited" },
       { id: "contacts", name: "Contact Limit", value: "Unlimited" },
@@ -124,6 +130,20 @@ const pricingPlans: PricingPlan[] = [
 
 function getFeatureIcon(id: string) {
   switch (id) {
+    case "meta_api":
+      return (
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+          <path d="m9 12 2 2 4-4" />
+        </svg>
+      );
+    case "free_setup":
+      return (
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="12" cy="12" r="10" />
+          <path d="m9 12 2 2 4-4" />
+        </svg>
+      );
     case "accounts":
       return (
         <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
