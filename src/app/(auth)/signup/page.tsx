@@ -7,6 +7,7 @@ import { useTranslations } from "next-intl";
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
 import {
   isDuplicateSignupUser,
+  oauthCallbackRedirectTo,
   signupDestination,
   signupEmailRedirectTo,
 } from "@/lib/auth/callback";
@@ -146,9 +147,10 @@ function SignupPageInner() {
       const { error: oauthError } = await supabase.auth.signInWithOAuth({
         provider: "google",
         options: {
-          redirectTo: `${window.location.origin}/auth/callback${
-            inviteToken ? `?invite=${encodeURIComponent(inviteToken)}` : ""
-          }`,
+          redirectTo: oauthCallbackRedirectTo(
+            window.location.origin,
+            inviteToken,
+          ),
         },
       });
       if (oauthError) {

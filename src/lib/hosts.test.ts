@@ -2,9 +2,11 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   APP_ORIGIN,
   appOrigin,
+  authRedirectOrigin,
   isAppHost,
   isCrmPath,
   isLandingHost,
+  isLocalDevHost,
   isWwwAppHost,
   normalizeHost,
 } from "./hosts";
@@ -43,5 +45,19 @@ describe("hosts", () => {
     expect(appOrigin()).toBe(APP_ORIGIN);
     process.env.NEXT_PUBLIC_SITE_URL = "https://cloud.vachat.in/";
     expect(appOrigin()).toBe("https://cloud.vachat.in");
+  });
+
+  it("keeps localhost for PKCE and pins every other host to the CRM", () => {
+    expect(isLocalDevHost("localhost:3000")).toBe(true);
+    expect(isLocalDevHost("cloud.vachat.in")).toBe(false);
+    expect(authRedirectOrigin("http://localhost:3000")).toBe(
+      "http://localhost:3000",
+    );
+    expect(authRedirectOrigin("http://127.0.0.1:3000/")).toBe(
+      "http://127.0.0.1:3000",
+    );
+    expect(authRedirectOrigin("https://www.cloud.vachat.in")).toBe(APP_ORIGIN);
+    expect(authRedirectOrigin("https://vachat.in")).toBe(APP_ORIGIN);
+    expect(authRedirectOrigin("not-a-url")).toBe(APP_ORIGIN);
   });
 });

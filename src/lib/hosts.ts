@@ -56,3 +56,30 @@ export function appOrigin(): string {
   const fromEnv = process.env.NEXT_PUBLIC_SITE_URL?.trim().replace(/\/+$/, "");
   return fromEnv || APP_ORIGIN;
 }
+
+const LOCAL_DEV_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
+
+export function isLocalDevHost(host: string | null | undefined): boolean {
+  return LOCAL_DEV_HOSTS.has(normalizeHost(host));
+}
+
+/**
+ * Confirm, OAuth, and password-reset emails must land on the
+ * canonical CRM in production. The browser origin would bake
+ * www / landing / preview hosts into the mail; if GoTrue rejects
+ * that URL it falls back to Site URL (often leftover localhost).
+ *
+ * Localhost keeps the tab origin so the PKCE verifier cookie
+ * stays on the same host as the signup session.
+ */
+export function authRedirectOrigin(browserOrigin: string): string {
+  try {
+    const url = new URL(browserOrigin);
+    if (isLocalDevHost(url.hostname)) {
+      return `${url.protocol}//${url.host}`.replace(/\/+$/, "");
+    }
+  } catch {
+    // invalid origin — use production
+  }
+  return APP_ORIGIN;
+}

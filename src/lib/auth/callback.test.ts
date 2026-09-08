@@ -6,6 +6,8 @@ import {
   isSupabaseSiteUrlAuthLanding,
   postAuthPath,
   safeAuthNextPath,
+  oauthCallbackRedirectTo,
+  passwordResetEmailRedirectTo,
   signupDestination,
   signupEmailRedirectTo,
 } from './callback'
@@ -63,6 +65,37 @@ describe('signupEmailRedirectTo', () => {
       signupEmailRedirectTo('https://cloud.vachat.in/', 'inv-token'),
     ).toBe(
       'https://cloud.vachat.in/auth/callback?next=%2Fjoin%2Finv-token',
+    )
+  })
+
+  it('rewrites landing and www hosts to the canonical CRM', () => {
+    expect(signupEmailRedirectTo('https://vachat.in', null)).toBe(
+      'https://cloud.vachat.in/auth/callback?next=%2Fdashboard',
+    )
+    expect(signupEmailRedirectTo('https://www.cloud.vachat.in', null)).toBe(
+      'https://cloud.vachat.in/auth/callback?next=%2Fdashboard',
+    )
+    expect(signupEmailRedirectTo('http://localhost:3000', null)).toBe(
+      'http://localhost:3000/auth/callback?next=%2Fdashboard',
+    )
+  })
+})
+
+describe('oauthCallbackRedirectTo', () => {
+  it('pins production OAuth to the CRM callback', () => {
+    expect(oauthCallbackRedirectTo('https://www.vachat.in', null)).toBe(
+      'https://cloud.vachat.in/auth/callback',
+    )
+    expect(
+      oauthCallbackRedirectTo('https://cloud.vachat.in', 'inv-token'),
+    ).toBe('https://cloud.vachat.in/auth/callback?invite=inv-token')
+  })
+})
+
+describe('passwordResetEmailRedirectTo', () => {
+  it('sends reset mail to the CRM callback', () => {
+    expect(passwordResetEmailRedirectTo('https://vachat.in')).toBe(
+      'https://cloud.vachat.in/auth/callback?next=%2Freset-password',
     )
   })
 })

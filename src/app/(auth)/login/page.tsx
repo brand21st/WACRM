@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useTranslations } from "next-intl";
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
+import { oauthCallbackRedirectTo } from "@/lib/auth/callback";
 import { ArrowLeft, Eye, EyeOff, Mail } from "lucide-react";
 
 export default function LoginPage() {
@@ -111,9 +112,10 @@ function LoginPageInner() {
       const { error } = await supabase.auth.signInWithOAuth({
         provider: "google",
         options: {
-          redirectTo: `${window.location.origin}/auth/callback${
-            inviteToken ? `?invite=${encodeURIComponent(inviteToken)}` : ""
-          }`,
+          redirectTo: oauthCallbackRedirectTo(
+            window.location.origin,
+            inviteToken,
+          ),
         },
       });
       if (error) {

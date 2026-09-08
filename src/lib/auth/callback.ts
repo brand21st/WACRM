@@ -1,3 +1,5 @@
+import { authRedirectOrigin } from '@/lib/hosts'
+
 /**
  * Helpers for GET /auth/callback — PKCE email confirm, OAuth, and
  * password-reset links. Keep `next` on an allowlist so a crafted
@@ -58,7 +60,21 @@ export function signupEmailRedirectTo(
   const next = inviteToken
     ? `/join/${encodeURIComponent(inviteToken)}`
     : '/dashboard'
-  return `${origin.replace(/\/+$/, '')}/auth/callback?next=${encodeURIComponent(next)}`
+  return `${authRedirectOrigin(origin)}/auth/callback?next=${encodeURIComponent(next)}`
+}
+
+export function oauthCallbackRedirectTo(
+  origin: string,
+  inviteToken: string | null,
+): string {
+  const base = `${authRedirectOrigin(origin)}/auth/callback`
+  const invite = inviteToken?.trim()
+  if (!invite) return base
+  return `${base}?invite=${encodeURIComponent(invite)}`
+}
+
+export function passwordResetEmailRedirectTo(origin: string): string {
+  return `${authRedirectOrigin(origin)}/auth/callback?next=${encodeURIComponent('/reset-password')}`
 }
 
 /**
