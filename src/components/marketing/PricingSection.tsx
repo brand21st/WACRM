@@ -25,12 +25,41 @@ interface PricingPlan {
   yearlySavings: string;
   period: string;
   pillLabel: string;
+  pillType?: "teal" | "green";
+  isFlexibleOption?: boolean;
   features: FeatureItem[];
   ctaText: string;
   ctaHref: string;
 }
 
 const pricingPlans: PricingPlan[] = [
+  {
+    id: "super_starter",
+    name: "SUPER STARTER",
+    subtitle: "Simple automation to grow your sales.",
+    monthlyPrice: "₹1,500",
+    yearlyPrice: "₹1,200",
+    yearlyBilledTotal: "₹14,400",
+    yearlySavings: "₹3,600",
+    period: "/ month",
+    pillLabel: "SMALL BUSINESS ESSENTIALS",
+    pillType: "teal",
+    isFlexibleOption: true,
+    ctaText: "Start Now",
+    ctaHref: APP_SIGNUP,
+    features: [
+      { id: "meta_api", name: "Official Meta WhatsApp API", isIncluded: true },
+      { id: "free_setup", name: "Free Setup & Onboarding", isIncluded: true },
+      { id: "accounts", name: "WhatsApp Account", value: "1" },
+      { id: "members", name: "Team Members", value: "1" },
+      { id: "contacts", name: "Contacts", value: "3,000" },
+      { id: "ai_text", name: "AI Reply (Text)", isIncluded: true },
+      { id: "checkout", name: "Direct Shopify Checkout", isIncluded: true },
+      { id: "workflows", name: "Automation Workflows", value: "Basic" },
+      { id: "analytics", name: "Analytics & Reports", value: "Basic" },
+      { id: "support", name: "Support", value: "Standard" },
+    ],
+  },
   {
     id: "starter",
     name: "STARTER",
@@ -260,6 +289,14 @@ function getFeatureIcon(id: string) {
 }
 
 function getPlanHeaderIcon(id: string) {
+  if (id === "super_starter") {
+    return (
+      <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="#008744" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M11 20A7 7 0 0 1 4 13a7 7 0 0 1 7-7c1.5 0 2.9.5 4 1.3V3a1 1 0 0 1 1-1h1a1 1 0 0 1 1 1v6.5c1.2 1.3 2 3.1 2 5.5a7 7 0 0 1-7 7z" />
+        <path d="M11 13c2.5 0 5-1 6-3" />
+      </svg>
+    );
+  }
   if (id === "starter") {
     return (
       <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="#008744" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
@@ -408,30 +445,68 @@ export default function PricingSection() {
                 </div>
 
                 {/* Price Display */}
-                <div className="vachat-plan-price-box">
-                  <div className="vachat-plan-price-row">
-                    {isYearly && (
-                      <span className="vachat-price-original">{plan.monthlyPrice}</span>
+                {plan.isFlexibleOption ? (
+                  <div className="vachat-flexible-card-box">
+                    <div className="vachat-flexible-header-label">Flexible Billing Options</div>
+                    
+                    <div className="vachat-flexible-price-inner">
+                      <div className="vachat-plan-price-row">
+                        {isYearly && (
+                          <span className="vachat-price-original">{plan.monthlyPrice}</span>
+                        )}
+                        <span className="vachat-price-value">{currentPrice}</span>
+                        <span className="vachat-price-period">{plan.period}</span>
+                      </div>
+                      <div className="vachat-flexible-subtext">
+                        {isYearly ? `Billed Annually` : "Billed Monthly"}
+                      </div>
+                    </div>
+
+                    <div className="vachat-flexible-lock-badge">
+                      <div className="vachat-lock-icon-svg">
+                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="#008744" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                          <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                          <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+                        </svg>
+                      </div>
+                      <div className="vachat-lock-text-wrap">
+                        <span className="vachat-lock-title">{isYearly ? "Annual commitment (Save 20%)" : "Plan locked for 2 months"}</span>
+                        <span className="vachat-lock-desc">
+                          {isYearly ? `₹${plan.yearlyBilledTotal.replace("₹", "")} charged annually` : "₹3,000 will be charged for 2 months (one-time)"}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className={`vachat-plan-pill ${plan.pillType === "teal" ? "pill-teal" : ""}`}>
+                      <span>{plan.pillLabel}</span>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="vachat-plan-price-box">
+                    <div className="vachat-plan-price-row">
+                      {isYearly && (
+                        <span className="vachat-price-original">{plan.monthlyPrice}</span>
+                      )}
+                      <span className="vachat-price-value">{currentPrice}</span>
+                      <span className="vachat-price-period">{plan.period}</span>
+                    </div>
+
+                    {isYearly ? (
+                      <div className="vachat-plan-yearly-note">
+                        <span className="yearly-note-dot">●</span>
+                        <span>Billed annually at {plan.yearlyBilledTotal}/yr <strong className="yearly-savings-text">(Save {plan.yearlySavings}/yr)</strong></span>
+                      </div>
+                    ) : (
+                      <div className="vachat-plan-monthly-note">
+                        <span>Billed monthly</span>
+                      </div>
                     )}
-                    <span className="vachat-price-value">{currentPrice}</span>
-                    <span className="vachat-price-period">{plan.period}</span>
-                  </div>
 
-                  {isYearly ? (
-                    <div className="vachat-plan-yearly-note">
-                      <span className="yearly-note-dot">●</span>
-                      <span>Billed annually at {plan.yearlyBilledTotal}/yr <strong className="yearly-savings-text">(Save {plan.yearlySavings}/yr)</strong></span>
+                    <div className={`vachat-plan-pill ${plan.pillType === "teal" ? "pill-teal" : ""}`}>
+                      <span>{plan.pillLabel}</span>
                     </div>
-                  ) : (
-                    <div className="vachat-plan-monthly-note">
-                      <span>Billed monthly</span>
-                    </div>
-                  )}
-
-                  <div className="vachat-plan-pill">
-                    <span>{plan.pillLabel}</span>
                   </div>
-                </div>
+                )}
 
                 {/* Features List */}
                 <div className="vachat-plan-features">
