@@ -62,14 +62,20 @@ const pricingPlans: PricingPlan[] = [
     features: [
       { id: "meta_api", name: "Official Meta WhatsApp API", isIncluded: true },
       { id: "free_setup", name: "Free Setup & Onboarding", isIncluded: true },
-      { id: "accounts", name: "WhatsApp Account", value: "1" },
+      { id: "accounts", name: "WhatsApp Account Limit", value: "1" },
       { id: "members", name: "Team Members", value: "1" },
-      { id: "contacts", name: "Contacts", value: "3,000" },
+      { id: "contacts", name: "Contact Limit", value: "1,000" },
       { id: "ai_text", name: "AI Reply (Text)", isIncluded: true },
+      { id: "ai_voice", name: "AI Voice Reply", isIncluded: true },
+      { id: "voice_cloning", name: "Voice Cloning", isIncluded: true },
+      { id: "recommendations", name: "Product Recommendations", isIncluded: true },
       { id: "checkout", name: "Direct Shopify Checkout", isIncluded: true },
-      { id: "workflows", name: "Automation Workflows", value: "Basic" },
-      { id: "analytics", name: "Analytics & Reports", value: "Basic" },
-      { id: "support", name: "Support", value: "Standard" },
+      { id: "templates", name: "Template Messages", value: "Unlimited" },
+      { id: "commerce", name: "WhatsApp Commerce", isIncluded: true },
+      { id: "calls", name: "Call Recordings", isIncluded: true },
+      { id: "workflows", name: "Automation Workflows", value: "Advanced" },
+      { id: "analytics", name: "Analytics & Reports", value: "Advanced" },
+      { id: "support", name: "Priority Support", value: "Priority" },
     ],
   },
   {
@@ -94,7 +100,7 @@ const pricingPlans: PricingPlan[] = [
       { id: "free_setup", name: "Free Setup & Onboarding", isIncluded: true },
       { id: "accounts", name: "WhatsApp Account Limit", value: "1" },
       { id: "members", name: "Team Members", value: "1" },
-      { id: "contacts", name: "Contact Limit", value: "1,000" },
+      { id: "contacts", name: "Contact Limit", value: "3,000" },
       { id: "ai_text", name: "AI Reply (Text Only)", isIncluded: true },
       { id: "recommendations", name: "Product Recommendations", isIncluded: true },
       { id: "checkout", name: "Direct Shopify Checkout", isIncluded: true },
@@ -484,7 +490,7 @@ export default function PricingSection() {
                 {plan.isFlexibleOption ? (
                   <div className="vachat-flexible-card-box">
                     <div className="vachat-flexible-header-label">Flexible Billing Options</div>
-                    
+
                     <div className="vachat-flexible-price-inner">
                       <div className="vachat-plan-price-row">
                         <span className="vachat-price-value">{plan.monthlyPrice}</span>
