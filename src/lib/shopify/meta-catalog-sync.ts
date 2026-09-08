@@ -347,24 +347,20 @@ export async function upsertMetaProductSet(opts: {
   name: string
   retailerIds: string[]
   productSetId?: string | null
+  coverImageUrl?: string | null
+  description?: string | null
 }): Promise<string | null> {
-  const filter = JSON.stringify(metaProductSetFilter(opts.retailerIds))
+  const body = metaProductSetWriteBody(opts)
   const existingId = opts.productSetId?.trim()
   if (existingId) {
-    await graphJson(`${META_API_BASE}/${encodeURIComponent(existingId)}`, opts.accessToken, {
-      name: opts.name.slice(0, 100),
-      filter,
-    })
+    await graphJson(`${META_API_BASE}/${encodeURIComponent(existingId)}`, opts.accessToken, body)
     return existingId
   }
   try {
     const created = await graphJson<{ id?: string }>(
       `${META_API_BASE}/${encodeURIComponent(opts.catalogId)}/product_sets`,
       opts.accessToken,
-      {
-        name: opts.name.slice(0, 100),
-        filter,
-      },
+      body,
     )
     return created.id ? String(created.id) : null
   } catch (err) {
@@ -381,11 +377,28 @@ export async function upsertMetaProductSet(opts: {
         opts.retailerIds,
       ))
     if (!reused) throw err
-    await graphJson(`${META_API_BASE}/${encodeURIComponent(reused)}`, opts.accessToken, {
-      name: opts.name.slice(0, 100),
-      filter,
-    })
+    await graphJson(`${META_API_BASE}/${encodeURIComponent(reused)}`, opts.accessToken, body)
     return reused
+  }
+}
+
+export function metaProductSetWriteBody(opts: {
+  name: string
+  retailerIds: string[]
+  coverImageUrl?: string | null
+  description?: string | null
+}): Record<string, unknown> {
+  const metadata: Record<string, string> = {
+    description: (opts.description ?? opts.name).trim().slice(0, 200),
+  }
+  const cover = opts.coverImageUrl?.trim()
+  if (cover && /^https:\/\//i.test(cover)) {
+    metadata.cover_image_url = cover
+  }
+  return {
+    name: opts.name.slice(0, 100),
+    filter: JSON.stringify(metaProductSetFilter(opts.retailerIds)),
+    metadata,
   }
 }
 

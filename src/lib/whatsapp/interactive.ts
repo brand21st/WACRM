@@ -99,6 +99,7 @@ export interface InteractiveProductListPayload {
   footer?: string
   catalog_id: string
   product_retailer_ids: string[]
+  sections?: Array<{ title: string; productRetailerIds: string[] }>
 }
 
 export interface InteractiveCatalogMessagePayload {
@@ -361,7 +362,15 @@ export function validateInteractivePayload(
     const list = payload as InteractiveProductListPayload
     if (!list.header?.trim()) return fail('A product list needs a header.')
     if (!list.catalog_id?.trim()) return fail('A product list needs a catalog id.')
-    if (!Array.isArray(list.product_retailer_ids) || list.product_retailer_ids.length < 1) {
+    const sectionIds = (list.sections ?? []).flatMap((section) => section.productRetailerIds)
+    const ids = [
+      ...new Set(
+        [...(list.product_retailer_ids ?? []), ...sectionIds]
+          .map((id) => id.trim())
+          .filter(Boolean),
+      ),
+    ]
+    if (ids.length < 1) {
       return fail('Add at least one catalog product.')
     }
     return ok()

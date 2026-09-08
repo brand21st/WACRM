@@ -80,6 +80,16 @@ function seedDb(
         retailer_id: 'BAG-BLUE',
       },
     ],
+    catalog_media: [
+      {
+        id: 'media-a',
+        account_id: 'acct-a',
+        product_id: 'prod-a',
+        url: 'https://cdn.example/saree.jpg',
+        role: 'hero',
+        sort_order: 0,
+      },
+    ],
     catalog_product_collections: [
       {
         id: 'join-1',
@@ -144,6 +154,10 @@ describe('catalog set Meta sync', () => {
     expect(init.method).toBe('POST')
     const body = JSON.parse(String(init.body))
     expect(body.name).toBe('Sarees')
+    expect(body.metadata).toEqual({
+      description: 'Sarees',
+      cover_image_url: 'https://cdn.example/saree.jpg',
+    })
     expect(JSON.parse(body.filter)).toEqual(
       metaProductSetFilter(['BAG-RED']),
     )
@@ -372,6 +386,25 @@ describe('catalog set Meta sync', () => {
       .eq('id', 'col-1')
       .maybeSingle()
     expect(data?.meta_product_set_id).toBeNull()
+  })
+
+  it('does not publish homepage collections to WhatsApp Catalogue', async () => {
+    const fetchMock = mockGraph({})
+    vi.stubGlobal('fetch', fetchMock)
+    const db = seedDb()
+    await publishCatalogSetToMeta(db, {
+      id: 'col-1',
+      accountId: 'acct-a',
+      handle: 'frontpage',
+      title: 'Home page',
+      status: 'active',
+      metaProductSetId: 'ps-home',
+    })
+    expect(fetchMock.mock.calls.some((call) => {
+      const init = call[1] as RequestInit | undefined
+      return init?.method === 'DELETE'
+    })).toBe(true)
+    expect(productSetWriteCall(fetchMock)).toBeUndefined()
   })
 
   it('deletes the Meta set by id', async () => {

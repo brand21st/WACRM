@@ -1538,6 +1538,11 @@ export async function sendInteractiveProduct(
   })
 }
 
+export interface ProductListSectionInput {
+  title: string
+  productRetailerIds: string[]
+}
+
 export interface SendInteractiveProductListArgs {
   phoneNumberId: string
   accessToken: string
@@ -1546,8 +1551,65 @@ export interface SendInteractiveProductListArgs {
   headerText: string
   bodyText: string
   footerText?: string
-  productRetailerIds: string[]
+  productRetailerIds?: string[]
   sectionTitle?: string
+  sections?: ProductListSectionInput[]
+}
+
+const PRODUCT_LIST_ITEM_CAP = 30
+const PRODUCT_LIST_SECTION_CAP = 10
+const PRODUCT_LIST_TITLE_MAX = 24
+
+export function buildProductListActionSections(
+  args: Pick<
+    SendInteractiveProductListArgs,
+    'productRetailerIds' | 'sectionTitle' | 'sections'
+  >,
+): Array<{ title: string; product_items: Array<{ product_retailer_id: string }> }> {
+  const fromNamed = (args.sections ?? [])
+    .map((section) => ({
+      title: section.title.trim().slice(0, PRODUCT_LIST_TITLE_MAX),
+      ids: [
+        ...new Set(
+          section.productRetailerIds.map((id) => id.trim()).filter(Boolean),
+        ),
+      ],
+    }))
+    .filter((section) => section.title && section.ids.length > 0)
+    .slice(0, PRODUCT_LIST_SECTION_CAP)
+
+  const source =
+    fromNamed.length > 0
+      ? fromNamed
+      : [
+          {
+            title: (args.sectionTitle || 'Products').slice(0, PRODUCT_LIST_TITLE_MAX),
+            ids: [
+              ...new Set(
+                (args.productRetailerIds ?? [])
+                  .map((id) => id.trim())
+                  .filter(Boolean),
+              ),
+            ],
+          },
+        ].filter((section) => section.ids.length > 0)
+
+  const sections: Array<{
+    title: string
+    product_items: Array<{ product_retailer_id: string }>
+  }> = []
+  let used = 0
+  for (const section of source) {
+    if (used >= PRODUCT_LIST_ITEM_CAP) break
+    const ids = section.ids.slice(0, PRODUCT_LIST_ITEM_CAP - used)
+    if (ids.length === 0) continue
+    sections.push({
+      title: section.title,
+      product_items: ids.map((id) => ({ product_retailer_id: id })),
+    })
+    used += ids.length
+  }
+  return sections
 }
 
 export async function sendInteractiveProductList(
@@ -1557,8 +1619,8 @@ export async function sendInteractiveProductList(
   const header = args.headerText.trim()
   if (!header) throw new Error('product_list messages need a header')
   const catalogId = args.catalogId.trim()
-  const ids = [...new Set(args.productRetailerIds.map((id) => id.trim()).filter(Boolean))]
-  if (!catalogId || ids.length === 0) {
+  const sections = buildProductListActionSections(args)
+  if (!catalogId || sections.length === 0) {
     throw new Error('product_list needs catalog_id and at least one retailer id')
   }
   const interactive: Record<string, unknown> = {
@@ -1567,12 +1629,7 @@ export async function sendInteractiveProductList(
     body: { text: args.bodyText },
     action: {
       catalog_id: catalogId,
-      sections: [
-        {
-          title: (args.sectionTitle || 'Products').slice(0, 24),
-          product_items: ids.slice(0, 30).map((id) => ({ product_retailer_id: id })),
-        },
-      ],
+      sections,
     },
   }
   if (args.footerText?.trim()) interactive.footer = { text: args.footerText.trim() }

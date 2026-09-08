@@ -556,6 +556,39 @@ export async function listProductIdsForCollection(
   return (data ?? []).map((row) => String(row.product_id))
 }
 
+export async function loadCollectionCoverImageUrl(
+  db: SupabaseClient,
+  accountId: string,
+  collectionId: string,
+): Promise<string | null> {
+  const productIds = await listProductIdsForCollection(db, accountId, collectionId)
+  if (productIds.length === 0) return null
+  const { data, error } = await db
+    .from('catalog_media')
+    .select('product_id, url, role, sort_order')
+    .eq('account_id', accountId)
+    .in('product_id', productIds)
+    .order('sort_order', { ascending: true })
+  if (error) throw error
+  const rows = data ?? []
+  const rank = (role: unknown) =>
+    role === 'hero' ? 0 : role === 'listing' ? 1 : 2
+  const byProduct = new Map<string, { url: string; rank: number }>()
+  for (const row of rows) {
+    const url = String(row.url ?? '').trim()
+    if (!/^https:\/\//i.test(url)) continue
+    const productId = String(row.product_id)
+    const next = { url, rank: rank(row.role) }
+    const current = byProduct.get(productId)
+    if (!current || next.rank < current.rank) byProduct.set(productId, next)
+  }
+  for (const productId of productIds) {
+    const cover = byProduct.get(productId)
+    if (cover) return cover.url
+  }
+  return null
+}
+
 export async function loadActiveRetailerIdsForCollection(
   db: SupabaseClient,
   accountId: string,

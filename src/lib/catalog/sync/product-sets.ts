@@ -9,10 +9,12 @@ import {
   loadWhatsAppAccessToken,
   upsertMetaProductSet,
 } from '@/lib/shopify/meta-catalog-sync'
+import { isCustomerFacingCollection } from './catalog-message-sections'
 import {
   getCollectionById,
   listCollectionsByAccount,
   loadActiveRetailerIdsForCollection,
+  loadCollectionCoverImageUrl,
 } from '../core/repository'
 import type { CatalogCollection } from '../core/types'
 
@@ -28,7 +30,7 @@ export async function publishCatalogSetToMeta(
   collection: Pick<
     CatalogCollection,
     'id' | 'accountId' | 'title' | 'status' | 'metaProductSetId'
-  >,
+  > & { handle?: string },
   options: PublishCatalogSetOptions = {},
 ): Promise<void> {
   const settings = await loadCommerceSettings(db, collection.accountId)
@@ -42,8 +44,12 @@ export async function publishCatalogSetToMeta(
 
   const primaryId = settings.metaCatalogId?.trim() || catalogIds[0]
   const previousTitle = options.previousTitle?.trim() || null
+  const facing = isCustomerFacingCollection({
+    handle: collection.handle ?? '',
+    title: collection.title,
+  })
 
-  if (collection.status !== 'active') {
+  if (collection.status !== 'active' || !facing) {
     await deleteSetOnCatalogs({
       catalogIds,
       primaryId,
@@ -91,12 +97,19 @@ export async function publishCatalogSetToMeta(
       title: collection.title,
       previousTitle,
     })
+    const coverImageUrl = await loadCollectionCoverImageUrl(
+      db,
+      collection.accountId,
+      collection.id,
+    )
     const productSetId = await upsertMetaProductSet({
       catalogId,
       accessToken: wa.token,
       name: collection.title,
       retailerIds,
       productSetId: existingId,
+      coverImageUrl,
+      description: collection.title,
     })
     if (
       isPrimary &&

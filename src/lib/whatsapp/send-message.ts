@@ -439,6 +439,7 @@ export async function sendMessageToConversation(
           bodyText: p.body,
           footerText: p.footer,
           productRetailerIds: p.product_retailer_ids,
+          sections: p.sections,
         });
         return result.messageId;
       }

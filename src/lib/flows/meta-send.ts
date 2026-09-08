@@ -406,7 +406,9 @@ interface SendInteractiveProductListEngineArgs {
   headerText: string
   bodyText: string
   footerText?: string
-  productRetailerIds: string[]
+  productRetailerIds?: string[]
+  sections?: Array<{ title: string; productRetailerIds: string[] }>
+  sectionTitle?: string
   aiGenerated?: boolean
 }
 
@@ -581,6 +583,8 @@ async function sendInteractiveViaMeta(
         bodyText: input.bodyText,
         footerText: input.footerText,
         productRetailerIds: input.productRetailerIds,
+        sections: input.sections,
+        sectionTitle: input.sectionTitle,
       })
       return r.messageId
     }
@@ -716,7 +720,10 @@ async function sendInteractiveViaMeta(
                 header: input.headerText,
                 footer: input.footerText,
                 catalog_id: input.catalogId,
-                product_retailer_ids: input.productRetailerIds,
+                product_retailer_ids:
+                  input.productRetailerIds ??
+                  (input.sections ?? []).flatMap((section) => section.productRetailerIds),
+                ...(input.sections?.length ? { sections: input.sections } : {}),
               }
             : input.kind === 'catalog_message'
               ? {

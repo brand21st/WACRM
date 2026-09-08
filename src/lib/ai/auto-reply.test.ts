@@ -30,6 +30,7 @@ const h = vi.hoisted(() => ({
   engineSendProduct: vi.fn(),
   engineSendProductList: vi.fn(),
   engineSendCatalogMessage: vi.fn(),
+  buildCatalogCollectionSections: vi.fn(),
   loadCommerceSettings: vi.fn(),
   engineSendMedia: vi.fn(),
   engineSendTypingIndicator: vi.fn(),
@@ -140,6 +141,9 @@ vi.mock('@/lib/flows/meta-send', () => ({
 }))
 vi.mock('@/lib/shopify/commerce-config', () => ({
   loadCommerceSettings: h.loadCommerceSettings,
+}))
+vi.mock('@/lib/catalog/sync/catalog-message-sections', () => ({
+  buildCatalogCollectionSections: h.buildCatalogCollectionSections,
 }))
 vi.mock('@/lib/commerce/checkout', () => ({
   tryCompleteCommerceAddress: vi.fn(async () => false),
@@ -304,6 +308,7 @@ beforeEach(() => {
   h.state.quotedParent = null
   h.loadAiConfig.mockResolvedValue(aiConfig())
   h.loadShopifyConfig.mockResolvedValue(null)
+  h.buildCatalogCollectionSections.mockResolvedValue([])
   h.loadCommerceSettings.mockResolvedValue({
     metaCatalogId: null,
     metaCatalogAutoSync: false,
@@ -470,6 +475,7 @@ beforeEach(() => {
   h.engineSendProduct.mockReset().mockResolvedValue({ whatsapp_message_id: 'm-prod' })
   h.engineSendProductList.mockReset().mockResolvedValue({ whatsapp_message_id: 'm-list' })
   h.engineSendCatalogMessage.mockReset().mockResolvedValue({ whatsapp_message_id: 'm-cat' })
+  h.buildCatalogCollectionSections.mockReset().mockResolvedValue([])
   h.engineSendMedia.mockResolvedValue({ whatsapp_message_id: 'm-audio' })
   h.engineSendTypingIndicator.mockResolvedValue(undefined)
   h.synthesizeSpeech.mockResolvedValue({
@@ -2354,6 +2360,53 @@ describe('dispatchInboundToAiReply — cart offer', () => {
     )
     expect(h.engineSendProduct).not.toHaveBeenCalled()
     expect(h.engineSendProductList).not.toHaveBeenCalled()
+  })
+
+  it('sends a collection-grouped product list when catalog collections exist', async () => {
+    h.loadAiConfig.mockResolvedValue(aiConfig({ fullAgentEnabled: true }))
+    h.buildConversationContext.mockResolvedValue([
+      { role: 'user', content: 'show catalog' },
+    ])
+    h.loadShopifyConfig.mockResolvedValue({
+      ...shopifyRow,
+      metaCatalogId: '1234567890',
+    })
+    h.loadCommerceSettings.mockResolvedValue({
+      metaCatalogId: '1234567890',
+      metaCatalogAutoSync: true,
+      lastMetaCatalogSyncAt: null,
+      metaCatalogItemCount: 1,
+      retailerIdSource: 'sku',
+      waPaymentConfigurationName: 'razorpay_prod',
+      razorpayKeyId: null,
+      hasRazorpaySecret: false,
+      hasRazorpayWebhookSecret: false,
+      shipBeneficiary: null,
+    })
+    h.buildCatalogCollectionSections.mockResolvedValue([
+      { title: 'Kurti', productRetailerIds: ['K1', 'K2'] },
+      { title: 'Co-Ord Set', productRetailerIds: ['C1'] },
+    ])
+    h.generateReply.mockImplementation(async (args: { executeTool?: Function }) => {
+      if (args.executeTool) await args.executeTool('send_whatsapp_catalog', {})
+      return { text: 'Browse by collection.', handoff: false }
+    })
+
+    await dispatchInboundToAiReply(ARGS)
+
+    expect(h.engineSendProductList).toHaveBeenCalledWith(
+      expect.objectContaining({
+        catalogId: '1234567890',
+        headerText: 'Catalogue',
+        bodyText: 'Browse by collection.',
+        sections: [
+          { title: 'Kurti', productRetailerIds: ['K1', 'K2'] },
+          { title: 'Co-Ord Set', productRetailerIds: ['C1'] },
+        ],
+        aiGenerated: true,
+      }),
+    )
+    expect(h.engineSendCatalogMessage).not.toHaveBeenCalled()
   })
 
   it('sends Shopify product cards when the customer asks what products you have', async () => {
