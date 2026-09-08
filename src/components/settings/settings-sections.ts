@@ -1,4 +1,5 @@
 import {
+  Blocks,
   Coins,
   FileText,
   CreditCard,
@@ -31,6 +32,7 @@ export const SETTINGS_SECTIONS = [
   'appearance',
   'whatsapp',
   'shopify',
+  'integrations',
   'knowledge',
   'templates',
   'quick-replies',
@@ -61,6 +63,7 @@ export const SECTION_META: Record<SettingsSection, SectionMeta> = {
   appearance: { id: 'appearance', label: 'Appearance', icon: Palette, group: 'account' },
   whatsapp: { id: 'whatsapp', label: 'WhatsApp', icon: PlugZap, group: 'workspace' },
   shopify: { id: 'shopify', label: 'Shopify', icon: ShoppingBag, group: 'workspace' },
+  integrations: { id: 'integrations', label: 'Integrations', icon: Blocks, group: 'workspace' },
   knowledge: { id: 'knowledge', label: 'Knowledge base', icon: BookOpen, group: 'workspace' },
   templates: { id: 'templates', label: 'Templates', icon: FileText, group: 'workspace' },
   'quick-replies': { id: 'quick-replies', label: 'Quick replies', icon: Zap, group: 'workspace' },

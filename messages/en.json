@@ -2430,6 +2430,7 @@
       "appearance": "Appearance",
       "whatsapp": "WhatsApp",
       "shopify": "Shopify",
+      "integrations": "Integrations",
       "knowledge": "Knowledge base",
       "templates": "Templates",
       "quick-replies": "Quick replies",
@@ -2438,6 +2439,36 @@
       "members": "Team members",
       "billing": "Billing",
       "api": "API keys"
+    },
+    "integrations": {
+      "title": "Integrations",
+      "description": "Connect the tools you use with Vachat.",
+      "connected": "Connected",
+      "notConnected": "Not Connected",
+      "needsReconnecting": "Needs reconnecting",
+      "connect": "Connect",
+      "disconnect": "Disconnect",
+      "connectedAccount": "Connected account:",
+      "selectedResource": "Selected sheet:",
+      "lastSynced": "Last synced:",
+      "connectFailed": "Could not start the Google connection.",
+      "disconnectFailed": "Could not disconnect.",
+      "disconnected": "Disconnected.",
+      "connectedToast": "Google Sheets connected.",
+      "oauthErrors": {
+        "access_denied": "Google access was denied.",
+        "invalid_state": "This connection link expired. Try connecting again.",
+        "missing_params": "Google did not return a complete response. Try again.",
+        "not_configured": "Google Sheets is not configured on this server.",
+        "save_failed": "Connected to Google, but saving the connection failed. Try again.",
+        "oauth_failed": "Could not connect to Google. Try again."
+      },
+      "items": {
+        "googleSheets": {
+          "name": "Google Sheets",
+          "description": "Connect your Google Sheets account"
+        }
+      }
     },
     "upgradePlan": {
       "message": "This feature is not included in your current plan.",

@@ -863,6 +863,16 @@ export interface AutomationLog {
 }
 
 // ============================================================
+// Integrations — public connection status (no tokens)
+// ============================================================
+
+export type {
+  IntegrationConnection,
+  IntegrationId,
+  IntegrationStatus,
+} from '@/lib/integrations/types'
+
+// ============================================================
 // Quick replies — reusable snippets (migration 035)
 // ============================================================
 

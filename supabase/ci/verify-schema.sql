@@ -84,6 +84,10 @@ BEGIN
     RAISE EXCEPTION 'public.conversation_follow_ups is missing — migration 085 did not apply';
   END IF;
 
+  IF to_regclass('public.google_sheets_configs') IS NULL THEN
+    RAISE EXCEPTION 'public.google_sheets_configs is missing — migration 089 did not apply';
+  END IF;
+
   RAISE NOTICE 'schema verification passed';
 END
 $$;

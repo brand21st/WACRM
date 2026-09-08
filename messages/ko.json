@@ -2430,6 +2430,7 @@
       "appearance": "화면 설정",
       "whatsapp": "WhatsApp",
       "shopify": "Shopify",
+      "integrations": "연동",
       "knowledge": "지식베이스",
       "templates": "템플릿",
       "quick-replies": "빠른 답장",
@@ -2438,6 +2439,36 @@
       "members": "팀원",
       "billing": "결제",
       "api": "API 키"
+    },
+    "integrations": {
+      "title": "연동",
+      "description": "Vachat에서 사용하는 도구를 연결하세요.",
+      "connected": "연결됨",
+      "notConnected": "연결되지 않음",
+      "needsReconnecting": "재연결 필요",
+      "connect": "연결",
+      "disconnect": "연결 해제",
+      "connectedAccount": "연결된 계정:",
+      "selectedResource": "선택한 시트:",
+      "lastSynced": "마지막 동기화:",
+      "connectFailed": "Google 연결을 시작할 수 없습니다.",
+      "disconnectFailed": "연결을 해제할 수 없습니다.",
+      "disconnected": "연결이 해제되었습니다.",
+      "connectedToast": "Google Sheets가 연결되었습니다.",
+      "oauthErrors": {
+        "access_denied": "Google 액세스가 거부되었습니다.",
+        "invalid_state": "연결 링크가 만료되었습니다. 다시 연결해 주세요.",
+        "missing_params": "Google이 완전한 응답을 반환하지 않았습니다. 다시 시도해 주세요.",
+        "not_configured": "이 서버에 Google Sheets가 구성되지 않았습니다.",
+        "save_failed": "Google에는 연결되었지만 저장에 실패했습니다. 다시 시도해 주세요.",
+        "oauth_failed": "Google에 연결할 수 없습니다. 다시 시도해 주세요."
+      },
+      "items": {
+        "googleSheets": {
+          "name": "Google Sheets",
+          "description": "Google Sheets 계정을 연결하세요"
+        }
+      }
     },
     "upgradePlan": {
       "message": "현재 요금제에는 이 기능이 포함되어 있지 않습니다.",

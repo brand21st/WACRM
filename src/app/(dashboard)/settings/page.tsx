@@ -13,6 +13,7 @@ import { SecurityPanel } from '@/components/settings/security-panel';
 import { AppearancePanel } from '@/components/settings/appearance-panel';
 import { WhatsAppConfig } from '@/components/settings/whatsapp-config';
 import { ShopifyConfigPanel } from '@/components/settings/shopify-config';
+import { IntegrationsPanel } from '@/components/settings/integrations/integrations-panel';
 import { TemplateManager } from '@/components/settings/template-manager';
 import { QuickRepliesManager } from '@/components/settings/quick-replies-manager';
 import { FieldsAndTagsPanel } from '@/components/settings/fields-and-tags-panel';
@@ -85,6 +86,7 @@ function SettingsPageInner() {
     appearance: <AppearancePanel />,
     whatsapp: <WhatsAppConfig />,
     shopify: <ShopifyConfigPanel />,
+    integrations: <IntegrationsPanel />,
     knowledge: <KnowledgeBasePanel />,
     templates: <TemplateManager />,
     'quick-replies': <QuickRepliesManager />,

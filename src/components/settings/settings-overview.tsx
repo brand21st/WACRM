@@ -14,6 +14,9 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Card } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
 
+import { INTEGRATIONS } from '@/lib/integrations/catalog';
+import { parseIntegrationConnection } from '@/lib/integrations/types';
+
 import { SECTION_META, type SettingsSection } from './settings-sections';
 import { SettingsChip, StatusDot } from './settings-chip';
 import { ROLE_META } from './role-meta';
@@ -56,6 +59,11 @@ export function SettingsOverview({
     null,
   );
   const [shopifyLoading, setShopifyLoading] = useState(true);
+  const [integrations, setIntegrations] = useState<{
+    connected: boolean
+    anyConfigured: boolean
+  } | null>(null);
+  const [integrationsLoading, setIntegrationsLoading] = useState(true);
 
   useEffect(() => {
     if (!user || !accountId) return;
@@ -158,6 +166,29 @@ export function SettingsOverview({
       }
     })();
 
+    (async () => {
+      setIntegrationsLoading(true);
+      try {
+        const results = await Promise.allSettled(
+          INTEGRATIONS.map((def) =>
+            fetch(def.statusUrl, { cache: 'no-store' }).then((r) => r.json()),
+          ),
+        );
+        if (cancelled) return;
+        const parsed = results.map((r) =>
+          parseIntegrationConnection(r.status === 'fulfilled' ? r.value : null),
+        );
+        setIntegrations({
+          connected: parsed.some((c) => c.status === 'connected'),
+          anyConfigured: parsed.some((c) => c.status !== 'not_connected'),
+        });
+      } catch {
+        if (!cancelled) setIntegrations({ connected: false, anyConfigured: false });
+      } finally {
+        if (!cancelled) setIntegrationsLoading(false);
+      }
+    })();
+
     return () => {
       cancelled = true;
     };
@@ -201,6 +232,21 @@ export function SettingsOverview({
       subtitle: !shopify?.configured ? (
         t('notSetup')
       ) : shopify.active ? (
+        <>
+          <StatusDot tone="ok" /> {t('connected')}
+        </>
+      ) : (
+        <>
+          <StatusDot tone="muted" /> {t('needsReconnecting')}
+        </>
+      ),
+    },
+    {
+      section: 'integrations',
+      loading: integrationsLoading,
+      subtitle: !integrations?.anyConfigured ? (
+        t('notSetup')
+      ) : integrations.connected ? (
         <>
           <StatusDot tone="ok" /> {t('connected')}
         </>
