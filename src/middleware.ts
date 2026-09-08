@@ -174,6 +174,7 @@ export async function middleware(request: NextRequest) {
     '/dashboard',
     '/inbox',
     '/contacts',
+    '/catalog',
     '/pipelines',
     '/broadcasts',
     '/automations',

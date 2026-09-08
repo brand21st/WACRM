@@ -2,12 +2,20 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { shopifyGraphql } from './client'
 import { CUSTOMERS_BY_QUERY, ORDERS_BY_QUERY } from './queries'
 import {
-  getProductLive,
+  getProductFromCatalog,
   listBestSelling,
   listNewArrivals,
   searchProducts,
   searchShoppingCatalog,
 } from './catalog'
+import { isShopifyStoreConnected } from './catalog-config'
+import { compareCatalogProducts } from '@/lib/catalog/intelligence/compare'
+import { requirementsFromToolArgs } from '@/lib/catalog/intelligence/requirements'
+import { catalogProductToHit } from '@/lib/catalog/search/map-hit'
+import {
+  loadCatalogSalesMode,
+  resolveRecommendLimit,
+} from '@/lib/catalog/intelligence/recommend'
 import {
   listRecommendedProducts,
   parseRecommendRole,
@@ -47,12 +55,13 @@ import {
   resolveCartOfferItems,
   type CartOffer,
 } from './cart-offer'
+import { recordCatalogProductEvents } from '@/lib/catalog/analytics/events'
 
 export const SHOPIFY_LLM_TOOLS: LlmToolDef[] = [
   {
     name: 'search_products',
     description:
-      'Search the Shopify catalog for what the customer asked: product, category, color, occasion, related, or keywords. Set max_price when they gave a budget. Returns every catalog-matched product, plus close alternatives only when nothing exact matches. Never invent products.',
+      'Search the catalog for what the customer asked: product, category, color, occasion, related, or keywords. Set max_price when they gave a budget. Returns every catalog-matched product, plus close alternatives only when nothing exact matches. Never invent products.',
     parameters: {
       type: 'object',
       properties: {
@@ -79,7 +88,7 @@ export const SHOPIFY_LLM_TOOLS: LlmToolDef[] = [
   },
   {
     name: 'get_product',
-    description: 'Fetch one Shopify product by handle, product id, or SKU.',
+    description: 'Fetch one catalog product by handle, product id, retailer id, or SKU.',
     parameters: {
       type: 'object',
       properties: {
@@ -109,7 +118,7 @@ export const SHOPIFY_LLM_TOOLS: LlmToolDef[] = [
   {
     name: 'list_best_selling',
     description:
-      'List best-selling or trending Shopify products. Use when the customer asks for best selling, bestsellers, popular, or trending products. Do not use search_products for those browse phrases.',
+      'List best-selling or trending products from the connected Shopify store. Use when the customer asks for best selling, bestsellers, popular, or trending products. Do not use search_products for those browse phrases.',
     parameters: {
       type: 'object',
       properties: {
@@ -124,7 +133,7 @@ export const SHOPIFY_LLM_TOOLS: LlmToolDef[] = [
   {
     name: 'recommend_products',
     description:
-      'Recommend related or matching Shopify catalog products. role=recommend for “for me”, related, or similar picks — send every catalog match. role=upsell for one genuine higher-value version of the shown product. role=cross_sell for 1 complementary add-on. Do not use for a named product search. Never invent discounts.',
+      'Recommend related, similar, cheaper, complementary, or bundle catalog products from WACRM. role=recommend for “for me”. role=similar for similar products. role=alternative for another option or cheaper pick. role=upsell for one genuine higher-value version. role=cross_sell only when a catalog complement exists. role=bundle only when catalog bundle relations exist. Never invent discounts, attributes, popularity, or bundles.',
     parameters: {
       type: 'object',
       properties: {
@@ -134,9 +143,19 @@ export const SHOPIFY_LLM_TOOLS: LlmToolDef[] = [
         },
         role: {
           type: 'string',
-          enum: ['recommend', 'upsell', 'cross_sell'],
-          description: 'recommend (default), upsell, or cross_sell',
+          enum: ['recommend', 'similar', 'alternative', 'upsell', 'cross_sell', 'bundle'],
+          description: 'recommend (default), similar, alternative, upsell, cross_sell, or bundle',
         },
+        seed_id: {
+          type: 'string',
+          description: 'Catalog product id, handle, retailer id, or SKU to recommend from',
+        },
+        min_price: { type: 'number', description: 'Minimum price filter' },
+        max_price: { type: 'number', description: 'Maximum price or budget' },
+        option_name: { type: 'string', description: 'Variant option name, e.g. Color or Size' },
+        option_value: { type: 'string', description: 'Variant option value, e.g. black or M' },
+        attribute_key: { type: 'string', description: 'Catalog attribute key when known' },
+        attribute_value: { type: 'string', description: 'Catalog attribute value' },
         limit: {
           type: 'integer',
           description:
@@ -146,9 +165,28 @@ export const SHOPIFY_LLM_TOOLS: LlmToolDef[] = [
     },
   },
   {
+    name: 'compare_products',
+    description:
+      'Compare 2–3 WACRM catalog products. Use when the customer asks which is better, the difference, or to compare shown items. Pass product ids/handles when known. Do not invent attributes or prices.',
+    parameters: {
+      type: 'object',
+      properties: {
+        product_ids: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Two or three catalog ids, handles, retailer ids, or SKUs',
+        },
+        query: {
+          type: 'string',
+          description: 'Product names if ids are unknown, e.g. "red bag vs blue bag"',
+        },
+      },
+    },
+  },
+  {
     name: 'match_product_from_photo',
     description:
-      'Match a customer product photo against the Shopify catalog. Uses a vision description to search, then confirms the same product against listing photos. Returns 0–2 exact matches — never invent products.',
+      'Match a customer product photo against the catalog. Uses a vision description to search, then confirms the same product against listing photos. Returns 0–2 exact matches — never invent products.',
     parameters: {
       type: 'object',
       properties: {
@@ -231,17 +269,29 @@ const FOCUSED_PRODUCT_TOOLS = new Set([
   'get_order_tracking',
 ])
 
+const SHOPIFY_ONLY_TOOLS = new Set([
+  'list_best_selling',
+  'search_store_info',
+  'lookup_my_orders',
+  'get_order_tracking',
+])
+
 export function shopifyLlmTools(opts?: {
   whatsappCatalog?: boolean
   focused?: boolean
+  shopifyConnected?: boolean
 }): LlmToolDef[] {
   const tools = opts?.whatsappCatalog
     ? [...SHOPIFY_LLM_TOOLS, SEND_WHATSAPP_CATALOG_TOOL]
     : [...SHOPIFY_LLM_TOOLS]
+  const connected = opts?.shopifyConnected !== false
+  const available = connected
+    ? tools
+    : tools.filter((tool) => !SHOPIFY_ONLY_TOOLS.has(tool.name))
   if (opts?.focused) {
-    return tools.filter((tool) => FOCUSED_PRODUCT_TOOLS.has(tool.name))
+    return available.filter((tool) => FOCUSED_PRODUCT_TOOLS.has(tool.name))
   }
-  return tools
+  return available
 }
 
 const CATALOG_BROWSE_TOOLS = new Set([
@@ -249,6 +299,7 @@ const CATALOG_BROWSE_TOOLS = new Set([
   'list_new_arrivals',
   'list_best_selling',
   'recommend_products',
+  'compare_products',
   'match_product_from_photo',
 ])
 
@@ -259,6 +310,7 @@ export interface ShopifyToolContext {
   photoMatch?: MatchProductsFromPhotoOpts
   productCards?: ShopifyProductCard[]
   conversationId?: string | null
+  contactId?: string | null
   nativeCommerce?: boolean
   retailerIdSource?: RetailerIdSource
   customerInterest?: CustomerProductInterest
@@ -287,10 +339,13 @@ export async function executeShopifyTool(
         requested && requested.toLowerCase() === focusedHandle.toLowerCase()
           ? requested
           : focusedHandle
-      const hit = await getProductLive(ctx.config, id)
+      const hit = await getProductFromCatalog(ctx.db, ctx.config, id)
       const ok =
         Boolean(hit) &&
         hit!.handle.trim().toLowerCase() === focusedHandle.toLowerCase()
+      if (ok && hit && name === 'get_product') {
+        await recordSearchMatchEvents(ctx, [hit], 'get_product')
+      }
       return productsResult(ok && hit ? [hit] : [], ctx.retailerIdSource, 1)
     }
     switch (name) {
@@ -315,6 +370,7 @@ export async function executeShopifyTool(
           { allowCloseAlternatives: true, budget },
         )
         if (ranked.hits.length > 0) {
+          await recordSearchMatchEvents(ctx, ranked.hits, 'search_products')
           return productsResult(
             ranked.hits,
             ctx.retailerIdSource,
@@ -322,6 +378,19 @@ export async function executeShopifyTool(
             ranked.exact
               ? undefined
               : 'No exact match. These are the closest catalog options. Explain what changed. Do not invent items.',
+          )
+        }
+        const hardFilter =
+          budget.min != null ||
+          budget.max != null ||
+          Boolean(str(args.option_value)) ||
+          Boolean(str(args.attribute_value))
+        if (hardFilter) {
+          return productsResult(
+            [],
+            ctx.retailerIdSource,
+            limit,
+            'No catalog products match that budget. Do not invent cheaper items.',
           )
         }
         const relatedLimit = Math.min(limit, 10)
@@ -336,7 +405,8 @@ export async function executeShopifyTool(
         )
       }
       case 'get_product': {
-        const hit = await getProductLive(ctx.config, str(args.id))
+        const hit = await getProductFromCatalog(ctx.db, ctx.config, str(args.id))
+        if (hit) await recordSearchMatchEvents(ctx, [hit], 'get_product')
         return productsResult(hit ? [hit] : [], ctx.retailerIdSource, 1)
       }
       case 'list_new_arrivals': {
@@ -348,6 +418,15 @@ export async function executeShopifyTool(
         )
       }
       case 'list_best_selling': {
+        if (!isShopifyStoreConnected(ctx.config)) {
+          return {
+            json: JSON.stringify({
+              products: [],
+              note: 'Best-selling requires a connected Shopify store. Do not invent popularity ranking.',
+            }),
+            cards: [],
+          }
+        }
         const limit = resolveProductCardLimit(args.limit, ctx.customerText)
         return productsResult(
           await listBestSelling(ctx.db, ctx.config, limit),
@@ -357,14 +436,19 @@ export async function executeShopifyTool(
       }
       case 'recommend_products': {
         const role = parseRecommendRole(args.role)
+        const salesMode = await loadCatalogSalesMode(ctx.db, ctx.config.accountId)
+        const asked = resolveProductCardLimit(args.limit, ctx.customerText)
         const limit =
-          role === 'upsell'
-            ? 1
-            : role === 'cross_sell'
-              ? Math.min(2, resolveProductCardLimit(args.limit, ctx.customerText))
-              : resolveProductCardLimit(args.limit, ctx.customerText)
+          salesMode === 'on'
+            ? resolveRecommendLimit(role, asked)
+            : role === 'upsell'
+              ? 1
+              : role === 'cross_sell'
+                ? Math.min(2, asked)
+                : asked
         const query = str(args.query) || ctx.customerInterest?.query || ''
         const ask = (ctx.customerText ?? '').trim() || query
+        const filters = requirementsFromToolArgs(args, ask)
         let hits = await listRecommendedProducts(
           ctx.db,
           ctx.config,
@@ -372,9 +456,22 @@ export async function executeShopifyTool(
             ...(ctx.customerInterest ?? {}),
             query: query || ctx.customerInterest?.query,
           },
-          { limit, shownCards: ctx.productCards, role },
+          {
+            limit,
+            shownCards: ctx.productCards,
+            role,
+            seedId: str(args.seed_id) || undefined,
+            customerText: ask,
+            filters,
+            contactId: ctx.contactId,
+            conversationId: ctx.conversationId,
+          },
         )
-        if (role === 'recommend' && productAskTokens(ask).length > 0) {
+        if (
+          salesMode !== 'on' &&
+          role === 'recommend' &&
+          productAskTokens(ask).length > 0
+        ) {
           const matched = matchProductsToAsk(ask, hits, limit, {
             allowCloseAlternatives: true,
           })
@@ -389,7 +486,38 @@ export async function executeShopifyTool(
                   { allowCloseAlternatives: true },
                 )
         }
-        return productsResult(hits, ctx.retailerIdSource, limit)
+        return productsResult(
+          hits,
+          ctx.retailerIdSource,
+          limit,
+          recommendNote(role, hits, filters, salesMode),
+        )
+      }
+      case 'compare_products': {
+        const ids = parseIdList(args.product_ids)
+        const query = str(args.query) || (ctx.customerText ?? '').trim()
+        const result = await compareCatalogProducts(
+          ctx.db,
+          ctx.config.accountId,
+          ids,
+          query,
+        )
+        const hits = result.products.map((product) =>
+          catalogProductToHit(product, {
+            primaryDomain: ctx.config.primaryDomain,
+            currency: ctx.config.currency ?? product.currency,
+          }),
+        )
+        return {
+          json: JSON.stringify({
+            products: hits.map(summarizeProduct),
+            comparison: result.comparison,
+            note:
+              result.comparison.notes[0] ??
+              'Explain only these catalog facts. Do not invent missing attributes, discounts, or urgency.',
+          }),
+          cards: hits.slice(0, 3).map((hit) => toCard(hit, ctx.retailerIdSource)),
+        }
       }
       case 'match_product_from_photo': {
         return productsResult(
@@ -518,17 +646,45 @@ export async function executeShopifyTool(
   }
 }
 
+async function recordSearchMatchEvents(
+  ctx: ShopifyToolContext,
+  hits: ShopifyProductHit[],
+  source: 'search_products' | 'get_product',
+): Promise<void> {
+  const productIds = hits
+    .map((hit) => hit.catalogId)
+    .filter((id): id is string => typeof id === 'string' && id.trim().length > 0)
+  await recordCatalogProductEvents(ctx.db, {
+    accountId: ctx.config.accountId,
+    event: 'search_match',
+    source,
+    productIds,
+    conversationId: ctx.conversationId,
+    contactId: ctx.contactId,
+  })
+}
+
 function productsResult(
   hits: ShopifyProductHit[],
   source?: RetailerIdSource,
   maxCards = DEFAULT_SEARCH_CARDS,
   note?: string,
 ): ShopifyToolResult {
+  const recommendations = hits
+    .filter((hit) => hit.recommendReasons?.length || hit.recommendMode)
+    .map((hit) => ({
+      id: hit.catalogId ?? hit.id,
+      title: hit.title,
+      price: hit.priceMin,
+      mode: hit.recommendMode ?? null,
+      reasons: hit.recommendReasons ?? [],
+    }))
   if (hits.length === 0) {
     return {
       json: JSON.stringify({
         products: [],
-        note: 'No matching products in the Shopify catalog. Do not invent items.',
+        ...(recommendations.length ? { recommendations } : {}),
+        note: note ?? 'No matching products in the catalog. Do not invent items.',
       }),
       cards: [],
     }
@@ -536,16 +692,53 @@ function productsResult(
   return {
     json: JSON.stringify({
       products: hits.map(summarizeProduct),
+      ...(recommendations.length ? { recommendations } : {}),
       ...(note ? { note } : {}),
     }),
     cards: hits.slice(0, maxCards).map((hit) => toCard(hit, source)),
   }
 }
 
+function recommendNote(
+  role: ReturnType<typeof parseRecommendRole>,
+  hits: ShopifyProductHit[],
+  filters: { maxPrice?: number; cheaper?: boolean },
+  salesMode: 'off' | 'shadow' | 'on' = 'off',
+): string | undefined {
+  if (salesMode !== 'on') {
+    if (
+      hits.length === 0 &&
+      (filters.maxPrice != null || filters.cheaper)
+    ) {
+      return 'No catalog products match that budget. Do not invent cheaper items.'
+    }
+    return undefined
+  }
+  if (hits.length > 0) {
+    if (role === 'upsell') return 'better_option'
+    if (role === 'cross_sell' || role === 'bundle') return 'complete_the_look'
+    if (role === 'similar' || role === 'alternative') return 'similar_options'
+    return undefined
+  }
+  if (filters.maxPrice != null || filters.cheaper) {
+    return 'No catalog products match that budget. Do not invent cheaper items.'
+  }
+  if (role === 'bundle' || role === 'cross_sell') {
+    return 'No catalog complement is available. Do not invent a bundle or add-on.'
+  }
+  if (role === 'upsell') {
+    return 'No better option is available. Do not invent a premium item.'
+  }
+  return undefined
+}
+
 function summarizeProduct(p: ShopifyProductHit) {
   return {
+    id: p.catalogId ?? p.id,
     title: p.title,
     handle: p.handle,
+    brand: p.brand ?? null,
+    available: productInStock(p),
     price_min: p.priceMin,
     price_max: p.priceMax,
     currency: p.currency,
@@ -673,6 +866,8 @@ export function toCard(
   const urls = variant ? urlsForVariant(p, variant.variantId) : null
   const price = variant ? variantPriceLine(variant, p.currency) : salePriceLine(p)
   const inStock = variant ? variant.available : productInStock(p)
+  const defaultVariant =
+    variant ?? p.variants.find((item) => item.available) ?? p.variants[0] ?? null
   const lines = [
     p.title,
     price,
@@ -690,9 +885,11 @@ export function toCard(
     checkoutUrl: urls?.checkoutUrl ?? p.checkoutUrl,
     inStock,
     caption: lines.join('\n').slice(0, 1024),
-    retailerId: retailerIdForProduct(p, source) || null,
+    retailerId:
+      defaultVariant?.retailerId?.trim() || retailerIdForProduct(p, source) || null,
     handle: p.handle || null,
     variantId: variant?.variantId ?? null,
+    catalogId: p.catalogId ?? null,
   }
 }
 
@@ -970,4 +1167,19 @@ interface OrderNode {
 
 function str(v: unknown): string {
   return typeof v === 'string' ? v.trim() : ''
+}
+
+function parseIdList(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => (typeof item === 'string' ? item.trim() : ''))
+      .filter(Boolean)
+  }
+  if (typeof value === 'string') {
+    return value
+      .split(/[,|]/)
+      .map((item) => item.trim())
+      .filter(Boolean)
+  }
+  return []
 }

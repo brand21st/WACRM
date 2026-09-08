@@ -1,4 +1,20 @@
-import { afterEach, describe, it, expect, vi } from 'vitest'
+import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest'
+import type { CatalogProduct } from '@/lib/catalog'
+
+const catalogSearch = vi.hoisted(() => ({
+  searchCatalog: vi.fn(async () => [] as CatalogProduct[]),
+  listNewArrivalsCatalog: vi.fn(async () => [] as CatalogProduct[]),
+}))
+
+vi.mock('@/lib/catalog/search/query', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/catalog/search/query')>()
+  return {
+    ...actual,
+    searchCatalog: (...args: unknown[]) => catalogSearch.searchCatalog(...args),
+    listNewArrivalsCatalog: (...args: unknown[]) =>
+      catalogSearch.listNewArrivalsCatalog(...args),
+  }
+})
 import { normalizeShopDomain } from './domain'
 import {
   productPageUrl,
@@ -135,6 +151,12 @@ describe('mapGqlProduct', () => {
         title: 'Red Bag',
         description: 'Leather tote',
         featuredImage: { url: 'https://cdn.example/bag.jpg' },
+        collections: {
+          nodes: [
+            { handle: 'best-seller', title: 'Best Seller' },
+            { handle: 'casual-wear', title: 'Casual Wear' },
+          ],
+        },
         variants: {
           nodes: [
             {
@@ -155,6 +177,10 @@ describe('mapGqlProduct', () => {
     expect(hit?.productUrl).toBe('https://shop.example/products/red-bag')
     expect(hit?.checkoutUrl).toBe('https://shop.example/cart/99:1?checkout')
     expect(hit?.variants[0]?.sku).toBe('BAG-RED')
+    expect(hit?.collections).toEqual([
+      { handle: 'best-seller', title: 'Best Seller' },
+      { handle: 'casual-wear', title: 'Casual Wear' },
+    ])
   })
 })
 
@@ -441,6 +467,60 @@ function fixtureProduct(
   }
 }
 
+function catalogProduct(
+  title: string,
+  handle: string,
+  price = 49,
+): CatalogProduct {
+  return {
+    id: `id-${handle}`,
+    accountId: 'a',
+    handle,
+    title,
+    description: title,
+    status: 'active',
+    brand: null,
+    productUrl: `https://shop.example/products/${handle}`,
+    currency: 'USD',
+    priceMin: price,
+    priceMax: price,
+    origin: 'wacrm',
+    locked: false,
+    publishedAt: '2026-09-01T00:00:00.000Z',
+    createdAt: '2026-09-01T00:00:00.000Z',
+    updatedAt: '2026-09-01T00:00:00.000Z',
+    variants: [
+      {
+        id: `v-${handle}`,
+        accountId: 'a',
+        productId: `id-${handle}`,
+        title: 'Default',
+        sku: handle.toUpperCase(),
+        price,
+        compareAtPrice: null,
+        currency: 'USD',
+        available: true,
+        inventoryQuantity: 1,
+        options: [],
+        sortOrder: 0,
+        retailerId: handle.toUpperCase(),
+      },
+    ],
+    media: [
+      {
+        id: `m-${handle}`,
+        accountId: 'a',
+        productId: `id-${handle}`,
+        url: `https://cdn.example/${handle}.jpg`,
+        alt: null,
+        role: 'hero',
+        sortOrder: 0,
+      },
+    ],
+    externalIds: [],
+  }
+}
+
 const STORE: ShopifyStoreConfig = {
   accountId: 'a',
   shopDomain: 'acme.myshopify.com',
@@ -553,6 +633,12 @@ describe('matchProductsToAsk', () => {
     expect(parseBudget('I need a black shirt under ₹1500')).toEqual({ max: 1500 })
     expect(parseBudget('budget 2000 ആണ്')).toEqual({ max: 2000 })
     expect(parseBudget('1500-2000')).toEqual({ min: 1500, max: 2000 })
+    expect(parseBudget('under 5k')).toEqual({ max: 5000 })
+    expect(parseBudget('under 5K')).toEqual({ max: 5000 })
+    expect(parseBudget('5000 രൂപയ്ക്കുള്ളിൽ')).toEqual({ max: 5000 })
+    expect(parseBudget('5000 താഴെ')).toEqual({ max: 5000 })
+    expect(parseBudget('5000 thazhe')).toEqual({ max: 5000 })
+    expect(parseBudget('2000 ullil')).toEqual({ max: 2000 })
   })
 
   it('returns close alternatives when nothing is an exact match', () => {
@@ -683,33 +769,23 @@ describe('live catalog queries', () => {
     expect(hits[0]?.checkoutUrl).toBe('https://shop.example/cart/99:1?checkout')
   })
 
-  it('lists new arrivals sorted by created_at', async () => {
-    const gql = vi.spyOn(client, 'shopifyGraphql').mockResolvedValue({
-      products: { nodes: [] },
-    })
+  it('lists new arrivals from the WACRM catalog', async () => {
+    catalogSearch.listNewArrivalsCatalog.mockResolvedValue([])
     await listNewArrivals({} as SupabaseClient, STORE, 5)
-    expect(gql).toHaveBeenCalledWith(
-      expect.objectContaining({
-        variables: expect.objectContaining({
-          sortKey: 'CREATED_AT',
-          reverse: true,
-        }),
-      }),
+    expect(catalogSearch.listNewArrivalsCatalog).toHaveBeenCalledWith(
+      expect.anything(),
+      STORE.accountId,
+      5,
     )
   })
 
   it('defaults new arrivals to 10 products', async () => {
-    const gql = vi.spyOn(client, 'shopifyGraphql').mockResolvedValue({
-      products: { nodes: [] },
-    })
+    catalogSearch.listNewArrivalsCatalog.mockResolvedValue([])
     await listNewArrivals({} as SupabaseClient, STORE)
-    expect(gql).toHaveBeenCalledWith(
-      expect.objectContaining({
-        variables: expect.objectContaining({
-          first: 10,
-          sortKey: 'CREATED_AT',
-        }),
-      }),
+    expect(catalogSearch.listNewArrivalsCatalog).toHaveBeenCalledWith(
+      expect.anything(),
+      STORE.accountId,
+      10,
     )
   })
 
@@ -731,6 +807,10 @@ describe('live catalog queries', () => {
 })
 
 describe('executeShopifyTool', () => {
+  beforeEach(() => {
+    catalogSearch.searchCatalog.mockReset().mockResolvedValue([])
+    catalogSearch.listNewArrivalsCatalog.mockReset().mockResolvedValue([])
+  })
   afterEach(() => {
     vi.restoreAllMocks()
   })
@@ -1096,30 +1176,11 @@ describe('executeShopifyTool', () => {
   })
 
   it('returns 10 product cards for list_new_arrivals', async () => {
-    vi.spyOn(client, 'shopifyGraphql').mockResolvedValue({
-      products: {
-        nodes: Array.from({ length: 10 }, (_, i) => ({
-          id: `gid://shopify/Product/${i + 1}`,
-          handle: `new-${i + 1}`,
-          title: `New ${i + 1}`,
-          description: 'New',
-          featuredImage: { url: `https://cdn.example/new-${i + 1}.jpg` },
-          variants: {
-            nodes: [
-              {
-                id: `gid://shopify/ProductVariant/${i + 1}`,
-                legacyResourceId: String(200 + i),
-                title: 'Default',
-                sku: `NEW-${i + 1}`,
-                availableForSale: true,
-                price: '29.00',
-                selectedOptions: [],
-              },
-            ],
-          },
-        })),
-      },
-    })
+    catalogSearch.listNewArrivalsCatalog.mockResolvedValue(
+      Array.from({ length: 10 }, (_, i) =>
+        catalogProduct(`New ${i + 1}`, `new-${i + 1}`, 29),
+      ),
+    )
     const result = await executeShopifyTool(
       {
         db: {} as SupabaseClient,
@@ -1131,55 +1192,14 @@ describe('executeShopifyTool', () => {
       {},
     )
     expect(result.cards).toHaveLength(10)
+    expect(catalogSearch.listNewArrivalsCatalog).toHaveBeenCalled()
   })
 
   it('sends 1 search card when the customer asked for one item', async () => {
-    const graphql = vi.spyOn(client, 'shopifyGraphql').mockResolvedValue({
-      products: {
-        nodes: [
-          {
-            id: 'gid://shopify/Product/1',
-            handle: 'red-bag',
-            title: 'Red Bag',
-            description: 'Bag',
-            featuredImage: { url: 'https://cdn.example/red-bag.jpg' },
-            variants: {
-              nodes: [
-                {
-                  id: 'gid://shopify/ProductVariant/1',
-                  legacyResourceId: '101',
-                  title: 'Default',
-                  sku: 'BAG-RED',
-                  availableForSale: true,
-                  price: '49.00',
-                  selectedOptions: [],
-                },
-              ],
-            },
-          },
-          {
-            id: 'gid://shopify/Product/2',
-            handle: 'blue-sneakers',
-            title: 'Blue Sneakers',
-            description: 'Shoes',
-            featuredImage: { url: 'https://cdn.example/blue.jpg' },
-            variants: {
-              nodes: [
-                {
-                  id: 'gid://shopify/ProductVariant/2',
-                  legacyResourceId: '102',
-                  title: 'Default',
-                  sku: 'SNK-BLU',
-                  availableForSale: true,
-                  price: '80.00',
-                  selectedOptions: [],
-                },
-              ],
-            },
-          },
-        ],
-      },
-    })
+    catalogSearch.searchCatalog.mockResolvedValue([
+      catalogProduct('Red Bag', 'red-bag'),
+      catalogProduct('Blue Sneakers', 'blue-sneakers', 80),
+    ])
     const result = await executeShopifyTool(
       {
         db: {} as SupabaseClient,
@@ -1192,38 +1212,18 @@ describe('executeShopifyTool', () => {
     )
     expect(result.cards).toHaveLength(1)
     expect(result.cards[0].title).toBe('Red Bag')
-    expect(graphql).toHaveBeenCalledWith(
-      expect.objectContaining({
-        variables: expect.objectContaining({ first: 3 }),
-      }),
+    expect(catalogSearch.searchCatalog).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ accountId: STORE.accountId, limit: 3 }),
     )
   })
 
   it('sends every catalog-matched search card for a named product ask', async () => {
-    vi.spyOn(client, 'shopifyGraphql').mockResolvedValue({
-      products: {
-        nodes: Array.from({ length: 6 }, (_, i) => ({
-          id: `gid://shopify/Product/${i + 1}`,
-          handle: `red-bag-${i + 1}`,
-          title: `Red Bag ${i + 1}`,
-          description: 'Bag',
-          featuredImage: { url: `https://cdn.example/red-${i + 1}.jpg` },
-          variants: {
-            nodes: [
-              {
-                id: `gid://shopify/ProductVariant/${i + 1}`,
-                legacyResourceId: String(300 + i),
-                title: 'Default',
-                sku: `RED-${i + 1}`,
-                availableForSale: true,
-                price: '49.00',
-                selectedOptions: [],
-              },
-            ],
-          },
-        })),
-      },
-    })
+    catalogSearch.searchCatalog.mockResolvedValue(
+      Array.from({ length: 6 }, (_, i) =>
+        catalogProduct(`Red Bag ${i + 1}`, `red-bag-${i + 1}`),
+      ),
+    )
     const result = await executeShopifyTool(
       {
         db: {} as SupabaseClient,
@@ -1238,30 +1238,11 @@ describe('executeShopifyTool', () => {
   })
 
   it('sends every catalog-matched card for a related-product ask', async () => {
-    vi.spyOn(client, 'shopifyGraphql').mockResolvedValue({
-      products: {
-        nodes: Array.from({ length: 8 }, (_, i) => ({
-          id: `gid://shopify/Product/${i + 1}`,
-          handle: `coord-${i + 1}`,
-          title: `Coord Set ${i + 1}`,
-          description: 'Coord',
-          featuredImage: { url: `https://cdn.example/coord-${i + 1}.jpg` },
-          variants: {
-            nodes: [
-              {
-                id: `gid://shopify/ProductVariant/${i + 1}`,
-                legacyResourceId: String(500 + i),
-                title: 'Default',
-                sku: `COORD-${i + 1}`,
-                availableForSale: true,
-                price: '599.00',
-                selectedOptions: [],
-              },
-            ],
-          },
-        })),
-      },
-    })
+    catalogSearch.searchCatalog.mockResolvedValue(
+      Array.from({ length: 8 }, (_, i) =>
+        catalogProduct(`Coord Set ${i + 1}`, `coord-${i + 1}`, 599),
+      ),
+    )
     const result = await executeShopifyTool(
       {
         db: {} as SupabaseClient,
@@ -1276,32 +1257,12 @@ describe('executeShopifyTool', () => {
   })
 
   it('sends related catalog cards when search has no exact match', async () => {
-    vi.spyOn(client, 'shopifyGraphql')
-      .mockResolvedValueOnce({ products: { nodes: [] } })
-      .mockResolvedValueOnce({
-        products: {
-          nodes: Array.from({ length: 4 }, (_, i) => ({
-            id: `gid://shopify/Product/${i + 1}`,
-            handle: `new-${i + 1}`,
-            title: `New ${i + 1}`,
-            description: 'New',
-            featuredImage: { url: `https://cdn.example/new-${i + 1}.jpg` },
-            variants: {
-              nodes: [
-                {
-                  id: `gid://shopify/ProductVariant/${i + 1}`,
-                  legacyResourceId: String(600 + i),
-                  title: 'Default',
-                  sku: `NEW-${i + 1}`,
-                  availableForSale: true,
-                  price: '29.00',
-                  selectedOptions: [],
-                },
-              ],
-            },
-          })),
-        },
-      })
+    catalogSearch.searchCatalog.mockResolvedValue([])
+    catalogSearch.listNewArrivalsCatalog.mockResolvedValue(
+      Array.from({ length: 4 }, (_, i) =>
+        catalogProduct(`New ${i + 1}`, `new-${i + 1}`, 29),
+      ),
+    )
     const result = await executeShopifyTool(
       {
         db: {} as SupabaseClient,
@@ -1317,30 +1278,11 @@ describe('executeShopifyTool', () => {
   })
 
   it('lets a tool limit override the inferred search count', async () => {
-    vi.spyOn(client, 'shopifyGraphql').mockResolvedValue({
-      products: {
-        nodes: Array.from({ length: 8 }, (_, i) => ({
-          id: `gid://shopify/Product/${i + 1}`,
-          handle: `red-bag-${i + 1}`,
-          title: `Red Bag ${i + 1}`,
-          description: 'Bag',
-          featuredImage: { url: `https://cdn.example/bag-${i + 1}.jpg` },
-          variants: {
-            nodes: [
-              {
-                id: `gid://shopify/ProductVariant/${i + 1}`,
-                legacyResourceId: String(400 + i),
-                title: 'Default',
-                sku: `BAG-${i + 1}`,
-                availableForSale: true,
-                price: '49.00',
-                selectedOptions: [],
-              },
-            ],
-          },
-        })),
-      },
-    })
+    catalogSearch.searchCatalog.mockResolvedValue(
+      Array.from({ length: 8 }, (_, i) =>
+        catalogProduct(`Red Bag ${i + 1}`, `red-bag-${i + 1}`),
+      ),
+    )
     const result = await executeShopifyTool(
       {
         db: {} as SupabaseClient,
@@ -1356,32 +1298,9 @@ describe('executeShopifyTool', () => {
   })
 
   it('uses spoken customer text when the tool query is empty', async () => {
-    vi.spyOn(client, 'shopifyGraphql').mockResolvedValue({
-      products: {
-        nodes: [
-          {
-            id: 'gid://shopify/Product/1',
-            handle: 'red-bag',
-            title: 'Red Bag',
-            description: 'Bag',
-            featuredImage: { url: 'https://cdn.example/red-bag.jpg' },
-            variants: {
-              nodes: [
-                {
-                  id: 'gid://shopify/ProductVariant/1',
-                  legacyResourceId: '101',
-                  title: 'Default',
-                  sku: 'BAG-RED',
-                  availableForSale: true,
-                  price: '49.00',
-                  selectedOptions: [],
-                },
-              ],
-            },
-          },
-        ],
-      },
-    })
+    catalogSearch.searchCatalog.mockResolvedValue([
+      catalogProduct('Red Bag', 'red-bag'),
+    ])
     const result = await executeShopifyTool(
       {
         db: {} as SupabaseClient,
@@ -1397,52 +1316,10 @@ describe('executeShopifyTool', () => {
   })
 
   it('filters search hits by budget and notes close alternatives', async () => {
-    vi.spyOn(client, 'shopifyGraphql').mockResolvedValue({
-      products: {
-        nodes: [
-          {
-            id: 'gid://shopify/Product/1',
-            handle: 'navy-formal-shirt',
-            title: 'Navy Formal Shirt',
-            description: 'Shirt',
-            featuredImage: { url: 'https://cdn.example/navy.jpg' },
-            variants: {
-              nodes: [
-                {
-                  id: 'gid://shopify/ProductVariant/1',
-                  legacyResourceId: '11',
-                  title: 'Default',
-                  sku: 'SHIRT-NVY',
-                  availableForSale: true,
-                  price: '1499.00',
-                  selectedOptions: [],
-                },
-              ],
-            },
-          },
-          {
-            id: 'gid://shopify/Product/2',
-            handle: 'black-silk-shirt',
-            title: 'Black Silk Shirt',
-            description: 'Shirt',
-            featuredImage: { url: 'https://cdn.example/silk.jpg' },
-            variants: {
-              nodes: [
-                {
-                  id: 'gid://shopify/ProductVariant/2',
-                  legacyResourceId: '22',
-                  title: 'Default',
-                  sku: 'SHIRT-BLK',
-                  availableForSale: true,
-                  price: '2499.00',
-                  selectedOptions: [],
-                },
-              ],
-            },
-          },
-        ],
-      },
-    })
+    catalogSearch.searchCatalog.mockResolvedValue([
+      catalogProduct('Navy Formal Shirt', 'navy-formal-shirt', 1499),
+      catalogProduct('Black Silk Shirt', 'black-silk-shirt', 2499),
+    ])
     const result = await executeShopifyTool(
       {
         db: {} as SupabaseClient,
@@ -1455,6 +1332,26 @@ describe('executeShopifyTool', () => {
     )
     expect(result.cards.map((c) => c.title)).toEqual(['Navy Formal Shirt'])
     expect(JSON.parse(result.json).note).toMatch(/closest catalog options/)
+  })
+
+  it('does not substitute new arrivals when a budget filter empties search', async () => {
+    catalogSearch.searchCatalog.mockResolvedValue([])
+    catalogSearch.listNewArrivalsCatalog.mockResolvedValue([
+      catalogProduct('New Arrival', 'new-arrival', 29),
+    ])
+    const result = await executeShopifyTool(
+      {
+        db: {} as SupabaseClient,
+        config: STORE,
+        contactPhone: null,
+        customerText: 'black shirt under 1500',
+      },
+      'search_products',
+      { query: 'black shirt', max_price: 1500 },
+    )
+    expect(result.cards).toEqual([])
+    expect(JSON.parse(result.json).note).toMatch(/Do not invent cheaper items/)
+    expect(catalogSearch.listNewArrivalsCatalog).not.toHaveBeenCalled()
   })
 
   it('includes send_whatsapp_catalog only when the WhatsApp catalog is on', () => {
@@ -1474,6 +1371,18 @@ describe('executeShopifyTool', () => {
     expect(names).not.toContain('search_products')
     expect(names).not.toContain('list_new_arrivals')
     expect(names).not.toContain('recommend_products')
+    expect(names).not.toContain('compare_products')
+  })
+
+  it('hides Shopify-only tools when the store is disconnected', () => {
+    const names = shopifyLlmTools({ shopifyConnected: false }).map((t) => t.name)
+    expect(names).toContain('search_products')
+    expect(names).toContain('list_new_arrivals')
+    expect(names).toContain('recommend_products')
+    expect(names).toContain('compare_products')
+    expect(names).not.toContain('list_best_selling')
+    expect(names).not.toContain('search_store_info')
+    expect(names).not.toContain('lookup_my_orders')
   })
 
   it('returns a note when offer_cart has no shown products', async () => {

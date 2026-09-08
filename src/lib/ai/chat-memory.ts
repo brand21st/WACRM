@@ -31,6 +31,8 @@ export type MemoryFacts = {
   language_script: ChatLanguageScript | null
   language_locked: boolean
   open_questions: string[]
+  /** App-owned shopping context. Never treat products[] as catalog ids. */
+  shopping?: Record<string, unknown> | null
 }
 
 export type ContactMemory = {
@@ -138,6 +140,10 @@ export function parseFacts(raw: unknown): MemoryFacts {
     language_script,
     language_locked: row.language_locked === true,
     open_questions: stringList(row.open_questions),
+    shopping:
+      row.shopping && typeof row.shopping === 'object' && !Array.isArray(row.shopping)
+        ? (row.shopping as Record<string, unknown>)
+        : undefined,
   }
 }
 
@@ -189,6 +195,7 @@ export function mergeFacts(
     preferences: uniqMerge(prev.preferences, next.preferences),
     ...language,
     open_questions: next.open_questions,
+    shopping: prev.shopping,
   }
 }
 

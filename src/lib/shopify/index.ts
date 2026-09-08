@@ -12,7 +12,8 @@ export {
 } from './permalinks'
 export type { CartPermalinkItem } from './permalinks'
 export { shopifyPhoneMatchesContact, customerSearchQueries, toShopifyPhone } from './phone'
-export { searchProducts, searchShoppingCatalog, listNewArrivals, listBestSelling, getProductLive, hydrateListingImages, syncCatalog, MAX_CATALOG_PRODUCTS } from './catalog'
+export { searchProducts, searchShoppingCatalog, listNewArrivals, listBestSelling, getProductLive, getProductFromCatalog, hydrateListingImages, syncCatalog, MAX_CATALOG_PRODUCTS } from './catalog'
+export { catalogOnlyStoreConfig, isShopifyStoreConnected } from './catalog-config'
 export {
   collectInterestTerms,
   listRecommendedProducts,

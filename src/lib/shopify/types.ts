@@ -14,6 +14,11 @@ export interface ShopifyStoreConfig {
   catalogProductCount: number
 }
 
+export interface ShopifyCollectionHit {
+  handle: string
+  title: string
+}
+
 export interface ShopifyVariantHit {
   id: string
   variantId: string
@@ -23,6 +28,8 @@ export interface ShopifyVariantHit {
   compareAtPrice: string | null
   available: boolean
   options: { name: string; value: string }[]
+  /** Persisted WACRM catalog retailer id, when mapped from catalog_*. */
+  retailerId?: string | null
 }
 
 export interface ShopifyProductHit {
@@ -40,6 +47,13 @@ export interface ShopifyProductHit {
   priceMax: string | null
   currency: string | null
   variants: ShopifyVariantHit[]
+  collections?: ShopifyCollectionHit[]
+  /** WACRM catalog_products.id when the hit was mapped from catalog_*. */
+  catalogId?: string
+  brand?: string | null
+  recommendReasons?: import('@/lib/catalog/intelligence/types').RecommendReason[]
+  recommendMode?: import('@/lib/catalog/intelligence/types').RecommendIntent
+  recommendScore?: number
 }
 
 export interface ShopifyProductCard {
@@ -53,6 +67,7 @@ export interface ShopifyProductCard {
   retailerId?: string | null
   handle?: string | null
   variantId?: string | null
+  catalogId?: string | null
 }
 
 export interface ShopifyOrderLineItem {

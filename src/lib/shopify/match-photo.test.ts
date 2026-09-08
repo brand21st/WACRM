@@ -7,17 +7,23 @@ import {
 } from '@/lib/ai/describe-inbound-image'
 
 const h = vi.hoisted(() => ({
-  searchCatalogSnapshot: vi.fn(),
+  searchHybridCatalog: vi.fn(),
   listNewArrivals: vi.fn(),
-  searchProductsLive: vi.fn(),
   hydrateListingImages: vi.fn(async (_config: unknown, hits: unknown) => hits),
+  catalogProductToHit: vi.fn((product: ShopifyProductHit) => product),
 }))
 
 vi.mock('./catalog', () => ({
-  searchCatalogSnapshot: h.searchCatalogSnapshot,
   listNewArrivals: h.listNewArrivals,
-  searchProductsLive: h.searchProductsLive,
   hydrateListingImages: h.hydrateListingImages,
+}))
+
+vi.mock('@/lib/catalog/search/hybrid', () => ({
+  searchHybridCatalog: (...args: unknown[]) => h.searchHybridCatalog(...args),
+}))
+
+vi.mock('@/lib/catalog/search/map-hit', () => ({
+  catalogProductToHit: (...args: unknown[]) => h.catalogProductToHit(...args),
 }))
 
 import {
@@ -104,12 +110,11 @@ describe('isUnusablePhotoDescription', () => {
 
 describe('matchProductsFromPhoto', () => {
   beforeEach(() => {
-    h.searchCatalogSnapshot.mockReset()
+    h.searchHybridCatalog.mockReset()
     h.listNewArrivals.mockReset()
-    h.searchProductsLive.mockReset()
-    h.searchCatalogSnapshot.mockResolvedValue([])
+    h.searchHybridCatalog.mockResolvedValue([])
     h.listNewArrivals.mockResolvedValue([])
-    h.searchProductsLive.mockResolvedValue([])
+    h.catalogProductToHit.mockImplementation((product: ShopifyProductHit) => product)
   })
 
   it('ranks fixture catalog hits from a vision description', async () => {
@@ -132,7 +137,7 @@ describe('matchProductsFromPhoto', () => {
         },
       ],
     })
-    h.searchCatalogSnapshot.mockResolvedValue([sneakers, tote])
+    h.searchHybridCatalog.mockResolvedValue([sneakers, tote])
 
     const hits = await matchProductsFromPhoto(
       db,
@@ -142,12 +147,12 @@ describe('matchProductsFromPhoto', () => {
     expect(hits).toHaveLength(1)
     expect(hits[0].title).toBe('Red Leather Tote')
     expect(hits[0].sku).toBeUndefined()
-    expect(h.searchCatalogSnapshot.mock.calls.map((c) => c[2])).not.toContain(
-      'red leather tote bag with gold zipper',
-    )
+    expect(
+      h.searchHybridCatalog.mock.calls.map((c) => (c[1] as { text?: string }).text),
+    ).not.toContain('red leather tote bag with gold zipper')
   })
 
-  it('unions snapshot and live Shopify hits before ranking', async () => {
+  it('searches the WACRM catalog before ranking', async () => {
     const tote = fixtureProduct()
     const sneakers = fixtureProduct({
       id: 'gid://shopify/Product/2',
@@ -158,16 +163,14 @@ describe('matchProductsFromPhoto', () => {
       productUrl: 'https://shop.example/products/blue-sneakers',
       variants: [],
     })
-    h.searchCatalogSnapshot.mockResolvedValue([sneakers])
-    h.searchProductsLive.mockResolvedValue([tote])
+    h.searchHybridCatalog.mockResolvedValue([sneakers, tote])
 
     const hits = await matchProductsFromPhoto(
       db,
       STORE,
       'red leather tote bag with gold zipper',
     )
-    expect(h.searchCatalogSnapshot).toHaveBeenCalled()
-    expect(h.searchProductsLive).toHaveBeenCalled()
+    expect(h.searchHybridCatalog).toHaveBeenCalled()
     expect(hits).toHaveLength(1)
     expect(hits[0].title).toBe('Red Leather Tote')
   })
@@ -182,7 +185,7 @@ describe('matchProductsFromPhoto', () => {
       imageUrl: 'https://cdn.example/backpack.jpg',
       productUrl: 'https://shop.example/products/red-leather-backpack',
     })
-    h.searchCatalogSnapshot.mockResolvedValue([tote, backpack])
+    h.searchHybridCatalog.mockResolvedValue([tote, backpack])
 
     const hits = await matchProductsFromPhoto(
       db,
@@ -208,7 +211,7 @@ describe('matchProductsFromPhoto', () => {
       imageUrl: 'https://cdn.example/backpack.jpg',
       productUrl: 'https://shop.example/products/red-leather-backpack',
     })
-    h.searchCatalogSnapshot.mockResolvedValue([tote, backpack])
+    h.searchHybridCatalog.mockResolvedValue([tote, backpack])
 
     const hits = await matchProductsFromPhoto(
       db,
@@ -226,8 +229,7 @@ describe('matchProductsFromPhoto', () => {
   })
 
   it('returns an empty list when the catalog has no scoring matches', async () => {
-    h.searchCatalogSnapshot.mockResolvedValue([])
-    h.searchProductsLive.mockResolvedValue([])
+    h.searchHybridCatalog.mockResolvedValue([])
     h.listNewArrivals.mockResolvedValue([
       fixtureProduct({
         id: 'gid://shopify/Product/9',
@@ -259,7 +261,7 @@ describe('matchProductsFromPhoto', () => {
 
   it('vision-confirms a single catalog candidate', async () => {
     const tote = fixtureProduct()
-    h.searchCatalogSnapshot.mockResolvedValue([tote])
+    h.searchHybridCatalog.mockResolvedValue([tote])
     const confirmImpl = vi.fn(async () => [tote])
 
     const hits = await matchProductsFromPhoto(db, STORE, 'red leather tote', {
@@ -283,7 +285,7 @@ describe('matchProductsFromPhoto', () => {
       description: 'handloom',
       variants: [],
     })
-    h.searchCatalogSnapshot.mockResolvedValue([saree])
+    h.searchHybridCatalog.mockResolvedValue([saree])
 
     const hits = await matchProductsFromPhoto(db, STORE, 'red cotton dress', {
       customerImageUrl: 'https://cdn.example/customer.jpg',
@@ -303,7 +305,7 @@ describe('matchProductsFromPhoto', () => {
       imageUrl: 'https://cdn.example/backpack.jpg',
       productUrl: 'https://shop.example/products/red-leather-backpack',
     })
-    h.searchCatalogSnapshot.mockResolvedValue([tote, backpack])
+    h.searchHybridCatalog.mockResolvedValue([tote, backpack])
 
     const hits = await matchProductsFromPhoto(db, STORE, 'red leather bag', {
       customerImageUrl: 'https://cdn.example/customer.jpg',
@@ -318,8 +320,7 @@ describe('matchProductsFromPhoto', () => {
     expect(
       await matchProductsFromPhoto(db, STORE, PRODUCT_PHOTO_PLACEHOLDER),
     ).toEqual([])
-    expect(h.searchCatalogSnapshot).not.toHaveBeenCalled()
-    expect(h.searchProductsLive).not.toHaveBeenCalled()
+    expect(h.searchHybridCatalog).not.toHaveBeenCalled()
     expect(h.listNewArrivals).not.toHaveBeenCalled()
   })
 })

@@ -65,3 +65,13 @@ export interface KnowledgeScrapeJob {
   jobId: string
   accountId: string
 }
+
+export interface CatalogMetaSyncJob {
+  accountId: string
+  outboxId: string
+}
+
+export interface CatalogEmbedJob {
+  accountId: string
+  productId: string
+}

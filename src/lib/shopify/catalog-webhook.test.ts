@@ -1,9 +1,32 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
+const importShopifyProduct = vi.fn().mockResolvedValue(undefined)
+const deleteImportedShopifyProductByIds = vi.fn().mockResolvedValue(undefined)
+const replaceImportedShopifyProducts = vi.fn().mockResolvedValue(undefined)
+
+const pushProductToMetaCatalog = vi.fn().mockResolvedValue(undefined)
+const deleteProductFromMetaCatalog = vi.fn().mockResolvedValue(undefined)
+
+vi.mock('@/lib/catalog/adapters/shopify-import', () => ({
+  importShopifyProduct: (...args: unknown[]) => importShopifyProduct(...args),
+  deleteImportedShopifyProductByIds: (...args: unknown[]) =>
+    deleteImportedShopifyProductByIds(...args),
+  replaceImportedShopifyProducts: (...args: unknown[]) =>
+    replaceImportedShopifyProducts(...args),
+}))
+
+vi.mock('./meta-catalog-sync', () => ({
+  pushProductToMetaCatalog: (...args: unknown[]) =>
+    pushProductToMetaCatalog(...args),
+  deleteProductFromMetaCatalog: (...args: unknown[]) =>
+    deleteProductFromMetaCatalog(...args),
+}))
+
 import {
   handleShopifyProductWebhook,
   removeCatalogProduct,
+  syncCatalog,
   upsertCatalogProduct,
 } from './catalog'
 import * as client from './client'
@@ -62,6 +85,11 @@ function mockDb() {
 
 describe('catalog product webhooks', () => {
   afterEach(() => {
+    importShopifyProduct.mockReset().mockResolvedValue(undefined)
+    deleteImportedShopifyProductByIds.mockReset().mockResolvedValue(undefined)
+    replaceImportedShopifyProducts.mockReset().mockResolvedValue(undefined)
+    pushProductToMetaCatalog.mockReset().mockResolvedValue(undefined)
+    deleteProductFromMetaCatalog.mockReset().mockResolvedValue(undefined)
     vi.restoreAllMocks()
   })
 
@@ -104,6 +132,14 @@ describe('catalog product webhooks', () => {
       }),
       { onConflict: 'account_id,shopify_product_id' },
     )
+    expect(importShopifyProduct).toHaveBeenCalledWith(
+      db,
+      STORE.accountId,
+      expect.objectContaining({ title: 'Red Bag' }),
+      expect.objectContaining({ publishedAt: '2026-01-02T00:00:00Z' }),
+    )
+    expect(pushProductToMetaCatalog).not.toHaveBeenCalled()
+    expect(deleteProductFromMetaCatalog).not.toHaveBeenCalled()
   })
 
   it('removes non-active products on update webhook', async () => {
@@ -127,6 +163,8 @@ describe('catalog product webhooks', () => {
     })
 
     expect(deleteFn).toHaveBeenCalled()
+    expect(deleteProductFromMetaCatalog).not.toHaveBeenCalled()
+    expect(pushProductToMetaCatalog).not.toHaveBeenCalled()
   })
 
   it('retries catalog upsert without body when the column is missing', async () => {
@@ -187,5 +225,77 @@ describe('catalog product webhooks', () => {
       'shopify_product_id',
       expect.arrayContaining(['42', 'gid://shopify/Product/42']),
     )
+    expect(deleteImportedShopifyProductByIds).toHaveBeenCalledWith(
+      db,
+      'account-1',
+      expect.arrayContaining(['42', 'gid://shopify/Product/42']),
+    )
+  })
+
+  it('keeps the Shopify snapshot write when catalog import throws', async () => {
+    importShopifyProduct.mockRejectedValueOnce(new Error('catalog down'))
+    vi.spyOn(client, 'shopifyGraphql').mockResolvedValue({
+      product: {
+        id: 'gid://shopify/Product/42',
+        handle: 'red-bag',
+        title: 'Red Bag',
+        status: 'ACTIVE',
+        description: 'Leather tote',
+        variants: { nodes: [] },
+      },
+    })
+    const { db, upsert } = mockDb()
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const ok = await upsertCatalogProduct(db, STORE, '42')
+    expect(ok).toBe(true)
+    expect(upsert).toHaveBeenCalled()
+    expect(warn).toHaveBeenCalledWith(
+      '[catalog import] shopify dual-write failed:',
+      expect.any(Error),
+    )
+    warn.mockRestore()
+  })
+
+  it('dual-writes a full Shopify sync and still succeeds if import fails', async () => {
+    replaceImportedShopifyProducts.mockRejectedValueOnce(new Error('import failed'))
+    vi.spyOn(client, 'shopifyGraphql').mockResolvedValue({
+      products: {
+        pageInfo: { hasNextPage: false },
+        nodes: [
+          {
+            id: 'gid://shopify/Product/42',
+            handle: 'red-bag',
+            title: 'Red Bag',
+            status: 'ACTIVE',
+            description: 'Leather tote',
+            variants: { nodes: [] },
+          },
+        ],
+      },
+    })
+    const insert = vi.fn().mockResolvedValue({ error: null })
+    const db = {
+      from: vi.fn((table: string) => {
+        if (table === 'shopify_catalog_products') {
+          return {
+            delete: vi.fn().mockReturnValue({
+              eq: vi.fn().mockResolvedValue({ error: null }),
+            }),
+            insert,
+          }
+        }
+        return {
+          update: vi.fn().mockReturnValue({
+            eq: vi.fn().mockResolvedValue({ error: null }),
+          }),
+        }
+      }),
+    } as unknown as SupabaseClient
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const result = await syncCatalog(db, STORE)
+    expect(result.count).toBe(1)
+    expect(insert).toHaveBeenCalled()
+    expect(replaceImportedShopifyProducts).toHaveBeenCalled()
+    warn.mockRestore()
   })
 })

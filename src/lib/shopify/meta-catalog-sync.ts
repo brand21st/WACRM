@@ -1,15 +1,51 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
-import type { ShopifyCatalogVariant } from '@/types'
 import { decrypt } from '@/lib/whatsapp/encryption'
-import { loadCommerceSettings } from './commerce-config'
-import { loadShopifyConfig } from './config'
-import { MAX_CATALOG_PRODUCTS } from './catalog'
-import {
-  parseRetailerIdSource,
-  retailerIdForVariant,
-  type RetailerIdSource,
-} from './retailer-id'
+import { enqueueFullCatalogMetaSync } from '@/lib/catalog/sync/full-sync'
+import { commerceMetaCatalogIds, loadCommerceSettings } from './commerce-config'
+import { retailerIdForVariant, type RetailerIdSource } from './retailer-id'
 import type { ShopifyProductHit, ShopifyStoreConfig } from './types'
+
+export class MetaCatalogGraphError extends Error {
+  readonly status: number
+  readonly retryAfterMs: number | null
+
+  constructor(
+    message: string,
+    status: number,
+    retryAfterMs: number | null = null,
+  ) {
+    super(message)
+    this.name = 'MetaCatalogGraphError'
+    this.status = status
+    this.retryAfterMs = retryAfterMs
+  }
+}
+
+export class CatalogSetSyncWaitError extends Error {
+  constructor(message = 'Waiting for product catalog sync') {
+    super(message)
+    this.name = 'CatalogSetSyncWaitError'
+  }
+}
+
+export function isRetryableMetaCatalogError(err: unknown): boolean {
+  if (err instanceof CatalogSetSyncWaitError) return true
+  if (err instanceof MetaCatalogGraphError) {
+    return err.status === 0 || err.status === 429 || err.status >= 500
+  }
+  const message = err instanceof Error ? err.message : String(err)
+  return /timeout|timed out|network|ECONNRESET|EAI_AGAIN|fetch failed|waiting for product catalog sync/i.test(
+    message,
+  )
+}
+
+export function isMetaItemNotFoundError(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err)
+  if (/unsupported post request|object with id '/i.test(message)) return false
+  return /retailer[_ ]id|product item|item does not exist|item not found/i.test(
+    message,
+  )
+}
 
 const META_API_VERSION = 'v21.0'
 const META_API_BASE = `https://graph.facebook.com/${META_API_VERSION}`
@@ -211,130 +247,66 @@ export async function listWabaProductCatalogs(
   }
 }
 
+/**
+ * Manual Meta resync. Enqueues WACRM catalog products; does not call Graph.
+ * `count` is the number of queued products, not Graph items.
+ */
 export async function syncMetaCatalog(
   db: SupabaseClient,
   accountId: string,
 ): Promise<{ count: number }> {
   const settings = await loadCommerceSettings(db, accountId)
-  const catalogId = settings.metaCatalogId?.trim()
-  if (!catalogId) throw new Error('Set a WhatsApp catalog ID first')
+  const catalogIds = commerceMetaCatalogIds(settings)
+  if (catalogIds.length === 0) throw new Error('Set a WhatsApp catalog ID first')
 
   const wa = await loadWhatsAppAccessToken(db, accountId)
   if (!wa) throw new Error('Connect WhatsApp before syncing the Meta catalog')
 
-  const swapped = catalogIdLooksLikeWhatsAppAsset(
-    catalogId,
-    wa.phoneNumberId,
-    wa.wabaId,
-  )
-  if (swapped) throw new Error(swapped)
-
-  const config = await loadShopifyConfig(db, accountId, { requireActive: false })
-  if (!config) throw new Error('Connect Shopify first')
-
-  const { data, error } = await db
-    .from('shopify_catalog_products')
-    .select(
-      'shopify_product_id, handle, title, body, body_excerpt, currency, variant_summary, image_url, product_url',
+  for (const catalogId of catalogIds) {
+    const swapped = catalogIdLooksLikeWhatsAppAsset(
+      catalogId,
+      wa.phoneNumberId,
+      wa.wabaId,
     )
-    .eq('account_id', accountId)
-    .limit(MAX_CATALOG_PRODUCTS)
-  if (error) throw error
-
-  const source = settings.retailerIdSource
-  const items: MetaCatalogItem[] = []
-  for (const row of data ?? []) {
-    const variants = Array.isArray(row.variant_summary)
-      ? (row.variant_summary as ShopifyCatalogVariant[])
-      : []
-    const mapped = catalogItemsFromProduct(
-      {
-        id: String(row.shopify_product_id),
-        title: String(row.title),
-        description: String(row.body || row.body_excerpt || ''),
-        imageUrl: row.image_url as string | null,
-        productUrl: String(row.product_url || ''),
-        currency: (row.currency as string | null) || config.currency,
-        variants: variants.map((v) => ({
-          id: v.id,
-          variantId: v.variantId,
-          title: v.title,
-          sku: v.sku,
-          price: v.price,
-          compareAtPrice: v.compareAtPrice,
-          available: v.available,
-          options: v.options,
-        })),
-      },
-      source,
-      config.shopName,
-    )
-    items.push(...mapped)
+    if (swapped) throw new Error(swapped)
   }
 
-  try {
-    await upsertMetaCatalogItems(catalogId, wa.token, items)
-  } catch (err) {
-    const connected = await listWabaProductCatalogs(wa.wabaId, wa.token)
-    throw new Error(
-      explainMetaCatalogSyncError({
-        catalogId,
-        graphMessage: err instanceof Error ? err.message : String(err),
-        phoneNumberId: wa.phoneNumberId,
-        wabaId: wa.wabaId,
-        connected,
-      }),
-    )
-  }
-  await db
-    .from('shopify_configs')
-    .update({
-      last_meta_catalog_sync_at: new Date().toISOString(),
-      meta_catalog_item_count: items.length,
-    })
-    .eq('account_id', accountId)
-
-  return { count: items.length }
+  const result = await enqueueFullCatalogMetaSync(db, accountId)
+  return { count: result.queued }
 }
 
+let deprecatedShopifyMetaWriteWarned = false
+
+function warnDeprecatedShopifyMetaWrite(): void {
+  if (deprecatedShopifyMetaWriteWarned) return
+  deprecatedShopifyMetaWriteWarned = true
+  console.warn(
+    '[shopify meta-catalog] Shopify no longer writes Meta; use catalog-meta-sync',
+  )
+}
+
+/** @deprecated Meta writes go through catalog_sync_outbox + catalog-meta-sync. */
 export async function pushProductToMetaCatalog(
   db: SupabaseClient,
   config: ShopifyStoreConfig,
   product: ShopifyProductHit,
 ): Promise<void> {
-  const settings = await loadCommerceSettings(db, config.accountId)
-  if (!settings.metaCatalogAutoSync || !settings.metaCatalogId) return
-  const wa = await loadWhatsAppAccessToken(db, config.accountId)
-  if (!wa) return
-  const items = catalogItemsFromProduct(
-    product,
-    parseRetailerIdSource(settings.retailerIdSource),
-    config.shopName,
-  )
-  if (items.length === 0) return
-  try {
-    await upsertMetaCatalogItems(settings.metaCatalogId, wa.token, items)
-  } catch (err) {
-    console.warn('[shopify meta-catalog] upsert failed:', err)
-  }
+  void db
+  void config
+  void product
+  warnDeprecatedShopifyMetaWrite()
 }
 
+/** @deprecated Meta writes go through catalog_sync_outbox + catalog-meta-sync. */
 export async function deleteProductFromMetaCatalog(
   db: SupabaseClient,
   accountId: string,
   retailerIds: string[],
 ): Promise<void> {
-  const settings = await loadCommerceSettings(db, accountId)
-  if (!settings.metaCatalogAutoSync || !settings.metaCatalogId) return
-  const wa = await loadWhatsAppAccessToken(db, accountId)
-  if (!wa) return
-  const ids = retailerIds.map((id) => id.trim()).filter(Boolean)
-  if (ids.length === 0) return
-  try {
-    await deleteMetaCatalogItems(settings.metaCatalogId, wa.token, ids)
-  } catch (err) {
-    console.warn('[shopify meta-catalog] delete failed:', err)
-  }
+  void db
+  void accountId
+  void retailerIds
+  warnDeprecatedShopifyMetaWrite()
 }
 
 export async function upsertMetaCatalogItems(
@@ -363,6 +335,180 @@ export async function upsertMetaCatalogItems(
   }
 }
 
+export function metaProductSetFilter(retailerIds: string[]): {
+  retailer_id: { is_any: string[] }
+} {
+  return { retailer_id: { is_any: [...new Set(retailerIds.filter(Boolean))] } }
+}
+
+export async function upsertMetaProductSet(opts: {
+  catalogId: string
+  accessToken: string
+  name: string
+  retailerIds: string[]
+  productSetId?: string | null
+}): Promise<string | null> {
+  const filter = JSON.stringify(metaProductSetFilter(opts.retailerIds))
+  const existingId = opts.productSetId?.trim()
+  if (existingId) {
+    await graphJson(`${META_API_BASE}/${encodeURIComponent(existingId)}`, opts.accessToken, {
+      name: opts.name.slice(0, 100),
+      filter,
+    })
+    return existingId
+  }
+  try {
+    const created = await graphJson<{ id?: string }>(
+      `${META_API_BASE}/${encodeURIComponent(opts.catalogId)}/product_sets`,
+      opts.accessToken,
+      {
+        name: opts.name.slice(0, 100),
+        filter,
+      },
+    )
+    return created.id ? String(created.id) : null
+  } catch (err) {
+    if (!isSameProductSetFilterError(err)) throw err
+    const reused =
+      (await findMetaProductSetIdByName(
+        opts.catalogId,
+        opts.accessToken,
+        opts.name,
+      )) ||
+      (await findMetaProductSetIdByFilter(
+        opts.catalogId,
+        opts.accessToken,
+        opts.retailerIds,
+      ))
+    if (!reused) throw err
+    await graphJson(`${META_API_BASE}/${encodeURIComponent(reused)}`, opts.accessToken, {
+      name: opts.name.slice(0, 100),
+      filter,
+    })
+    return reused
+  }
+}
+
+function isSameProductSetFilterError(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err)
+  return /same filters already exists/i.test(message)
+}
+
+export async function findMetaProductSetIdByFilter(
+  catalogId: string,
+  accessToken: string,
+  retailerIds: string[],
+): Promise<string | null> {
+  const wanted = new Set(retailerIds.map((id) => id.trim()).filter(Boolean))
+  if (wanted.size === 0) return null
+  const rows = await listMetaProductSets(catalogId, accessToken)
+  for (const row of rows) {
+    const ids = retailerIdsFromMetaFilter(row.filter)
+    if (ids.length !== wanted.size) continue
+    if (ids.every((id) => wanted.has(id))) {
+      const id = String(row.id ?? '').trim()
+      if (id) return id
+    }
+  }
+  return null
+}
+
+function retailerIdsFromMetaFilter(raw: unknown): string[] {
+  let parsed = raw
+  if (typeof raw === 'string') {
+    try {
+      parsed = JSON.parse(raw)
+    } catch {
+      return []
+    }
+  }
+  const ids = (parsed as { retailer_id?: { is_any?: unknown[] } } | null)
+    ?.retailer_id?.is_any
+  if (!Array.isArray(ids)) return []
+  return [...new Set(ids.map((id) => String(id).trim()).filter(Boolean))]
+}
+
+async function listMetaProductSets(
+  catalogId: string,
+  accessToken: string,
+): Promise<{ id?: string; name?: string; filter?: unknown }[]> {
+  const catalog = catalogId.trim()
+  if (!catalog) return []
+  const url = `${META_API_BASE}/${encodeURIComponent(catalog)}/product_sets?fields=id,name,filter`
+  let res: Response
+  try {
+    res = await fetch(url, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    })
+  } catch {
+    return []
+  }
+  const body = (await res.json().catch(() => null)) as {
+    data?: { id?: string; name?: string; filter?: unknown }[]
+  } | null
+  if (!res.ok) return []
+  return body?.data ?? []
+}
+
+export async function findMetaProductSetIdByName(
+  catalogId: string,
+  accessToken: string,
+  name: string,
+): Promise<string | null> {
+  const title = name.trim()
+  if (!title) return null
+  const match = (await listMetaProductSets(catalogId, accessToken)).find(
+    (row) => (row.name ?? '').trim() === title,
+  )
+  const id = String(match?.id ?? '').trim()
+  return id || null
+}
+
+export async function deleteMetaProductSet(
+  productSetId: string,
+  accessToken: string,
+): Promise<void> {
+  const id = productSetId.trim()
+  if (!id) return
+  await graphJson(`${META_API_BASE}/${encodeURIComponent(id)}`, accessToken, null, 'DELETE')
+}
+
+async function graphJson<T = Record<string, unknown>>(
+  url: string,
+  accessToken: string,
+  body: Record<string, unknown> | null,
+  method = 'POST',
+): Promise<T> {
+  let res: Response
+  try {
+    res = await fetch(url, {
+      method,
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: body ? JSON.stringify(body) : undefined,
+    })
+  } catch (err) {
+    throw new MetaCatalogGraphError(
+      err instanceof Error ? err.message : String(err),
+      0,
+    )
+  }
+  if (!res.ok) {
+    const payload = (await res.json().catch(() => null)) as {
+      error?: { message?: string }
+    } | null
+    throw new MetaCatalogGraphError(
+      payload?.error?.message || `Meta product set request failed (${res.status})`,
+      res.status,
+      parseRetryAfterMs(res.headers.get('Retry-After')),
+    )
+  }
+  if (res.status === 204) return {} as T
+  return ((await res.json().catch(() => ({}))) as T) ?? ({} as T)
+}
+
 export async function deleteMetaCatalogItems(
   catalogId: string,
   accessToken: string,
@@ -386,24 +532,43 @@ async function catalogBatch(
 ): Promise<void> {
   if (requests.length === 0) return
   const url = `${META_API_BASE}/${encodeURIComponent(catalogId)}/items_batch`
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      item_type: 'PRODUCT_ITEM',
-      allow_upsert: true,
-      requests: JSON.stringify(requests),
-    }),
-  })
+  let res: Response
+  try {
+    res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        item_type: 'PRODUCT_ITEM',
+        allow_upsert: true,
+        requests: JSON.stringify(requests),
+      }),
+    })
+  } catch (err) {
+    throw new MetaCatalogGraphError(
+      err instanceof Error ? err.message : String(err),
+      0,
+    )
+  }
   if (!res.ok) {
     const body = (await res.json().catch(() => null)) as {
       error?: { message?: string }
     } | null
-    throw new Error(
+    throw new MetaCatalogGraphError(
       body?.error?.message || `Meta catalog sync failed (${res.status})`,
+      res.status,
+      parseRetryAfterMs(res.headers.get('Retry-After')),
     )
   }
+}
+
+function parseRetryAfterMs(header: string | null): number | null {
+  if (!header) return null
+  const seconds = Number(header)
+  if (Number.isFinite(seconds) && seconds >= 0) return Math.round(seconds * 1000)
+  const date = Date.parse(header)
+  if (!Number.isFinite(date)) return null
+  return Math.max(0, date - Date.now())
 }

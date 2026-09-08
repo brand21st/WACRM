@@ -4,6 +4,8 @@ import type {
   AiChatReplyJob,
   AiVoiceInboundJob,
   CallRecordingJob,
+  CatalogEmbedJob,
+  CatalogMetaSyncJob,
   KnowledgeScrapeJob,
 } from '@/lib/queue/jobs'
 import { DEFAULT_JOB_OPTIONS, QUEUE_NAMES } from '@/lib/queue/names'
@@ -14,6 +16,8 @@ type QueueMap = {
   aiVoiceInbound: Queue
   callRecording: Queue
   knowledgeScrape: Queue
+  catalogMetaSync: Queue
+  catalogEmbed: Queue
 }
 
 let queues: QueueMap | null = null
@@ -41,6 +45,8 @@ function getQueues(): QueueMap | null {
     aiVoiceInbound: new Queue(QUEUE_NAMES.aiVoiceInbound, opts),
     callRecording: new Queue(QUEUE_NAMES.callRecording, opts),
     knowledgeScrape: new Queue(QUEUE_NAMES.knowledgeScrape, opts),
+    catalogMetaSync: new Queue(QUEUE_NAMES.catalogMetaSync, opts),
+    catalogEmbed: new Queue(QUEUE_NAMES.catalogEmbed, opts),
   }
   return queues
 }
@@ -129,5 +135,32 @@ export async function enqueueKnowledgeScrape(
     QUEUE_NAMES.knowledgeScrape,
     data,
     data.jobId,
+  )
+}
+
+/**
+ * Enqueue one catalog outbox row for Meta Commerce sync.
+ * jobId = outboxId so a replay is treated as already queued.
+ */
+export async function enqueueCatalogMetaSync(
+  data: CatalogMetaSyncJob,
+): Promise<boolean> {
+  return addJob(
+    getQueues()?.catalogMetaSync,
+    QUEUE_NAMES.catalogMetaSync,
+    data,
+    data.outboxId,
+  )
+}
+
+/** Enqueue one product embedding refresh. jobId = productId to debounce storms. */
+export async function enqueueCatalogEmbed(
+  data: CatalogEmbedJob,
+): Promise<boolean> {
+  return addJob(
+    getQueues()?.catalogEmbed,
+    QUEUE_NAMES.catalogEmbed,
+    data,
+    data.productId,
   )
 }

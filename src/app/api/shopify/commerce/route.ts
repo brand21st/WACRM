@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { requireRole, toErrorResponse } from '@/lib/auth/account'
 import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rate-limit'
 import {
+  ensureCatalogCommerceRow,
   loadCommerceSettings,
   publicCommercePayload,
   saveCommerceSettings,
@@ -25,14 +26,7 @@ export async function POST(request: Request) {
     const limit = checkRateLimit(`shopify-commerce:${userId}`, RATE_LIMITS.adminAction)
     if (!limit.success) return rateLimitResponse(limit)
 
-    const { data: existing } = await supabase
-      .from('shopify_configs')
-      .select('id')
-      .eq('account_id', accountId)
-      .maybeSingle()
-    if (!existing) {
-      return bad('Connect Shopify first, then save Commerce settings.')
-    }
+    await ensureCatalogCommerceRow(supabase, accountId, userId)
 
     const body = await request.json().catch(() => null)
     if (!body || typeof body !== 'object') return bad('Invalid request body')
@@ -53,6 +47,9 @@ export async function POST(request: Request) {
     await saveCommerceSettings(supabase, accountId, {
       metaCatalogId:
         typeof body.meta_catalog_id === 'string' ? body.meta_catalog_id : undefined,
+      metaCatalogIds: Array.isArray(body.meta_catalog_ids)
+        ? body.meta_catalog_ids.filter((id: unknown) => typeof id === 'string')
+        : undefined,
       metaCatalogAutoSync:
         typeof body.meta_catalog_auto_sync === 'boolean'
           ? body.meta_catalog_auto_sync

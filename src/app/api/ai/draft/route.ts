@@ -22,6 +22,7 @@ import { logAiUsage } from '@/lib/ai/usage'
 import { supabaseAdmin } from '@/lib/ai/admin-client'
 import { AiError } from '@/lib/ai/types'
 import { loadShopifyConfig } from '@/lib/shopify/config'
+import { catalogOnlyStoreConfig, isShopifyStoreConnected } from '@/lib/shopify/catalog-config'
 import { shopifyLlmTools, executeShopifyTool } from '@/lib/shopify/tools'
 import type { ShopifyProductCard } from '@/lib/shopify'
 import {
@@ -184,10 +185,12 @@ export async function POST(request: Request) {
       }
     }
 
+    const catalogConfig = shopify ?? catalogOnlyStoreConfig(accountId)
     const systemPrompt = buildSystemPrompt({
       userPrompt: config.systemPrompt,
       mode: 'draft',
       knowledge,
+      catalog: true,
       shopify: Boolean(shopify),
       whatsappCatalog: Boolean(shopify?.metaCatalogId?.trim()),
       customerName,
@@ -203,40 +206,37 @@ export async function POST(request: Request) {
       messages,
       customerName,
       replyLanguage: resolvedLanguage.lock,
-      ...(shopify
-        ? {
-            tools: shopifyLlmTools({
-              whatsappCatalog: Boolean(shopify.metaCatalogId?.trim()),
-              focused: Boolean(productFocus?.handle),
-            }),
-            executeTool: async (name, args) => {
-              const result = await executeShopifyTool(
-                {
-                  db: supabase,
-                  config: shopify,
-                  contactPhone,
-                  productCards,
-                  conversationId,
-                  customerText: latestUserMessage(messages),
-                  focusedHandle: productFocus?.handle ?? null,
-                },
-                name,
-                args,
-              )
-              if (productFocus?.handle) {
-                const keep = result.cards.filter(
-                  (card) =>
-                    (card.handle ?? '').toLowerCase() ===
-                    productFocus.handle.toLowerCase(),
-                )
-                if (keep[0] && productCards.length === 0) productCards.push(keep[0])
-              } else {
-                productCards.push(...result.cards)
-              }
-              return result.json
-            },
-          }
-        : {}),
+      tools: shopifyLlmTools({
+        whatsappCatalog: Boolean(shopify?.metaCatalogId?.trim()),
+        focused: Boolean(productFocus?.handle),
+        shopifyConnected: isShopifyStoreConnected(shopify),
+      }),
+      executeTool: async (name, args) => {
+        const result = await executeShopifyTool(
+          {
+            db: supabase,
+            config: catalogConfig,
+            contactPhone,
+            productCards,
+            conversationId,
+            customerText: latestUserMessage(messages),
+            focusedHandle: productFocus?.handle ?? null,
+          },
+          name,
+          args,
+        )
+        if (productFocus?.handle) {
+          const keep = result.cards.filter(
+            (card) =>
+              (card.handle ?? '').toLowerCase() ===
+              productFocus.handle.toLowerCase(),
+          )
+          if (keep[0] && productCards.length === 0) productCards.push(keep[0])
+        } else {
+          productCards.push(...result.cards)
+        }
+        return result.json
+      },
     })
 
     // Record spend on the account's BYO key. Best-effort + via the

@@ -6,12 +6,13 @@ import {
   resolveVisionImageUrl,
   shoppingSearchQueriesFromDescription,
 } from '@/lib/ai/describe-inbound-image'
+import { searchHybridCatalog } from '@/lib/catalog/search/hybrid'
+import { catalogProductToHit } from '@/lib/catalog/search/map-hit'
 import {
   hydrateListingImages,
   listNewArrivals,
-  searchCatalogSnapshot,
-  searchProductsLive,
 } from './catalog'
+import { isShopifyStoreConnected } from './catalog-config'
 import { confirmCatalogMatchesFromPhoto } from './confirm-photo'
 import {
   rankProductsByDescription,
@@ -40,10 +41,9 @@ export interface MatchProductsFromPhotoOpts {
 
 /**
  * Deterministic catalog match for a vision description of a customer
- * photo. Searches snapshot + live Shopify (union), then vision-confirms
- * against catalog listing images when possible. Returns 0–2 hits that
- * vision (or token rank on API failure) actually selected — never invents
- * products.
+ * photo. Searches the WACRM catalog, then vision-confirms against listing
+ * images when possible. Returns 0–2 hits that vision (or token rank on
+ * API failure) actually selected — never invents products.
  */
 export async function matchProductsFromPhoto(
   db: SupabaseClient,
@@ -69,17 +69,22 @@ export async function matchProductsFromPhoto(
   }
 
   const queries = photoMatchQueries(description)
+  const urls = {
+    primaryDomain: config.primaryDomain,
+    currency: config.currency,
+  }
   await Promise.all(
     queries.map(async (q) => {
       try {
-        add(await searchCatalogSnapshot(db, config.accountId, q, 8))
+        const products = await searchHybridCatalog(db, {
+          accountId: config.accountId,
+          text: q,
+          status: 'active',
+          limit: 8,
+        })
+        add(products.map((product) => catalogProductToHit(product, urls)))
       } catch (err) {
-        console.warn('[shopify match-photo] snapshot search failed:', err)
-      }
-      try {
-        add(await searchProductsLive(config, q, { first: 8 }))
-      } catch (err) {
-        console.warn('[shopify match-photo] live search failed:', err)
+        console.warn('[catalog-search] match-photo search failed:', err)
       }
     }),
   )
@@ -88,14 +93,7 @@ export async function matchProductsFromPhoto(
     try {
       add(await listNewArrivals(db, config, 8))
     } catch (err) {
-      console.warn('[shopify match-photo] new arrivals failed:', err)
-    }
-    if (candidates.length === 0) {
-      try {
-        add(await searchProductsLive(config, 'status:active', { first: 8 }))
-      } catch (err) {
-        console.warn('[shopify match-photo] live catalog failed:', err)
-      }
+      console.warn('[catalog-search] match-photo new arrivals failed:', err)
     }
   }
 
@@ -203,10 +201,13 @@ async function maybeConfirmCatalogImages(
 
   if (!customerImageUrl || !opts.apiKey) return null
 
-  try {
-    imaged = (await hydrateListingImages(config, imaged)).filter(hasListingImage)
-  } catch (err) {
-    console.warn('[shopify match-photo] listing image hydrate failed:', err)
+  if (imaged.length < 1 && isShopifyStoreConnected(config)) {
+    try {
+      console.warn('[catalog-search] match-photo hydrating listing images from Shopify')
+      imaged = (await hydrateListingImages(config, pool)).filter(hasListingImage)
+    } catch (err) {
+      console.warn('[shopify match-photo] listing image hydrate failed:', err)
+    }
   }
   if (imaged.length < 1) return null
 

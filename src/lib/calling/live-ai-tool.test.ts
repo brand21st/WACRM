@@ -108,6 +108,7 @@ function aiConfig(): AiConfig {
 beforeEach(() => {
   h.loadAiConfig.mockReset()
   h.loadShopifyConfig.mockReset()
+  h.loadShopifyConfig.mockResolvedValue(null)
   h.retrieveKnowledge.mockReset()
   h.bindShopifyTools.mockReset()
   h.sendProductCards.mockReset()
@@ -244,6 +245,28 @@ describe('executeLiveAiTool', () => {
     expect(JSON.parse(result.output).hits).toEqual(
       expect.arrayContaining([expect.stringContaining('black bag')]),
     )
+  })
+
+  it('binds catalog tools when Shopify is not connected', async () => {
+    h.loadShopifyConfig.mockResolvedValue(null)
+    const executeTool = vi.fn(async () => '{"products":[]}')
+    h.bindShopifyTools.mockReturnValue({ executeTool })
+    const result = await executeLiveAiTool({
+      accountId: 'acct-1',
+      userId: 'user-1',
+      callId: 'call-1',
+      name: 'search_products',
+      arguments: { query: 'bag' },
+    })
+    expect(result.handoff).toBe(false)
+    expect(h.bindShopifyTools).toHaveBeenCalledWith(
+      expect.anything(),
+      null,
+      '1555000',
+      expect.any(Array),
+      expect.objectContaining({ accountId: 'acct-1' }),
+    )
+    expect(executeTool).toHaveBeenCalled()
   })
 
   it('runs Shopify tools and sends product cards', async () => {

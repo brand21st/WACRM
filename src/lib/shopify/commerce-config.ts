@@ -6,11 +6,15 @@ import type { CommerceBeneficiary, CommerceSecrets, CommerceSettings } from '@/l
 import { isCompleteBeneficiary } from '@/lib/commerce/order-details'
 
 export const COMMERCE_SELECT =
+  'meta_catalog_id, meta_catalog_ids, retailer_id_source, meta_catalog_auto_sync, last_meta_catalog_sync_at, meta_catalog_item_count, wa_payment_configuration_name, razorpay_key_id, razorpay_key_secret, razorpay_webhook_secret, ship_beneficiary'
+
+const COMMERCE_SELECT_WITHOUT_IDS =
   'meta_catalog_id, retailer_id_source, meta_catalog_auto_sync, last_meta_catalog_sync_at, meta_catalog_item_count, wa_payment_configuration_name, razorpay_key_id, razorpay_key_secret, razorpay_webhook_secret, ship_beneficiary'
 
 export function emptyCommerceSettings(): CommerceSettings {
   return {
     metaCatalogId: null,
+    metaCatalogIds: [],
     metaCatalogAutoSync: false,
     lastMetaCatalogSyncAt: null,
     metaCatalogItemCount: 0,
@@ -27,11 +31,19 @@ export async function loadCommerceSettings(
   db: SupabaseClient,
   accountId: string,
 ): Promise<CommerceSettings> {
-  const { data, error } = await db
+  let { data, error } = await db
     .from('shopify_configs')
     .select(COMMERCE_SELECT)
     .eq('account_id', accountId)
     .maybeSingle()
+
+  if (error && isMissingDbColumn(error, 'meta_catalog_ids')) {
+    ;({ data, error } = await db
+      .from('shopify_configs')
+      .select(COMMERCE_SELECT_WITHOUT_IDS)
+      .eq('account_id', accountId)
+      .maybeSingle())
+  }
 
   if (error && isMissingDbColumn(error, 'wa_payment_configuration_name')) {
     return emptyCommerceSettings()
@@ -68,6 +80,7 @@ export async function loadCommerceSecrets(
 export function settingsFromRow(row: Record<string, unknown>): CommerceSettings {
   return {
     metaCatalogId: textOrNull(row.meta_catalog_id),
+    metaCatalogIds: normalizeMetaCatalogIds(row.meta_catalog_ids),
     metaCatalogAutoSync: row.meta_catalog_auto_sync === true,
     lastMetaCatalogSyncAt:
       typeof row.last_meta_catalog_sync_at === 'string'
@@ -86,6 +99,7 @@ export function settingsFromRow(row: Record<string, unknown>): CommerceSettings 
 export function publicCommercePayload(settings: CommerceSettings) {
   return {
     meta_catalog_id: settings.metaCatalogId,
+    meta_catalog_ids: commerceMetaCatalogIds(settings),
     meta_catalog_auto_sync: settings.metaCatalogAutoSync,
     last_meta_catalog_sync_at: settings.lastMetaCatalogSyncAt,
     meta_catalog_item_count: settings.metaCatalogItemCount,
@@ -104,6 +118,7 @@ export function encryptSecret(raw: string): string {
 
 export interface CommerceSettingsPatch {
   metaCatalogId?: string | null
+  metaCatalogIds?: string[] | null
   metaCatalogAutoSync?: boolean
   retailerIdSource?: RetailerIdSource
   waPaymentConfigurationName?: string | null
@@ -115,14 +130,45 @@ export interface CommerceSettingsPatch {
   shipBeneficiary?: CommerceBeneficiary | null
 }
 
+export async function ensureCatalogCommerceRow(
+  db: SupabaseClient,
+  accountId: string,
+  createdBy?: string | null,
+): Promise<void> {
+  const { data, error } = await db
+    .from('shopify_configs')
+    .select('id')
+    .eq('account_id', accountId)
+    .maybeSingle()
+  if (error) throw error
+  if (data?.id) return
+  const { error: insertErr } = await db.from('shopify_configs').insert({
+    account_id: accountId,
+    created_by: createdBy ?? null,
+    shop_domain: '',
+    access_token: '',
+    is_active: false,
+  })
+  if (insertErr && insertErr.code !== '23505') throw insertErr
+}
+
 export async function saveCommerceSettings(
   db: SupabaseClient,
   accountId: string,
   patch: CommerceSettingsPatch,
 ): Promise<void> {
   const update: Record<string, unknown> = {}
-  if ('metaCatalogId' in patch) {
-    update.meta_catalog_id = textOrNull(patch.metaCatalogId)
+  if ('metaCatalogIds' in patch) {
+    const resolved = resolveMetaCatalogSelection(
+      patch.metaCatalogIds,
+      patch.metaCatalogId,
+    )
+    update.meta_catalog_ids = resolved.metaCatalogIds
+    update.meta_catalog_id = resolved.metaCatalogId
+  } else if ('metaCatalogId' in patch) {
+    const id = textOrNull(patch.metaCatalogId)
+    update.meta_catalog_id = id
+    update.meta_catalog_ids = id ? [id] : []
   }
   if ('metaCatalogAutoSync' in patch) {
     update.meta_catalog_auto_sync = patch.metaCatalogAutoSync === true
@@ -156,10 +202,18 @@ export async function saveCommerceSettings(
       : null
   }
   if (Object.keys(update).length === 0) return
-  const { error } = await db
+  let { error } = await db
     .from('shopify_configs')
     .update(update)
     .eq('account_id', accountId)
+  if (error && isMissingDbColumn(error, 'meta_catalog_ids') && 'meta_catalog_ids' in update) {
+    const fallback = { ...update }
+    delete fallback.meta_catalog_ids
+    ;({ error } = await db
+      .from('shopify_configs')
+      .update(fallback)
+      .eq('account_id', accountId))
+  }
   if (error) throw error
 }
 
@@ -186,4 +240,38 @@ function decryptOptional(raw: unknown): string | null {
 
 export function asRetailerIdSource(raw: unknown): RetailerIdSource {
   return parseRetailerIdSource(raw)
+}
+
+export function normalizeMetaCatalogIds(raw: unknown): string[] {
+  const list = Array.isArray(raw) ? raw : typeof raw === 'string' ? [raw] : []
+  const out: string[] = []
+  const seen = new Set<string>()
+  for (const item of list) {
+    if (typeof item !== 'string') continue
+    const id = item.trim()
+    if (!id || seen.has(id)) continue
+    seen.add(id)
+    out.push(id)
+  }
+  return out
+}
+
+export function commerceMetaCatalogIds(
+  settings: Pick<CommerceSettings, 'metaCatalogId' | 'metaCatalogIds'>,
+): string[] {
+  const ids = normalizeMetaCatalogIds(settings.metaCatalogIds)
+  if (ids.length > 0) return ids
+  const primary = settings.metaCatalogId?.trim()
+  return primary ? [primary] : []
+}
+
+export function resolveMetaCatalogSelection(
+  selectedIds: unknown,
+  currentPrimary?: string | null,
+): { metaCatalogIds: string[]; metaCatalogId: string | null } {
+  const ids = normalizeMetaCatalogIds(selectedIds)
+  if (ids.length === 0) return { metaCatalogIds: [], metaCatalogId: null }
+  const current = textOrNull(currentPrimary)
+  const primary = current && ids.includes(current) ? current : ids[0]
+  return { metaCatalogIds: ids, metaCatalogId: primary }
 }

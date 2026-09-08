@@ -1,5 +1,5 @@
 import { checkoutPermalink, cartPermalink, productPageUrl } from './permalinks'
-import type { ShopifyProductHit, ShopifyVariantHit } from './types'
+import type { ShopifyCollectionHit, ShopifyProductHit, ShopifyVariantHit } from './types'
 
 export interface ShopifyGqlVariant {
   id?: string
@@ -23,6 +23,7 @@ export interface ShopifyGqlProduct {
   publishedAt?: string | null
   featuredImage?: { url?: string | null } | null
   images?: { nodes?: { url?: string | null }[] | null } | null
+  collections?: { nodes?: { handle?: string | null; title?: string | null }[] | null } | null
   variants?: { nodes?: ShopifyGqlVariant[] | null } | null
 }
 
@@ -65,7 +66,21 @@ export function mapGqlProduct(
     priceMax: prices.length ? String(Math.max(...prices)) : null,
     currency,
     variants,
+    collections: mapGqlCollections(node),
   }
+}
+
+function mapGqlCollections(node: ShopifyGqlProduct): ShopifyCollectionHit[] {
+  const out: ShopifyCollectionHit[] = []
+  const seen = new Set<string>()
+  for (const raw of node.collections?.nodes ?? []) {
+    const handle = (raw.handle || '').trim()
+    const title = (raw.title || '').trim()
+    if (!handle || !title || seen.has(handle)) continue
+    seen.add(handle)
+    out.push({ handle, title })
+  }
+  return out
 }
 
 export function listingImageUrls(node: ShopifyGqlProduct): string[] {

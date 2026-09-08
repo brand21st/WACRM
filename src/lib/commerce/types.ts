@@ -13,6 +13,7 @@ export interface CommerceBeneficiary {
 
 export interface CommerceSettings {
   metaCatalogId: string | null
+  metaCatalogIds: string[]
   metaCatalogAutoSync: boolean
   lastMetaCatalogSyncAt: string | null
   metaCatalogItemCount: number

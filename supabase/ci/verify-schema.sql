@@ -46,6 +46,30 @@ BEGIN
     RAISE EXCEPTION 'public.whatsapp_commerce_orders is missing — migration 064 did not apply';
   END IF;
 
+  IF to_regclass('public.catalog_product_events') IS NULL THEN
+    RAISE EXCEPTION 'public.catalog_product_events is missing — migration 079 did not apply';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'catalog_collections'
+      AND column_name = 'meta_product_set_id'
+  ) THEN
+    RAISE EXCEPTION 'catalog_collections.meta_product_set_id is missing — migration 080 did not apply';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'shopify_configs'
+      AND column_name = 'meta_catalog_ids'
+  ) THEN
+    RAISE EXCEPTION 'shopify_configs.meta_catalog_ids is missing — migration 081 did not apply';
+  END IF;
+
   RAISE NOTICE 'schema verification passed';
 END
 $$;

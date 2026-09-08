@@ -16,6 +16,7 @@ import { nativeCommerceEnabled } from './types'
 import type { CommerceBeneficiary, MappedCartLine } from './types'
 import { parseInboundOrderMessage } from './inbound-order'
 import { mapCartLinesToShopify } from './map-lines'
+import { recordCatalogLineEvents } from '@/lib/catalog/analytics/events'
 import {
   ADDRESS_PROMPT,
   parseBeneficiaryFromText,
@@ -129,6 +130,13 @@ export async function handleInboundWhatsAppOrder(args: {
     awaitingConfirmation: Boolean(beneficiary),
   })
   if (!inserted) return 'skipped'
+  void recordCatalogLineEvents(args.db, {
+    accountId: args.accountId,
+    event: 'add_to_cart',
+    conversationId: args.conversationId,
+    contactId: args.contactId,
+    lines,
+  })
 
   if (!beneficiary) {
     await askForDeliveryAddress({

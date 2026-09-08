@@ -1,8 +1,23 @@
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import type { SupabaseClient } from '@supabase/supabase-js'
+
+const enqueueFullCatalogMetaSync = vi.fn().mockResolvedValue({ queued: 4 })
+
+vi.mock('@/lib/catalog/sync/full-sync', () => ({
+  enqueueFullCatalogMetaSync: (...args: unknown[]) =>
+    enqueueFullCatalogMetaSync(...args),
+}))
+
+vi.mock('@/lib/whatsapp/encryption', () => ({
+  decrypt: () => 'wa-token',
+  encrypt: (value: string) => value,
+}))
+
 import {
   catalogIdLooksLikeWhatsAppAsset,
   catalogItemsFromProduct,
   explainMetaCatalogSyncError,
+  syncMetaCatalog,
 } from './meta-catalog-sync'
 import type { ShopifyProductHit } from './types'
 
@@ -107,5 +122,54 @@ describe('explainMetaCatalogSyncError', () => {
     })
     expect(message).toMatch(/Could not check which catalogs are connected/)
     expect(message).not.toMatch(/No product catalog is connected/)
+  })
+})
+
+describe('syncMetaCatalog', () => {
+  beforeEach(() => {
+    enqueueFullCatalogMetaSync.mockReset().mockResolvedValue({ queued: 4 })
+  })
+
+  it('enqueues a WACRM full sync and does not require Shopify', async () => {
+    const from = vi.fn((table: string) => {
+      if (table === 'shopify_configs') {
+        return {
+          select: () => ({
+            eq: () => ({
+              maybeSingle: async () => ({
+                data: {
+                  meta_catalog_id: 'cat-1',
+                  meta_catalog_auto_sync: false,
+                  retailer_id_source: 'sku',
+                },
+                error: null,
+              }),
+            }),
+          }),
+        }
+      }
+      if (table === 'whatsapp_config') {
+        return {
+          select: () => ({
+            eq: () => ({
+              maybeSingle: async () => ({
+                data: {
+                  access_token: 'encrypted',
+                  phone_number_id: 'pn',
+                  waba_id: 'waba',
+                },
+                error: null,
+              }),
+            }),
+          }),
+        }
+      }
+      throw new Error(`unexpected table ${table}`)
+    })
+    const db = { from } as unknown as SupabaseClient
+    const result = await syncMetaCatalog(db, 'acct-a')
+    expect(result.count).toBe(4)
+    expect(enqueueFullCatalogMetaSync).toHaveBeenCalledWith(db, 'acct-a')
+    expect(from).not.toHaveBeenCalledWith('shopify_catalog_products')
   })
 })

@@ -183,12 +183,6 @@ export async function executeLiveAiTool(args: {
     console.error('[live-ai] loadShopifyConfig failed:', err)
     return null
   })
-  if (!shopify) {
-    return {
-      output: JSON.stringify({ error: 'Shopify is not connected.' }),
-      handoff: false,
-    }
-  }
 
   const { data: contactRow } = await db
     .from('contacts')
@@ -202,7 +196,7 @@ export async function executeLiveAiTool(args: {
   const catalogHolder: { value: boolean } = { value: false }
   const commerce = await loadCommerceSettings(db, args.accountId).catch(() => null)
   const metaCatalogId = (
-    commerce?.metaCatalogId ?? shopify.metaCatalogId
+    commerce?.metaCatalogId ?? shopify?.metaCatalogId
   )?.trim()
   const contactMemory = call.contact_id
     ? await loadContactMemory(db, args.accountId, call.contact_id).catch(() =>
@@ -224,7 +218,11 @@ export async function executeLiveAiTool(args: {
     contactRow?.phone ?? null,
     productCards,
     {
+      accountId: args.accountId,
+      metaCatalogId,
       imageTurn: false,
+      contactId: call.contact_id,
+      conversationId: call.conversation_id,
       nativeCommerce: nativeCommerceEnabled({
         metaCatalogId,
         waPaymentConfigurationName: commerce?.waPaymentConfigurationName,
@@ -243,7 +241,7 @@ export async function executeLiveAiTool(args: {
   )
   if (!bound.executeTool) {
     return {
-      output: JSON.stringify({ error: 'Shopify tools are unavailable.' }),
+      output: JSON.stringify({ error: 'Catalog tools are unavailable.' }),
       handoff: false,
     }
   }

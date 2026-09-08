@@ -41,6 +41,7 @@ export function toVectorLiteral(embedding: number[]): string {
 export async function embedTexts(
   apiKey: string,
   inputs: string[],
+  model = EMBEDDING_MODEL,
 ): Promise<number[][]> {
   if (inputs.length === 0) return []
   const timeoutMs = aiRequestTimeoutMs()
@@ -57,7 +58,7 @@ export async function embedTexts(
           Authorization: `Bearer ${apiKey}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ model: EMBEDDING_MODEL, input: batch }),
+        body: JSON.stringify({ model, input: batch }),
         signal: AbortSignal.timeout(timeoutMs),
       })
     } catch (err) {

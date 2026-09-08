@@ -85,6 +85,21 @@ describe('buildSystemPrompt', () => {
     expect(draft).not.toMatch(/search_store_info/)
   })
 
+  it('exposes catalog tools without Shopify as the product source of truth', () => {
+    const prompt = buildSystemPrompt({
+      userPrompt: null,
+      mode: 'auto_reply',
+      catalog: true,
+      shopify: false,
+    })
+    expect(prompt).toMatch(/WACRM catalog is the source of truth/)
+    expect(prompt).toMatch(/search_products/)
+    expect(prompt).toMatch(/list_new_arrivals/)
+    expect(prompt).not.toMatch(/call list_best_selling/)
+    expect(prompt).not.toMatch(/search_store_info/)
+    expect(prompt).not.toMatch(/lookup_my_orders/)
+  })
+
   it('keeps Shopify tool names in the lookup instructions', () => {
     const prompt = buildSystemPrompt({
       userPrompt: null,
@@ -94,7 +109,8 @@ describe('buildSystemPrompt', () => {
     expect(prompt).toMatch(/search_store_info/i)
     expect(prompt).toMatch(/delivery time/i)
     expect(prompt).toMatch(/customer-facing answer must still be in the customer/i)
-    expect(prompt).toMatch(/Shopify is connected/)
+    expect(prompt).toMatch(/WACRM catalog is the source of truth/)
+    expect(prompt).toMatch(/Shopify is connected for this customer’s orders/)
     expect(prompt).toMatch(/Checkout NOW button and View cart button are sent separately/)
     expect(prompt).toMatch(/Do not paste checkout, cart, or Buy now URLs/)
     expect(prompt).toMatch(/call offer_cart/)
@@ -108,9 +124,15 @@ describe('buildSystemPrompt', () => {
     expect(prompt).toMatch(/list_new_arrivals/)
     expect(prompt).toMatch(/list_best_selling/)
     expect(prompt).toMatch(/recommend_products/)
+    expect(prompt).toMatch(/compare_products/)
+    expect(prompt).toMatch(/role similar or alternative/)
+    expect(prompt).toMatch(/Do not invent attributes, discounts, urgency, or best-seller claims/)
+    expect(prompt).toMatch(/Never claim a product is a best seller unless a tool returned that metric/)
     expect(prompt).toMatch(/best selling|trending/)
     expect(prompt).toMatch(/shopping and sales assistant/)
     expect(prompt).toMatch(/search_products with those words/)
+    expect(prompt).toMatch(/meaning and synonyms/)
+    expect(prompt).toMatch(/never invent a cheaper or in-stock item/)
     expect(prompt).toMatch(/full matched product list|every catalog-matched product/)
     expect(prompt).toMatch(/text, voice, or a WhatsApp AI call/)
     expect(prompt).toMatch(/role upsell/)
@@ -119,6 +141,9 @@ describe('buildSystemPrompt', () => {
     expect(prompt).toMatch(/VOICE_MESSAGE/)
     expect(prompt).toMatch(/voice-note product ask/)
     expect(prompt).toMatch(/Never invent bundles, coupons, or discounts/)
+    expect(prompt).toMatch(/at most once more/)
+    expect(prompt).toMatch(/hard-budget miss/)
+    expect(prompt).toMatch(/recommendation reasons/)
     expect(prompt).toMatch(/closest catalog options/)
     expect(prompt).toMatch(/this ask first, then remembered products and preferences/)
     expect(prompt).toMatch(
@@ -144,6 +169,7 @@ describe('buildSystemPrompt', () => {
     expect(prompt).not.toMatch(/call search_products with those words/)
     expect(prompt).not.toMatch(/send every catalog-matched product/)
     expect(prompt).toMatch(/Do not call search_products, list_new_arrivals/)
+    expect(prompt).toMatch(/compare_products/)
     expect(prompt).toMatch(/Do not mention a WhatsApp cart/)
   })
 
@@ -168,7 +194,7 @@ describe('buildSystemPrompt', () => {
       shopify: true,
       whatsappCatalog: true,
     })
-    expect(withCatalog).toMatch(/list_new_arrivals so Shopify product cards/)
+    expect(withCatalog).toMatch(/list_new_arrivals so product cards/)
     expect(withCatalog).toMatch(/send_whatsapp_catalog/)
 
     const withoutCatalog = buildSystemPrompt({
@@ -176,7 +202,7 @@ describe('buildSystemPrompt', () => {
       mode: 'auto_reply',
       shopify: true,
     })
-    expect(withoutCatalog).toMatch(/list_new_arrivals so Shopify product cards/)
+    expect(withoutCatalog).toMatch(/list_new_arrivals so product cards/)
     expect(withoutCatalog).not.toMatch(/send_whatsapp_catalog/)
   })
 

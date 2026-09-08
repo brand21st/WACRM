@@ -8,6 +8,7 @@ import { buildSystemPrompt } from '@/lib/ai/defaults'
 import { latestUserMessage } from '@/lib/ai/query'
 import { AiError, type ChatMessage } from '@/lib/ai/types'
 import { loadShopifyConfig } from '@/lib/shopify/config'
+import { catalogOnlyStoreConfig, isShopifyStoreConnected } from '@/lib/shopify/catalog-config'
 import { shopifyLlmTools, executeShopifyTool } from '@/lib/shopify/tools'
 import type { ShopifyProductCard } from '@/lib/shopify'
 
@@ -82,10 +83,12 @@ export async function POST(request: Request) {
       latestUserMessage(messages),
     )
     const shopify = await loadShopifyConfig(supabase, accountId).catch(() => null)
+    const catalogConfig = shopify ?? catalogOnlyStoreConfig(accountId)
     const systemPrompt = buildSystemPrompt({
       userPrompt: config.systemPrompt,
       mode: 'auto_reply',
       knowledge,
+      catalog: true,
       shopify: Boolean(shopify),
       whatsappCatalog: Boolean(shopify?.metaCatalogId?.trim()),
     })
@@ -95,28 +98,25 @@ export async function POST(request: Request) {
       config,
       systemPrompt,
       messages,
-      ...(shopify
-        ? {
-            tools: shopifyLlmTools({
-              whatsappCatalog: Boolean(shopify.metaCatalogId?.trim()),
-            }),
-            executeTool: async (name, args) => {
-              const result = await executeShopifyTool(
-                {
-                  db: supabase,
-                  config: shopify,
-                  contactPhone: null,
-                  productCards,
-                  customerText: latestUserMessage(messages),
-                },
-                name,
-                args,
-              )
-              productCards.push(...result.cards)
-              return result.json
-            },
-          }
-        : {}),
+      tools: shopifyLlmTools({
+        whatsappCatalog: Boolean(shopify?.metaCatalogId?.trim()),
+        shopifyConnected: isShopifyStoreConnected(shopify),
+      }),
+      executeTool: async (name, args) => {
+        const result = await executeShopifyTool(
+          {
+            db: supabase,
+            config: catalogConfig,
+            contactPhone: null,
+            productCards,
+            customerText: latestUserMessage(messages),
+          },
+          name,
+          args,
+        )
+        productCards.push(...result.cards)
+        return result.json
+      },
     })
     return NextResponse.json({ reply: text, handoff })
   } catch (err) {

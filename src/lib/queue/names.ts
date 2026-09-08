@@ -5,6 +5,8 @@ export const QUEUE_NAMES = {
   aiVoiceInbound: 'ai-voice-inbound',
   callRecording: 'call-recording',
   knowledgeScrape: 'knowledge-scrape',
+  catalogMetaSync: 'catalog-meta-sync',
+  catalogEmbed: 'catalog-embed',
 } as const
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES]
@@ -21,6 +23,8 @@ export const WORKER_CONCURRENCY = {
   aiVoiceInbound: 4,
   callRecording: 2,
   knowledgeScrape: 2,
+  catalogMetaSync: 2,
+  catalogEmbed: 2,
 } as const
 
 export const WORKER_LOCK_MS = {
@@ -28,4 +32,6 @@ export const WORKER_LOCK_MS = {
   aiVoiceInbound: 180_000,
   callRecording: 180_000,
   knowledgeScrape: 300_000,
+  catalogMetaSync: 120_000,
+  catalogEmbed: 180_000,
 } as const

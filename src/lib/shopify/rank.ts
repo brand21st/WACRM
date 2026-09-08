@@ -121,7 +121,7 @@ export function productSearchQuery(text: string): string {
 export type PriceBudget = { min?: number; max?: number }
 
 export function parseBudget(text: string | null | undefined): PriceBudget | null {
-  const raw = (text ?? '').replace(/,/g, '')
+  const raw = expandKSuffix((text ?? '').replace(/,/g, ''))
   if (!raw.trim()) return null
   const range = raw.match(
     /(?:rs\.?|₹|inr)?\s*(\d{2,7})\s*(?:-|to|–)\s*(?:rs\.?|₹|inr)?\s*(\d{2,7})/i,
@@ -138,6 +138,13 @@ export function parseBudget(text: string | null | undefined): PriceBudget | null
   )
   if (under) {
     const max = Number(under[1])
+    if (Number.isFinite(max)) return { max }
+  }
+  const localized = raw.match(
+    /(\d{2,7})\s*(?:രൂപ(?:യ്ക്കുള്ളിൽ|ത്തിനുള്ളിൽ)|രൂപ\s*(?:യ്ക്കുള്ളിൽ|ത്തിനുള്ളിൽ|താഴെ)|(?:rs\.?|₹|inr)?\s*(?:യ്ക്കുള്ളിൽ|ത്തിനുള്ളിൽ|താഴെ|thazhe|ullil))(?=\s|$|[^\w])/i,
+  )
+  if (localized) {
+    const max = Number(localized[1])
     if (Number.isFinite(max)) return { max }
   }
   return null
@@ -173,11 +180,21 @@ export function filterByBudget(
   })
 }
 
+function expandKSuffix(text: string): string {
+  return text.replace(/(\d+(?:\.\d+)?)\s*k\b/gi, (_, n) =>
+    String(Math.round(Number(n) * 1000)),
+  )
+}
+
 function stripBudgetPhrases(text: string): string {
-  return text
+  return expandKSuffix(text)
     .replace(/,/g, '')
     .replace(
       /\b(?:under|below|within|max(?:imum)?|upto|up to|budget(?:il)?)\s*(?:is|aanu|=|:)?\s*(?:rs\.?|₹|inr)?\s*\d{2,7}\b/gi,
+      ' ',
+    )
+    .replace(
+      /\d{2,7}\s*(?:രൂപ(?:യ്ക്കുള്ളിൽ|ത്തിനുള്ളിൽ)|രൂപ\s*(?:യ്ക്കുള്ളിൽ|ത്തിനുള്ളിൽ|താഴെ)|(?:rs\.?|₹|inr)?\s*(?:യ്ക്കുള്ളിൽ|ത്തിനുള്ളിൽ|താഴെ|thazhe|ullil))(?=\s|$|[^\w])/gi,
       ' ',
     )
     .replace(/(?:rs\.?|₹|inr)\s*\d{2,7}/gi, ' ')

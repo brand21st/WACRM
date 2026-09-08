@@ -14,6 +14,7 @@ import {
   markShopifyOrderAsPaid,
 } from './shopify-order'
 import { upsertShopifyCustomerForPayment } from './shopify-customer'
+import { recordCatalogLineEvents } from '@/lib/catalog/analytics/events'
 import {
   ORDER_CONFIRMED_BODY,
   PAYMENT_RECEIVED_BODY,
@@ -191,6 +192,14 @@ export async function handleWhatsAppPaymentStatus(args: {
       })
       .eq('id', order.id)
       .eq('status', 'pending')
+    const lineItems = Array.isArray(order.line_items) ? order.line_items : []
+    void recordCatalogLineEvents(args.db, {
+      accountId,
+      event: 'purchase',
+      conversationId: typeof order.conversation_id === 'string' ? order.conversation_id : null,
+      contactId: typeof order.contact_id === 'string' ? order.contact_id : null,
+      lines: lineItems as Array<{ retailer_id?: string | null; quantity?: number | null }>,
+    })
   }
 
   const contactId = typeof order.contact_id === 'string' ? order.contact_id : null

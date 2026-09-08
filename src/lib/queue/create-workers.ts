@@ -3,6 +3,8 @@ import { Worker, type ConnectionOptions } from 'bullmq'
 import { processAiChatReply } from '@/lib/queue/processors/ai-chat-reply'
 import { processAiVoiceInbound } from '@/lib/queue/processors/ai-voice-inbound'
 import { processCallRecordingJob } from '@/lib/queue/processors/call-recording'
+import { processCatalogEmbed } from '@/lib/queue/processors/catalog-embed'
+import { processCatalogMetaSync } from '@/lib/queue/processors/catalog-meta-sync'
 import { processKnowledgeScrape } from '@/lib/queue/processors/knowledge-scrape'
 import {
   QUEUE_NAMES,
@@ -54,6 +56,28 @@ export function createQueueWorkers(connection: ConnectionOptions): Worker[] {
         connection,
         concurrency: WORKER_CONCURRENCY.knowledgeScrape,
         lockDuration: WORKER_LOCK_MS.knowledgeScrape,
+      },
+    ),
+    new Worker(
+      QUEUE_NAMES.catalogMetaSync,
+      async (job) => {
+        await processCatalogMetaSync(job.data)
+      },
+      {
+        connection,
+        concurrency: WORKER_CONCURRENCY.catalogMetaSync,
+        lockDuration: WORKER_LOCK_MS.catalogMetaSync,
+      },
+    ),
+    new Worker(
+      QUEUE_NAMES.catalogEmbed,
+      async (job) => {
+        await processCatalogEmbed(job.data)
+      },
+      {
+        connection,
+        concurrency: WORKER_CONCURRENCY.catalogEmbed,
+        lockDuration: WORKER_LOCK_MS.catalogEmbed,
       },
     ),
   ]

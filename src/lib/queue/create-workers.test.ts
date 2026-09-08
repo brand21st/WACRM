@@ -34,6 +34,12 @@ vi.mock('@/lib/queue/processors/call-recording', () => ({
 vi.mock('@/lib/queue/processors/knowledge-scrape', () => ({
   processKnowledgeScrape: vi.fn(),
 }))
+vi.mock('@/lib/queue/processors/catalog-meta-sync', () => ({
+  processCatalogMetaSync: vi.fn(),
+}))
+vi.mock('@/lib/queue/processors/catalog-embed', () => ({
+  processCatalogEmbed: vi.fn(),
+}))
 
 import { createQueueWorkers } from './create-workers'
 import { QUEUE_NAMES, WORKER_CONCURRENCY, WORKER_LOCK_MS } from './names'
@@ -42,12 +48,14 @@ describe('createQueueWorkers', () => {
   it('starts one worker per queue with planned concurrency and lock', () => {
     constructed.length = 0
     const workers = createQueueWorkers({ host: '127.0.0.1', port: 6379 })
-    expect(workers).toHaveLength(4)
+    expect(workers).toHaveLength(6)
     expect(constructed.map((w) => w.name)).toEqual([
       QUEUE_NAMES.aiChatReply,
       QUEUE_NAMES.aiVoiceInbound,
       QUEUE_NAMES.callRecording,
       QUEUE_NAMES.knowledgeScrape,
+      QUEUE_NAMES.catalogMetaSync,
+      QUEUE_NAMES.catalogEmbed,
     ])
     expect(constructed[0]).toMatchObject({
       concurrency: WORKER_CONCURRENCY.aiChatReply,
@@ -64,6 +72,14 @@ describe('createQueueWorkers', () => {
     expect(constructed[3]).toMatchObject({
       concurrency: WORKER_CONCURRENCY.knowledgeScrape,
       lockDuration: WORKER_LOCK_MS.knowledgeScrape,
+    })
+    expect(constructed[4]).toMatchObject({
+      concurrency: WORKER_CONCURRENCY.catalogMetaSync,
+      lockDuration: WORKER_LOCK_MS.catalogMetaSync,
+    })
+    expect(constructed[5]).toMatchObject({
+      concurrency: WORKER_CONCURRENCY.catalogEmbed,
+      lockDuration: WORKER_LOCK_MS.catalogEmbed,
     })
   })
 })

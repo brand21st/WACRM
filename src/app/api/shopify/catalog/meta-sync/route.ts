@@ -6,7 +6,8 @@ import { syncMetaCatalog } from '@/lib/shopify/meta-catalog-sync'
 /**
  * POST /api/shopify/catalog/meta-sync  (admin+)
  *
- * Pushes the local Shopify snapshot into the Meta Commerce catalog.
+ * Enqueues a full WACRM catalog → Meta Commerce sync.
+ * `count` is queued products, not Graph items written.
  */
 export async function POST() {
   try {

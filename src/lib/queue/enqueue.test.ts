@@ -17,6 +17,8 @@ import {
   enqueueAiChatReply,
   enqueueAiVoiceInbound,
   enqueueCallRecording,
+  enqueueCatalogEmbed,
+  enqueueCatalogMetaSync,
   enqueueKnowledgeScrape,
   isDuplicateJobError,
   resetQueuesForTests,
@@ -107,6 +109,30 @@ describe('enqueue helpers', () => {
     mockGetBullmqConnection.mockReturnValue({ host: '127.0.0.1', port: 6379 } as never)
     add.mockResolvedValueOnce(null)
     await expect(enqueueAiChatReply(CHAT_JOB)).resolves.toBe(true)
+  })
+
+  it('adds a catalog-embed job keyed by productId', async () => {
+    mockGetBullmqConnection.mockReturnValue({ host: '127.0.0.1', port: 6379 } as never)
+    await expect(
+      enqueueCatalogEmbed({ accountId: 'acc-1', productId: 'prod-1' }),
+    ).resolves.toBe(true)
+    expect(add).toHaveBeenCalledWith(
+      'catalog-embed',
+      { accountId: 'acc-1', productId: 'prod-1' },
+      expect.objectContaining({ jobId: 'prod-1', attempts: 5 }),
+    )
+  })
+
+  it('adds a catalog-meta-sync job keyed by outboxId', async () => {
+    mockGetBullmqConnection.mockReturnValue({ host: '127.0.0.1', port: 6379 } as never)
+    await expect(
+      enqueueCatalogMetaSync({ accountId: 'acc-1', outboxId: 'outbox-1' }),
+    ).resolves.toBe(true)
+    expect(add).toHaveBeenCalledWith(
+      'catalog-meta-sync',
+      { accountId: 'acc-1', outboxId: 'outbox-1' },
+      expect.objectContaining({ jobId: 'outbox-1', attempts: 5 }),
+    )
   })
 
   it('adds a knowledge-scrape job keyed by jobId', async () => {

@@ -22,6 +22,7 @@ query ProductsSearch($first: Int!, $query: String, $sortKey: ProductSortKeys, $r
       description
       featuredImage { url }
       images(first: 6) { nodes { url } }
+      collections(first: 25) { nodes { handle title } }
       variants(first: 20) {
         nodes {
           id
@@ -52,6 +53,7 @@ query ProductById($id: ID!) {
     description
     featuredImage { url }
     images(first: 6) { nodes { url } }
+    collections(first: 25) { nodes { handle title } }
     variants(first: 20) {
       nodes {
         id
@@ -82,6 +84,7 @@ query ProductsSync($first: Int!, $after: String) {
       publishedAt
       description
       featuredImage { url }
+      collections(first: 25) { nodes { handle title } }
       variants(first: 20) {
         nodes {
           id

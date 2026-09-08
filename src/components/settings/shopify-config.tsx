@@ -1,11 +1,12 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import Link from 'next/link';
 import { Copy, Loader2, ShoppingBag } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslations } from 'next-intl';
 import { useAuth } from '@/hooks/use-auth';
-import { Button } from '@/components/ui/button';
+import { Button, buttonVariants } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
@@ -15,6 +16,11 @@ import { SettingsPanelHead } from './settings-panel-head';
 import { UpgradePlanBanner } from './upgrade-plan-banner';
 import { useEntitlements } from '@/hooks/use-entitlements';
 import { ShopifyNotificationsCard } from './shopify-notifications';
+import {
+  MetaCatalogPicker,
+  selectionFromPicker,
+  type MetaCatalogOption,
+} from '@/components/catalog/meta-catalog-picker';
 import { SHOPIFY_PARTNER_SCOPES } from '@/lib/shopify/scopes';
 import { SHOPIFY_WEBHOOK_TOPICS } from '@/lib/shopify/webhook-topics';
 
@@ -74,6 +80,7 @@ interface ShopifyConfigResponse {
   client_id?: string | null;
   is_active?: boolean;
   meta_catalog_id?: string | null;
+  meta_catalog_ids?: string[];
   last_verified_at?: string | null;
   last_catalog_sync_at?: string | null;
   catalog_product_count?: number;
@@ -114,6 +121,10 @@ export function ShopifyConfigPanel() {
   const [tokenEdited, setTokenEdited] = useState(false);
   const [isActive, setIsActive] = useState(true);
   const [metaCatalogId, setMetaCatalogId] = useState('');
+  const [metaCatalogIds, setMetaCatalogIds] = useState<string[]>([]);
+  const [metaCatalogs, setMetaCatalogs] = useState<MetaCatalogOption[]>([]);
+  const [metaCatalogReason, setMetaCatalogReason] = useState<string | null>(null);
+  const [metaCatalogsLoading, setMetaCatalogsLoading] = useState(false);
   const [shopName, setShopName] = useState<string | null>(null);
   const [primaryDomain, setPrimaryDomain] = useState<string | null>(null);
   const [currency, setCurrency] = useState<string | null>(null);
@@ -173,7 +184,14 @@ export function ShopifyConfigPanel() {
     setAccessToken(data.has_token ? MASKED_TOKEN : '');
     setTokenEdited(false);
     setIsActive(data.is_active !== false);
-    setMetaCatalogId(data.meta_catalog_id ?? '');
+    const ids =
+      Array.isArray(data.meta_catalog_ids) && data.meta_catalog_ids.length > 0
+        ? data.meta_catalog_ids
+        : data.meta_catalog_id
+          ? [data.meta_catalog_id]
+          : [];
+    setMetaCatalogIds(ids);
+    setMetaCatalogId(data.meta_catalog_id ?? ids[0] ?? '');
     setShopName(data.shop_name ?? null);
     setPrimaryDomain(data.primary_domain ?? null);
     setCurrency(data.currency ?? null);
@@ -201,18 +219,41 @@ export function ShopifyConfigPanel() {
     setShipPin(data.ship_beneficiary?.postal_code ?? '');
   }, []);
 
+  const loadMetaCatalogs = useCallback(async () => {
+    setMetaCatalogsLoading(true);
+    try {
+      const res = await fetch('/api/catalog/meta-catalogs', { cache: 'no-store' });
+      const data = await res.json();
+      if (!res.ok) {
+        setMetaCatalogs([]);
+        setMetaCatalogReason('unavailable');
+        return;
+      }
+      setMetaCatalogs(Array.isArray(data.catalogs) ? data.catalogs : []);
+      if (Array.isArray(data.selectedIds)) setMetaCatalogIds(data.selectedIds);
+      if (typeof data.primaryId === 'string') setMetaCatalogId(data.primaryId);
+      setMetaCatalogReason(typeof data.reason === 'string' ? data.reason : null);
+    } catch {
+      setMetaCatalogs([]);
+      setMetaCatalogReason('unavailable');
+    } finally {
+      setMetaCatalogsLoading(false);
+    }
+  }, []);
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
       const res = await fetch('/api/shopify/config', { cache: 'no-store' });
       const data = (await res.json()) as ShopifyConfigResponse;
       applyPayload(data);
+      void loadMetaCatalogs();
     } catch {
       toast.error(t('loadFailed'));
     } finally {
       setLoading(false);
     }
-  }, [applyPayload, t]);
+  }, [applyPayload, loadMetaCatalogs, t]);
 
   useEffect(() => {
     if (!accountId || authLoading) return;
@@ -311,6 +352,12 @@ export function ShopifyConfigPanel() {
   const saveCommerce = async () => {
     setSavingCommerce(true);
     try {
+      const selection = selectionFromPicker({
+        catalogs: metaCatalogs,
+        selectedIds: metaCatalogIds,
+        primaryId: metaCatalogId,
+        pasteId: metaCatalogId,
+      });
       const shipFilled = [shipName, shipAddress1, shipCity, shipState, shipPin].some(
         (v) => v.trim(),
       );
@@ -318,7 +365,8 @@ export function ShopifyConfigPanel() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          meta_catalog_id: metaCatalogId,
+          meta_catalog_id: selection.primaryId,
+          meta_catalog_ids: selection.selectedIds,
           meta_catalog_auto_sync: metaCatalogAutoSync,
           retailer_id_source: retailerIdSource,
           wa_payment_configuration_name: paymentConfigName,
@@ -347,6 +395,7 @@ export function ShopifyConfigPanel() {
       }
       applyPayload({ ...data, configured: true, has_token: true });
       toast.success(t('commerceSaved'));
+      void loadMetaCatalogs();
     } catch {
       toast.error(t('commerceSaveFailed'));
     } finally {
@@ -610,14 +659,22 @@ export function ShopifyConfigPanel() {
                 })}
               </p>
               <p className="text-xs text-muted-foreground">{t('contentHint')}</p>
-              <Button
-                variant="secondary"
-                onClick={() => void sync()}
-                disabled={disabled || !configured || syncing}
-              >
-                {syncing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                {t('sync')}
-              </Button>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  variant="secondary"
+                  onClick={() => void sync()}
+                  disabled={disabled || !configured || syncing}
+                >
+                  {syncing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                  {t('sync')}
+                </Button>
+                <Link
+                  href="/catalog"
+                  className={buttonVariants({ variant: 'outline' })}
+                >
+                  {t('openCatalog')}
+                </Link>
+              </div>
             </CardContent>
           </Card>
 
@@ -627,17 +684,34 @@ export function ShopifyConfigPanel() {
               <CardDescription>{t('commerceDesc')}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="meta-catalog">{t('metaCatalog')}</Label>
-                <Input
-                  id="meta-catalog"
-                  placeholder={t('metaCatalogPlaceholder')}
-                  value={metaCatalogId}
-                  onChange={(e) => setMetaCatalogId(e.target.value)}
-                  disabled={disabled}
-                />
-                <p className="text-xs text-muted-foreground">{t('metaCatalogHint')}</p>
-              </div>
+              <MetaCatalogPicker
+                catalogs={metaCatalogs}
+                selectedIds={metaCatalogIds}
+                primaryId={metaCatalogId}
+                reason={metaCatalogReason}
+                pasteId={metaCatalogId}
+                loading={loading || metaCatalogsLoading}
+                disabled={disabled}
+                labels={{
+                  count: (count) => t('metaCatalogCount', { count }),
+                  empty: t('metaCatalogEmpty'),
+                  noWhatsApp: t('metaCatalogNoWhatsApp'),
+                  unavailable: (reason) => t('metaCatalogUnavailable', { reason }),
+                  primary: t('metaCatalogPrimary'),
+                  setPrimary: t('metaCatalogSetPrimary'),
+                  pasteToggle: t('metaCatalogPasteToggle'),
+                  pastePlaceholder: t('metaCatalogPlaceholder'),
+                  pasteHint: t('metaCatalogHint'),
+                }}
+                onSelectionChange={({ selectedIds, primaryId }) => {
+                  setMetaCatalogIds(selectedIds);
+                  setMetaCatalogId(primaryId);
+                }}
+                onPasteIdChange={(value) => {
+                  setMetaCatalogId(value);
+                  setMetaCatalogIds(value.trim() ? [value.trim()] : []);
+                }}
+              />
               <div className="flex items-center justify-between rounded-lg border p-3">
                 <div>
                   <p className="text-sm font-medium">{t('metaAutoSync')}</p>
@@ -660,7 +734,17 @@ export function ShopifyConfigPanel() {
               <Button
                 variant="secondary"
                 onClick={() => void syncMeta()}
-                disabled={disabled || !configured || syncingMeta || !metaCatalogId.trim()}
+                disabled={
+                  disabled ||
+                  !configured ||
+                  syncingMeta ||
+                  selectionFromPicker({
+                    catalogs: metaCatalogs,
+                    selectedIds: metaCatalogIds,
+                    primaryId: metaCatalogId,
+                    pasteId: metaCatalogId,
+                  }).selectedIds.length === 0
+                }
               >
                 {syncingMeta ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
                 {t('metaSync')}

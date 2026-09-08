@@ -43,6 +43,18 @@ describe('embedTexts', () => {
     expect(
       (opts as unknown as { headers: Record<string, string> }).headers.Authorization,
     ).toBe('Bearer sk-x')
+    expect(JSON.parse((opts as unknown as { body: string }).body).model).toBe(
+      'text-embedding-3-small',
+    )
+  })
+
+  it('forwards an explicit model argument', async () => {
+    const fetchMock = vi.fn(async () => okEmbeddings(1))
+    vi.stubGlobal('fetch', fetchMock)
+    await embedTexts('sk-x', ['query'], 'text-embedding-3-small')
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).model).toBe(
+      'text-embedding-3-small',
+    )
   })
 
   it('splits large inputs into multiple batches', async () => {

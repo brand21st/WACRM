@@ -54,8 +54,6 @@ import {
 import { stripOrderUrlsFromReply } from './order-card'
 import { detectSpokenIndicTarget } from './indic-language'
 import { uploadGeneratedAudio } from '@/lib/elevenlabs/storage'
-import { realtimeTurn } from './realtime'
-import { pcm16ToOggOpus } from '@/lib/audio/pcm-to-opus'
 import {
   loadShopifyConfig,
   shopifyLlmTools,
@@ -64,6 +62,9 @@ import {
   matchProductsFromPhoto,
   toCard,
   getProductLive,
+  getProductFromCatalog,
+  catalogOnlyStoreConfig,
+  isShopifyStoreConnected,
   buildCartOffer,
   resolveCartOfferItems,
   cartOfferFallbackText,
@@ -111,6 +112,12 @@ import {
   WACRM_CHAT_BUTTON_IDS,
 } from './chat-buttons'
 import { wantsWhatsAppCatalog } from './catalog-intent'
+import {
+  loadCatalogSalesMode,
+  recordShownRecommendationEvents,
+} from '@/lib/catalog/intelligence/recommend'
+import { mergeAndPersistShoppingContext } from '@/lib/catalog/intelligence/shopping-context'
+import { recordCatalogProductEvents } from '@/lib/catalog/analytics/events'
 
 interface DispatchArgs {
   /** Tenancy key — drives config, contact, and whatsapp_config lookups. */
@@ -474,9 +481,16 @@ export async function dispatchInboundToAiReply(
     ) {
       messages.unshift({ role: 'assistant', content: swipeNote })
     }
-    if (productFocus && shopify) {
+    const catalogConfig = shopify ?? catalogOnlyStoreConfig(accountId, {
+      metaCatalogId: commerce?.metaCatalogId ?? shopify?.metaCatalogId ?? null,
+    })
+    if (productFocus) {
       try {
-        const focusedLive = await getProductLive(shopify, productFocus.handle)
+        const focusedLive = await getProductFromCatalog(
+          db,
+          catalogConfig,
+          productFocus.handle,
+        )
         if (focusedLive) {
           const selected = variantFromFocus(focusedLive, productFocus)
           productCards.push(
@@ -493,12 +507,15 @@ export async function dispatchInboundToAiReply(
       contactRow?.phone ?? null,
       productCards,
       {
+        accountId,
+        metaCatalogId: commerce?.metaCatalogId ?? shopify?.metaCatalogId ?? null,
         imageTurn,
         customerImageUrl: inboundMediaUrl,
         customerMediaId: inboundMediaId,
         accessToken: inboundAccessToken,
         apiKey: config.provider === 'openai' ? config.apiKey : null,
         conversationId,
+        contactId,
         cartOffer: cartOfferHolder,
         retailerIdSource: commerce?.retailerIdSource,
         whatsappCatalog,
@@ -516,11 +533,11 @@ export async function dispatchInboundToAiReply(
     )
 
     let photoMatches: Awaited<ReturnType<typeof matchProductsFromPhoto>> | undefined
-    if (imageTurn && shopify) {
+    if (imageTurn) {
       try {
         photoMatches = await matchProductsFromPhoto(
           db,
-          shopify,
+          catalogConfig,
           latestUserMessage(messages),
           {
             customerImageUrl: inboundMediaUrl,
@@ -544,6 +561,7 @@ export async function dispatchInboundToAiReply(
       userPrompt: config.systemPrompt,
       mode: 'auto_reply',
       knowledge,
+      catalog: true,
       shopify: Boolean(shopify),
       nativeCommerce,
       whatsappCatalog,
@@ -567,86 +585,8 @@ export async function dispatchInboundToAiReply(
     const wantsAudio = channels.includes('audio') || fullAgentInboundVoice
     const wantsText = channels.includes('text')
 
-    // Realtime has no tool loop — skip it when Shopify catalog/orders
-    // must stay accurate. Only enter when the reply mode asked for audio.
-    if (
-      wantsAudio &&
-      config.ttsEnabled &&
-      !shopify &&
-      shouldUseRealtime(config, accountId)
-    ) {
-      try {
-        const spoken = await realtimeTurn({
-          apiKey: config.apiKey,
-          systemPrompt,
-          messages,
-          voice: config.realtimeVoice,
-        })
-        void logAiUsage(db, {
-          accountId,
-          conversationId,
-          mode: 'auto_reply',
-          provider: config.provider,
-          model: spoken.model,
-          usage: spoken.usage,
-        })
-        if (spoken.pcm.byteLength > 0 && !spoken.handoff) {
-          const encoded = await pcm16ToOggOpus({
-            pcm: spoken.pcm,
-            sampleRate: spoken.sampleRate,
-          })
-          if (!(await claimReplySlot(db, conversationId, config))) return
-          const stored = await uploadGeneratedAudio({
-            accountId,
-            bytes: encoded.bytes,
-            mimeType: encoded.mimeType,
-            fileName: 'ai-reply.ogg',
-          })
-          await engineSendMedia({
-            ...sendArgs,
-            kind: 'audio',
-            link: stored.publicUrl,
-            mediaType: stored.mimeType,
-            contentText: spoken.text,
-            aiGenerated: true,
-            voice: true,
-          })
-          if (wantsText && spoken.text) {
-            const handedOff = await sendCustomerFacingText({
-              db,
-              config,
-              conv,
-              conversationId,
-              sendArgs,
-              text: stripReplyLinkUrls(spoken.text, productCards, orderCards),
-              messages,
-              shopify: false,
-              wantsText: true,
-              wantsAudio: true,
-              audioSent: true,
-              productCards,
-              orderCards,
-            })
-            if (handedOff) return
-          }
-          await sendProductCards(sendArgs, productCards, shopify, {
-            focus: productFocus,
-          })
-          await sendOrderCards(sendArgs, orderCards)
-          return
-        }
-        if (!config.fullAgentEnabled) {
-          await maybeHandoff(db, config, conv, conversationId, messages)
-          return
-        }
-        // Full-agent: skip silent handoff and generate a batch reply.
-      } catch (err) {
-        console.warn(
-          '[ai auto-reply] Realtime voice failed — falling back to batch TTS:',
-          err,
-        )
-      }
-    }
+    // Realtime has no tool loop. Catalog product tools are always bound,
+    // so voice replies go through generateCustomerFacingReply.
 
     const { text, handoff } = await generateCustomerFacingReply({
       db,
@@ -656,6 +596,7 @@ export async function dispatchInboundToAiReply(
       systemPrompt,
       messages,
       knowledge,
+      catalog: true,
       shopify: Boolean(shopify),
       nativeCommerce: nativeCommerce && !productFocus,
       whatsappCatalog,
@@ -708,6 +649,7 @@ export async function dispatchInboundToAiReply(
       })
       await sendProductCards(sendArgs, productCards, shopify, {
         focus: productFocus,
+        db,
       })
       await sendOrderCards(sendArgs, orderCards)
       return
@@ -977,7 +919,7 @@ export async function dispatchInboundToAiReply(
         inboundContentType === 'audio' && compiledVoice && canSpeak
       const voicePending = speakWithCards ? sendShoppingAudio() : null
       try {
-        await sendProductCards(sendArgs, productCards, shopify)
+        await sendProductCards(sendArgs, productCards, shopify, { db })
       } catch (err) {
         console.error('[ai auto-reply] product cards failed:', err)
       }
@@ -1074,6 +1016,7 @@ export async function dispatchInboundToAiReply(
 
     await sendProductCards(sendArgs, productCards, shopify, {
       focus: productFocus,
+      db,
     })
     await sendOrderCards(sendArgs, orderCards)
     if (speakAfterText) await sendShoppingAudio()
@@ -1200,21 +1143,6 @@ async function sendCustomerFacingText(args: {
   return false
 }
 
-function shouldUseRealtime(config: AiConfig, accountId: string): boolean {
-  if (!config.realtimeVoiceEnabled || config.provider !== 'openai') return false
-  const limit = checkRateLimit(
-    `ai-realtime:${accountId}`,
-    RATE_LIMITS.aiRealtimeAccount,
-  )
-  if (!limit.success) {
-    console.warn(
-      `[ai auto-reply] account ${accountId} hit the Realtime rate limit — falling back.`,
-    )
-    return false
-  }
-  return true
-}
-
 async function maybeHandoff(
   db: SupabaseClient,
   config: AiConfig,
@@ -1270,6 +1198,7 @@ export async function generateCustomerFacingReply(args: {
   systemPrompt: string
   messages: ChatMessage[]
   knowledge: string[]
+  catalog?: boolean
   shopify?: boolean
   nativeCommerce?: boolean
   whatsappCatalog?: boolean
@@ -1318,6 +1247,7 @@ export async function generateCustomerFacingReply(args: {
         userPrompt: args.config.systemPrompt,
         mode: 'draft',
         knowledge: args.knowledge,
+        catalog: args.catalog ?? true,
         shopify: args.shopify,
         nativeCommerce: args.nativeCommerce,
         whatsappCatalog: args.whatsappCatalog,
@@ -1363,12 +1293,15 @@ export function bindShopifyTools(
   contactPhone: string | null,
   productCards: ShopifyProductCard[],
   opts: {
+    accountId?: string
+    metaCatalogId?: string | null
     imageTurn: boolean
     customerImageUrl?: string | null
     customerMediaId?: string | null
     accessToken?: string | null
     apiKey?: string | null
     conversationId?: string | null
+    contactId?: string | null
     cartOffer?: { value: CartOffer | null }
     nativeCommerce?: boolean
     retailerIdSource?: import('@/lib/shopify/retailer-id').RetailerIdSource
@@ -1380,20 +1313,28 @@ export function bindShopifyTools(
     focusedHandle?: string | null
   } = { imageTurn: false },
 ): { tools?: LlmToolDef[]; executeTool?: ExecuteLlmTool } {
-  if (!shopify) return {}
+  const accountId = opts.accountId ?? shopify?.accountId
+  if (!accountId) return {}
+  const config = shopify
+    ? {
+        ...shopify,
+        metaCatalogId: shopify.metaCatalogId ?? opts.metaCatalogId ?? null,
+      }
+    : catalogOnlyStoreConfig(accountId, { metaCatalogId: opts.metaCatalogId ?? null })
   const whatsappCatalog = Boolean(
-    opts.whatsappCatalog ?? shopify.metaCatalogId?.trim(),
+    opts.whatsappCatalog ?? config.metaCatalogId?.trim(),
   )
   return {
     tools: shopifyLlmTools({
       whatsappCatalog,
       focused: Boolean(opts.focusedHandle),
+      shopifyConnected: isShopifyStoreConnected(shopify),
     }),
     executeTool: async (name, args) => {
       const result = await executeShopifyTool(
         {
           db,
-          config: shopify,
+          config,
           contactPhone,
           photoMatch: {
             customerImageUrl: opts.customerImageUrl,
@@ -1403,6 +1344,7 @@ export function bindShopifyTools(
           },
           productCards,
           conversationId: opts.conversationId,
+          contactId: opts.contactId,
           nativeCommerce: opts.nativeCommerce,
           retailerIdSource: opts.retailerIdSource,
           customerInterest: opts.customerInterest,
@@ -1450,12 +1392,16 @@ export function bindShopifyTools(
 }
 
 async function hydrateCardImages(
-  shopify: ShopifyStoreConfig,
+  shopify: ShopifyStoreConfig | null,
   hits: Awaited<ReturnType<typeof matchProductsFromPhoto>>,
 ): Promise<ShopifyProductCard[]> {
   const cards: ShopifyProductCard[] = []
   for (const hit of hits) {
     if (hit.imageUrl) {
+      cards.push(toCard(hit))
+      continue
+    }
+    if (!isShopifyStoreConnected(shopify) || !shopify) {
       cards.push(toCard(hit))
       continue
     }
@@ -1553,6 +1499,7 @@ async function finishFocusedVariantTurn(args: {
     })
     await sendProductCards(args.sendArgs, args.productCards, args.shopify, {
       focus: args.focus,
+      db: args.db,
     })
     if (args.compiledVoice) await args.sendShoppingAudio()
     return true
@@ -1584,6 +1531,7 @@ async function finishFocusedVariantTurn(args: {
       })
       await sendProductCards(args.sendArgs, args.productCards, args.shopify, {
         focus: args.focus,
+        db: args.db,
       })
       if (args.compiledVoice) await args.sendShoppingAudio()
       return true
@@ -1734,6 +1682,7 @@ async function runFocusedProductTurn(args: {
     await sendProductCards(args.sendArgs, args.productCards, args.shopify, {
       omitCheckout: true,
       focus: args.focus,
+      db: args.db,
     })
   }
   if (!args.focus.introSent) {
@@ -1975,7 +1924,11 @@ export async function sendProductCards(
   },
   cards: ShopifyProductCard[],
   shopify?: ShopifyStoreConfig | null,
-  opts?: { omitCheckout?: boolean; focus?: { handle: string; title?: string | null } | null },
+  opts?: {
+    omitCheckout?: boolean
+    focus?: { handle: string; title?: string | null } | null
+    db?: SupabaseClient
+  },
 ): Promise<void> {
   const focused = opts?.focus?.handle
     ? cards.filter((card) => cardMatchesProductFocus(card, opts.focus!)).slice(0, 1)
@@ -2019,6 +1972,57 @@ export async function sendProductCards(
       await sendCheckoutCtaIfInStock(sendArgs, card)
     }
     sent += 1
+  }
+  if (opts?.db && sent > 0) {
+    await trackSentProductRecommendations(opts.db, sendArgs, focused)
+  }
+}
+
+async function trackSentProductRecommendations(
+  db: SupabaseClient,
+  sendArgs: {
+    accountId: string
+    conversationId: string
+    contactId: string
+  },
+  cards: ShopifyProductCard[],
+): Promise<void> {
+  const ids = cards
+    .map((card) => card.catalogId || card.handle || '')
+    .filter(Boolean)
+  try {
+    await recordCatalogProductEvents(db, {
+      accountId: sendArgs.accountId,
+      event: 'shown',
+      source: 'card_send',
+      productIds: ids,
+      contactId: sendArgs.contactId,
+      conversationId: sendArgs.conversationId,
+    })
+  } catch (err) {
+    console.warn('[catalog-analytics] shown events failed', err)
+  }
+  const mode = await loadCatalogSalesMode(db, sendArgs.accountId)
+  if (mode === 'off') return
+  try {
+    await recordShownRecommendationEvents(db, {
+      accountId: sendArgs.accountId,
+      contactId: sendArgs.contactId,
+      conversationId: sendArgs.conversationId,
+      productIds: ids,
+    })
+  } catch (err) {
+    console.warn('[catalog-intel] shown events failed', err)
+  }
+  try {
+    await mergeAndPersistShoppingContext(db, {
+      accountId: sendArgs.accountId,
+      contactId: sendArgs.contactId,
+      conversationId: sendArgs.conversationId,
+      shownIds: ids,
+    })
+  } catch (err) {
+    console.warn('[catalog-intel] shopping shown merge failed', err)
   }
 }
 

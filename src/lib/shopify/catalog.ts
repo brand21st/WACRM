@@ -17,7 +17,6 @@ import {
 } from './map-product'
 import type { ShopifyProductHit, ShopifyStoreConfig, ShopifyVariantHit } from './types'
 import type { ShopifyCatalogVariant } from '@/types'
-import { catalogIsFresh } from './config'
 import {
   filterByBudget,
   matchProductsToAsk,
@@ -28,6 +27,14 @@ import {
 import { cartPermalink, checkoutPermalink, productPageUrl } from './permalinks'
 import { SHOPIFY_CATALOG_WEBHOOK_TOPICS } from './webhook-topics'
 import { isMissingDbColumn } from './config-db'
+import { searchHybridCatalog } from '@/lib/catalog/search/hybrid'
+import {
+  listNewArrivalsCatalog,
+  logCatalogSearch,
+} from '@/lib/catalog/search/query'
+import { lookupCatalogProduct } from '@/lib/catalog/search/lookup'
+import { catalogProductToHit } from '@/lib/catalog/search/map-hit'
+import { isShopifyStoreConnected } from './catalog-config'
 
 export { SHOPIFY_CATALOG_WEBHOOK_TOPICS }
 export const MAX_CATALOG_PRODUCTS = 500
@@ -262,34 +269,30 @@ export async function searchShoppingCatalog(
   limit = 5,
   opts?: SearchProductsOpts,
 ): Promise<ShoppingMatch> {
-  const fetchLimit = Math.min(MAX_CATALOG_PRODUCTS, Math.max(limit * 3, limit))
-  let ranked: ShoppingMatch = { hits: [], exact: false }
-  if (catalogIsFresh(config)) {
-    ranked = rankFetched(
-      query,
-      await searchCatalogSnapshot(db, config.accountId, query, fetchLimit),
-      limit,
-      opts,
-    )
-  }
-  if (ranked.hits.length === 0) {
-    try {
-      ranked = rankFetched(
-        query,
-        await searchProductsLive(config, query, { first: fetchLimit }),
-        limit,
-        opts,
-      )
-    } catch (err) {
-      console.warn('[shopify] live product search failed, trying snapshot:', err)
-      ranked = rankFetched(
-        query,
-        await searchCatalogSnapshot(db, config.accountId, query, fetchLimit),
-        limit,
-        opts,
-      )
-    }
-  }
+  const started = Date.now()
+  const fetchLimit = Math.min(50, Math.max(limit * 3, limit))
+  const products = await searchHybridCatalog(db, {
+    accountId: config.accountId,
+    text: query,
+    status: 'active',
+    priceMin: opts?.budget?.min,
+    priceMax: opts?.budget?.max,
+    sort: 'relevance',
+    limit: fetchLimit,
+  })
+  const hits = products.map((product) =>
+    catalogProductToHit(product, {
+      primaryDomain: config.primaryDomain,
+      currency: config.currency ?? product.currency,
+    }),
+  )
+  const ranked = rankFetched(query, hits, limit, opts)
+  logCatalogSearch({
+    accountId: config.accountId,
+    tool: 'search_products',
+    latencyMs: Date.now() - started,
+    count: ranked.hits.length,
+  })
   return ranked
 }
 
@@ -298,20 +301,43 @@ export async function listNewArrivals(
   config: ShopifyStoreConfig,
   limit = 10,
 ): Promise<ShopifyProductHit[]> {
-  if (catalogIsFresh(config)) {
-    const local = await listNewArrivalsSnapshot(db, config.accountId, limit)
-    if (local.length > 0) return local
-  }
-  try {
-    return await searchProductsLive(config, 'status:active', {
-      first: limit,
-      sortKey: 'CREATED_AT',
-      reverse: true,
-    })
-  } catch (err) {
-    console.warn('[shopify] live new arrivals failed, trying snapshot:', err)
-    return listNewArrivalsSnapshot(db, config.accountId, limit)
-  }
+  const started = Date.now()
+  const products = await listNewArrivalsCatalog(db, config.accountId, limit)
+  const hits = products.map((product) =>
+    catalogProductToHit(product, {
+      primaryDomain: config.primaryDomain,
+      currency: config.currency ?? product.currency,
+    }),
+  )
+  logCatalogSearch({
+    accountId: config.accountId,
+    tool: 'list_new_arrivals',
+    latencyMs: Date.now() - started,
+    count: hits.length,
+  })
+  return hits
+}
+
+export async function getProductFromCatalog(
+  db: SupabaseClient,
+  config: ShopifyStoreConfig,
+  id: string,
+): Promise<ShopifyProductHit | null> {
+  const started = Date.now()
+  const product = await lookupCatalogProduct(db, config.accountId, id)
+  const hit = product
+    ? catalogProductToHit(product, {
+        primaryDomain: config.primaryDomain,
+        currency: config.currency ?? product.currency,
+      })
+    : null
+  logCatalogSearch({
+    accountId: config.accountId,
+    tool: 'get_product',
+    latencyMs: Date.now() - started,
+    count: hit ? 1 : 0,
+  })
+  return hit
 }
 
 export async function listBestSelling(
@@ -319,15 +345,23 @@ export async function listBestSelling(
   config: ShopifyStoreConfig,
   limit = 10,
 ): Promise<ShopifyProductHit[]> {
+  if (!isShopifyStoreConnected(config)) return []
   try {
-    return await searchProductsLive(config, 'status:active', {
+    const hits = await searchProductsLive(config, 'status:active', {
       first: limit,
       sortKey: 'BEST_SELLING',
       reverse: false,
     })
+    console.info('[catalog-search]', {
+      accountId: config.accountId,
+      tool: 'list_best_selling',
+      count: hits.length,
+      shopify_best_selling_used: true,
+    })
+    return hits
   } catch (err) {
-    console.warn('[shopify] live best selling failed, trying newest snapshot:', err)
-    return listNewArrivalsSnapshot(db, config.accountId, limit)
+    console.warn('[shopify] live best selling failed:', err)
+    return []
   }
 }
 
@@ -337,6 +371,8 @@ export async function syncCatalog(
 ): Promise<{ count: number }> {
   const syncedAt = new Date().toISOString()
   const rows: Record<string, unknown>[] = []
+  const hits: ShopifyProductHit[] = []
+  const publishedAtByProductId: Record<string, string | null> = {}
   let after: string | null = null
 
   while (rows.length < MAX_CATALOG_PRODUCTS) {
@@ -351,6 +387,8 @@ export async function syncCatalog(
     for (const node of nodes) {
       const hit = mapGqlProduct(node, config.primaryDomain, config.currency)
       if (!hit) continue
+      hits.push(hit)
+      publishedAtByProductId[hit.id] = node.publishedAt || node.createdAt || null
       rows.push({
         account_id: config.accountId,
         shopify_product_id: hit.id,
@@ -393,6 +431,16 @@ export async function syncCatalog(
     })
     .eq('account_id', config.accountId)
   if (updErr) throw updErr
+
+  await importShopifyCatalogBestEffort(async () => {
+    const { replaceImportedShopifyProducts } = await import(
+      '@/lib/catalog/adapters/shopify-import'
+    )
+    await replaceImportedShopifyProducts(db, config.accountId, hits, {
+      brand: config.shopName,
+      publishedAtByProductId,
+    })
+  })
 
   return { count: rows.length }
 }
@@ -439,6 +487,14 @@ export async function removeCatalogProduct(
     .in('shopify_product_id', [...ids])
 
   if (error) throw error
+
+  await importShopifyCatalogBestEffort(async () => {
+    const { deleteImportedShopifyProductByIds } = await import(
+      '@/lib/catalog/adapters/shopify-import'
+    )
+    await deleteImportedShopifyProductByIds(db, accountId, [...ids])
+  })
+
   return (count ?? 0) > 0
 }
 
@@ -486,13 +542,24 @@ export async function upsertCatalogProduct(
   if (error) throw error
 
   await refreshCatalogSyncMetadata(db, config.accountId)
-  try {
-    const { pushProductToMetaCatalog } = await import('./meta-catalog-sync')
-    await pushProductToMetaCatalog(db, config, hit)
-  } catch (err) {
-    console.warn('[shopify meta-catalog] upsert hook failed:', err)
-  }
+  await importShopifyCatalogBestEffort(async () => {
+    const { importShopifyProduct } = await import(
+      '@/lib/catalog/adapters/shopify-import'
+    )
+    await importShopifyProduct(db, config.accountId, hit, {
+      brand: config.shopName,
+      publishedAt: node.publishedAt || node.createdAt || null,
+    })
+  })
   return true
+}
+
+async function importShopifyCatalogBestEffort(run: () => Promise<void>): Promise<void> {
+  try {
+    await run()
+  } catch (err) {
+    console.warn('[catalog import] shopify dual-write failed:', err)
+  }
 }
 
 export async function handleShopifyProductWebhook(
@@ -513,7 +580,6 @@ export async function handleShopifyProductWebhook(
 
   if (topic === 'products/delete') {
     if (productId) {
-      await deleteMetaItemsForProduct(db, accountId, productId)
       const removed = await removeCatalogProduct(db, accountId, productId)
       if (removed) await refreshCatalogSyncMetadata(db, accountId)
     }
@@ -525,7 +591,6 @@ export async function handleShopifyProductWebhook(
       typeof body.status === 'string' ? body.status.trim().toLowerCase() : 'active'
     if (status !== 'active') {
       if (productId) {
-        await deleteMetaItemsForProduct(db, accountId, productId)
         const removed = await removeCatalogProduct(db, accountId, productId)
         if (removed) await refreshCatalogSyncMetadata(db, accountId)
       }
@@ -534,47 +599,6 @@ export async function handleShopifyProductWebhook(
     if (productId) {
       await upsertCatalogProduct(db, config, productId)
     }
-  }
-}
-
-async function deleteMetaItemsForProduct(
-  db: SupabaseClient,
-  accountId: string,
-  productId: string,
-): Promise<void> {
-  try {
-    const raw = productId.trim()
-    const ids = new Set<string>([raw])
-    if (/^\d+$/.test(raw)) ids.add(toProductGid(raw))
-    else if (raw.startsWith('gid://')) ids.add(numericIdFromGid(raw))
-
-    const { data } = await db
-      .from('shopify_catalog_products')
-      .select('shopify_product_id, variant_summary')
-      .eq('account_id', accountId)
-      .in('shopify_product_id', [...ids])
-      .maybeSingle()
-    const variants = Array.isArray(data?.variant_summary)
-      ? (data.variant_summary as ShopifyCatalogVariant[])
-      : []
-    const { loadCommerceSettings } = await import('./commerce-config')
-    const { retailerIdForVariant } = await import('./retailer-id')
-    const { deleteProductFromMetaCatalog } = await import('./meta-catalog-sync')
-    const settings = await loadCommerceSettings(db, accountId)
-    const retailerIds = variants
-      .map((v) =>
-        retailerIdForVariant(
-          v,
-          settings.retailerIdSource,
-          String(data?.shopify_product_id ?? ''),
-        ),
-      )
-      .filter(Boolean)
-    if (retailerIds.length > 0) {
-      await deleteProductFromMetaCatalog(db, accountId, retailerIds)
-    }
-  } catch (err) {
-    console.warn('[shopify meta-catalog] delete lookup failed:', err)
   }
 }
 

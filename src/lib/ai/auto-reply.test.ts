@@ -11,6 +11,7 @@ const h = vi.hoisted(() => ({
   matchProductsFromPhoto: vi.fn(),
   toCard: vi.fn(),
   getProductLive: vi.fn(),
+  getProductFromCatalog: vi.fn(),
   buildCartOffer: vi.fn(),
   resolveCartOfferItems: vi.fn(),
   cartOfferFallbackText: vi.fn(),
@@ -68,6 +69,22 @@ vi.mock('@/lib/shopify', () => ({
   matchProductsFromPhoto: h.matchProductsFromPhoto,
   toCard: h.toCard,
   getProductLive: h.getProductLive,
+  getProductFromCatalog: h.getProductFromCatalog,
+  catalogOnlyStoreConfig: (accountId: string, extras?: Record<string, unknown>) => ({
+    accountId,
+    shopDomain: '',
+    accessToken: '',
+    isActive: false,
+    shopName: null,
+    primaryDomain: null,
+    currency: null,
+    metaCatalogId: extras?.metaCatalogId ?? null,
+    lastVerifiedAt: null,
+    lastCatalogSyncAt: null,
+    catalogProductCount: 0,
+  }),
+  isShopifyStoreConnected: (config?: { shopDomain?: string; accessToken?: string } | null) =>
+    Boolean(config?.shopDomain && config?.accessToken),
   retrieveShopifyStoreContent: h.retrieveShopifyStoreContent,
   buildCartOffer: h.buildCartOffer,
   resolveCartOfferItems: h.resolveCartOfferItems,
@@ -310,6 +327,7 @@ beforeEach(() => {
   )
   h.matchProductsFromPhoto.mockResolvedValue([])
   h.getProductLive.mockResolvedValue(null)
+  h.getProductFromCatalog.mockResolvedValue(null)
   h.rehostPublicImage.mockResolvedValue('https://cdn.example/hosted.jpg')
   h.toCard.mockImplementation((p: {
     title: string
@@ -1250,7 +1268,7 @@ describe('dispatchInboundToAiReply — typing indicator', () => {
 })
 
 describe('dispatchInboundToAiReply — OpenAI Realtime voice', () => {
-  it('sends a native voice note via Realtime without calling generateReply', async () => {
+  it('uses the tool loop for voice notes so catalog search stays available', async () => {
     h.loadAiConfig.mockResolvedValue(
       aiConfig({
         realtimeVoiceEnabled: true,
@@ -1260,27 +1278,17 @@ describe('dispatchInboundToAiReply — OpenAI Realtime voice', () => {
       }),
     )
     await dispatchInboundToAiReply(ARGS)
-    expect(h.realtimeTurn).toHaveBeenCalledWith(
+    expect(h.realtimeTurn).not.toHaveBeenCalled()
+    expect(h.generateReply).toHaveBeenCalledWith(
       expect.objectContaining({
-        apiKey: 'sk-test',
-        voice: 'alloy',
+        tools: expect.arrayContaining([
+          expect.objectContaining({ name: 'search_products' }),
+        ]),
       }),
     )
-    expect(h.pcm16ToOggOpus).toHaveBeenCalled()
-    expect(h.engineSendMedia).toHaveBeenCalledWith(
-      expect.objectContaining({
-        kind: 'audio',
-        voice: true,
-        contentText: 'Realtime hello',
-        aiGenerated: true,
-      }),
-    )
-    expect(h.generateReply).not.toHaveBeenCalled()
-    expect(h.synthesizeSpeech).not.toHaveBeenCalled()
-    expect(h.engineSendText).not.toHaveBeenCalled()
   })
 
-  it('falls back to ElevenLabs TTS when Realtime fails', async () => {
+  it('falls back to ElevenLabs TTS when generation needs speech', async () => {
     h.loadAiConfig.mockResolvedValue(
       aiConfig({
         realtimeVoiceEnabled: true,
@@ -1289,7 +1297,6 @@ describe('dispatchInboundToAiReply — OpenAI Realtime voice', () => {
         voiceReplyMode: 'audio',
       }),
     )
-    h.realtimeTurn.mockRejectedValue(new Error('socket down'))
     await dispatchInboundToAiReply(ARGS)
     expect(h.generateReply).toHaveBeenCalled()
     expect(h.synthesizeSpeech).toHaveBeenCalled()
@@ -1307,17 +1314,8 @@ describe('dispatchInboundToAiReply — OpenAI Realtime voice', () => {
         voiceReplyMode: 'audio',
       }),
     )
-    h.realtimeTurn.mockResolvedValue({
-      text: '',
-      handoff: true,
-      pcm: new Uint8Array(),
-      sampleRate: 24000,
-      usage: null,
-      model: 'gpt-realtime-2.1-mini',
-    })
     await dispatchInboundToAiReply(ARGS)
     expect(h.state.updatePayload).toBeNull()
-    expect(h.engineSendMedia).not.toHaveBeenCalled()
     expect(h.generateReply).toHaveBeenCalled()
     expect(h.engineSendText).toHaveBeenCalledWith(
       expect.objectContaining({ text: 'Hello!' }),
@@ -1342,24 +1340,23 @@ describe('dispatchInboundToAiReply — OpenAI Realtime voice', () => {
     expect(h.engineSendMedia).not.toHaveBeenCalled()
   })
 
-  it('sends Realtime audio and text when mode is both', async () => {
+  it('sends generated audio and text when mode is both', async () => {
     h.loadAiConfig.mockResolvedValue(
       aiConfig({
         realtimeVoiceEnabled: true,
         realtimeVoice: 'alloy',
         ttsEnabled: true,
+        elevenlabsApiKey: 'xi-test',
         voiceReplyMode: 'both',
       }),
     )
     await dispatchInboundToAiReply(ARGS)
-    expect(h.realtimeTurn).toHaveBeenCalled()
+    expect(h.realtimeTurn).not.toHaveBeenCalled()
+    expect(h.generateReply).toHaveBeenCalled()
     expect(h.engineSendMedia).toHaveBeenCalledWith(
-      expect.objectContaining({ voice: true, contentText: 'Realtime hello' }),
+      expect.objectContaining({ voice: true }),
     )
-    expect(h.engineSendText).toHaveBeenCalledWith(
-      expect.objectContaining({ text: 'Realtime hello' }),
-    )
-    expect(h.generateReply).not.toHaveBeenCalled()
+    expect(h.engineSendText).toHaveBeenCalled()
   })
 
   it('skips Realtime and passes Shopify tools when the store is connected', async () => {
@@ -3047,6 +3044,7 @@ describe('dispatchInboundToAiReply — agent product focus', () => {
     }
     h.loadShopifyConfig.mockResolvedValue(shopifyRow)
     h.getProductLive.mockResolvedValue(POURNAMI)
+    h.getProductFromCatalog.mockResolvedValue(POURNAMI)
     h.loadAiConfig.mockResolvedValue(aiConfig({ fullAgentEnabled: true }))
   })
 
