@@ -70,6 +70,12 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(url)
   }
 
+  // Do not refresh the session here — getUser() can race the PKCE
+  // exchange on the callback page and consume / drop the verifier.
+  if (pathname === '/auth/callback' || pathname.startsWith('/auth/callback/')) {
+    return NextResponse.next({ request })
+  }
+
   if (isWwwAppHost(hostname)) {
     return redirectToAppHost(request)
   }

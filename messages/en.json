@@ -20,6 +20,7 @@
     "googleConnecting": "Connecting...",
     "authErrorMissingCode": "That sign-in link is missing a code. Request a new one.",
     "authErrorExchangeFailed": "That sign-in link is invalid or expired. Request a new one.",
+    "authErrorExpired": "That confirmation link has expired. Request a new one from sign up.",
     "authErrorGeneric": "Sign-in did not complete. Try again."
   },
   "SignupPage": {
@@ -2926,6 +2927,15 @@
       "syncDone": "Synced {count} Razorpay plans",
       "syncPartial": "Synced {synced}, {failed} failed",
       "syncFailed": "Could not sync Razorpay plans"
+    },
+    "appearance": {
+      "title": "Appearance",
+      "subtitle": "Choose light or dark mode for this device. Changes apply immediately.",
+      "mode": "Mode",
+      "light": "Light",
+      "dark": "Dark",
+      "useMode": "Use {mode} mode",
+      "active": "Active"
     }
   }
 }

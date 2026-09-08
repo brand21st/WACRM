@@ -8,6 +8,7 @@ import { LayoutDashboard, LogOut, Package, Settings, Sparkles, UserPlus, Users }
 import { AuthProvider, useAuth } from "@/hooks/use-auth";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { SuperAdminModeSwitch } from "@/components/super-admin/mode-switch";
 
 const NAV: Array<{
   href: string
@@ -114,7 +115,11 @@ function ShellInner({ children }: { children: React.ReactNode }) {
             );
           })}
         </nav>
-        <div className="border-t border-border p-2">
+        <div className="space-y-2 border-t border-border p-2">
+          <p className="px-1 text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
+            {t("appearance.mode")}
+          </p>
+          <SuperAdminModeSwitch />
           <Button
             variant="ghost"
             className="w-full justify-start"

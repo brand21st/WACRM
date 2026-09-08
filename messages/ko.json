@@ -20,6 +20,7 @@
     "googleConnecting": "연결 중...",
     "authErrorMissingCode": "로그인 링크에 코드가 없습니다. 새 링크를 요청하세요.",
     "authErrorExchangeFailed": "로그인 링크가 잘못되었거나 만료되었습니다. 새 링크를 요청하세요.",
+    "authErrorExpired": "확인 링크가 만료되었습니다. 회원가입에서 새 링크를 요청하세요.",
     "authErrorGeneric": "로그인을 완료하지 못했습니다. 다시 시도하세요."
   },
   "SignupPage": {
@@ -2926,6 +2927,15 @@
       "syncDone": "Razorpay 플랜 {count}개를 동기화했습니다",
       "syncPartial": "{synced}개 동기화, {failed}개 실패",
       "syncFailed": "Razorpay 플랜을 동기화하지 못했습니다"
+    },
+    "appearance": {
+      "title": "화면 설정",
+      "subtitle": "이 기기의 밝은 모드 또는 어두운 모드를 선택합니다. 변경 사항은 바로 적용됩니다.",
+      "mode": "모드",
+      "light": "라이트",
+      "dark": "다크",
+      "useMode": "{mode} 모드 사용",
+      "active": "사용 중"
     }
   }
 }

@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
+  authCallbackFailureCode,
   isDuplicateSignupUser,
+  isEmailOtpType,
   isSupabaseSiteUrlAuthLanding,
   postAuthPath,
   safeAuthNextPath,
@@ -96,6 +98,25 @@ describe('signupDestination', () => {
   it('sends a sessioned signup to join or dashboard', () => {
     expect(signupDestination({ inviteToken: 'abc' })).toBe('/join/abc')
     expect(signupDestination({ inviteToken: null })).toBe('/dashboard')
+  })
+})
+
+describe('authCallbackFailureCode', () => {
+  it('prefers otp_expired over generic access_denied', () => {
+    expect(
+      authCallbackFailureCode({
+        error: 'access_denied',
+        error_code: 'otp_expired',
+      }),
+    ).toBe('otp_expired')
+  })
+})
+
+describe('isEmailOtpType', () => {
+  it('allows signup and recovery', () => {
+    expect(isEmailOtpType('signup')).toBe(true)
+    expect(isEmailOtpType('recovery')).toBe(true)
+    expect(isEmailOtpType('not-a-type')).toBe(false)
   })
 })
 

@@ -27,6 +27,7 @@ function LoginPageInner() {
   const [error, setError] = useState<string | null>(() => {
     if (!callbackError) return null;
     if (callbackError === "missing_code") return t("authErrorMissingCode");
+    if (callbackError === "otp_expired") return t("authErrorExpired");
     if (callbackError === "exchange_failed") return t("authErrorExchangeFailed");
     return t("authErrorGeneric");
   });

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
-import { Copy } from "lucide-react";
+import { Check, Copy, Moon, Sun } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,6 +15,9 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { useTheme } from "@/hooks/use-theme";
+import { MODES } from "@/lib/themes";
+import { cn } from "@/lib/utils";
 
 type Source = "database" | "env" | "none";
 
@@ -31,6 +34,7 @@ type SettingsPayload = {
 
 export default function SuperAdminSettingsPage() {
   const t = useTranslations("SuperAdmin.settings");
+  const appearanceT = useTranslations("SuperAdmin.appearance");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [syncing, setSyncing] = useState(false);
@@ -135,8 +139,6 @@ export default function SuperAdminSettingsPage() {
     toast.success(t("copied"));
   }
 
-  if (loading) return <p className="text-muted-foreground">{t("loading")}</p>;
-
   const source = payload?.source ?? "none";
   const mode = payload?.mode ?? null;
 
@@ -147,6 +149,19 @@ export default function SuperAdminSettingsPage() {
         <p className="mt-1 text-sm text-muted-foreground">{t("subtitle")}</p>
       </div>
 
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">{appearanceT("title")}</CardTitle>
+          <CardDescription>{appearanceT("subtitle")}</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <AppearanceModePicker />
+        </CardContent>
+      </Card>
+
+      {loading ? (
+        <p className="text-muted-foreground">{t("loading")}</p>
+      ) : (
       <Card>
         <CardHeader>
           <div className="flex flex-wrap items-center justify-between gap-2">
@@ -263,6 +278,58 @@ export default function SuperAdminSettingsPage() {
           </div>
         </CardContent>
       </Card>
+      )}
+    </div>
+  );
+}
+
+function AppearanceModePicker() {
+  const { mode, setMode } = useTheme();
+  const t = useTranslations("SuperAdmin.appearance");
+
+  return (
+    <div
+      role="radiogroup"
+      aria-label={t("mode")}
+      className="grid max-w-md grid-cols-2 gap-3"
+    >
+      {MODES.map((m) => {
+        const isLight = m === "light";
+        const Icon = isLight ? Sun : Moon;
+        const isActive = m === mode;
+        return (
+          <button
+            key={m}
+            type="button"
+            role="radio"
+            aria-checked={isActive}
+            aria-label={t("useMode", { mode: t(m) })}
+            onClick={() => setMode(m)}
+            className={cn(
+              "flex items-center gap-3 rounded-lg border bg-card p-4 text-left transition-colors",
+              isActive
+                ? "border-primary/60 ring-2 ring-primary/40"
+                : "border-border hover:bg-muted/40",
+            )}
+          >
+            <span
+              aria-hidden
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted text-foreground"
+            >
+              <Icon className="h-4 w-4" />
+            </span>
+            <span className="flex-1 text-sm font-semibold text-foreground">
+              {t(m)}
+            </span>
+            {isActive ? (
+              <span className="inline-flex items-center gap-1 rounded-full bg-primary/15 px-2 py-0.5 text-[11px] font-medium text-primary">
+                <Check className="h-3 w-3" />
+                {t("active")}
+              </span>
+            ) : null}
+          </button>
+        );
+      })}
     </div>
   );
 }

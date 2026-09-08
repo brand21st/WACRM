@@ -100,8 +100,35 @@ export function isDuplicateSignupUser(user: {
   return Boolean(user && Array.isArray(user.identities) && user.identities.length === 0)
 }
 
+export function authCallbackFailureCode(params: {
+  error?: string | null
+  error_code?: string | null
+}): string | null {
+  if (params.error_code === 'otp_expired') return 'otp_expired'
+  if (params.error) return params.error
+  return null
+}
+
+const EMAIL_OTP_TYPES = new Set([
+  'signup',
+  'invite',
+  'magiclink',
+  'recovery',
+  'email_change',
+  'email',
+])
+
+export function isEmailOtpType(
+  value: string | null | undefined,
+): value is 'signup' | 'invite' | 'magiclink' | 'recovery' | 'email_change' | 'email' {
+  return Boolean(value && EMAIL_OTP_TYPES.has(value))
+}
+
 export function authCallbackLoginError(code: string): string {
   if (code === 'missing_code') return 'That sign-in link is missing a code. Request a new one.'
+  if (code === 'otp_expired') {
+    return 'That confirmation link has expired. Request a new one from sign up.'
+  }
   if (code === 'exchange_failed') {
     return 'That sign-in link is invalid or expired. Request a new one.'
   }
