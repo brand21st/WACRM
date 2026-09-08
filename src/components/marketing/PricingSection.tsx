@@ -418,7 +418,9 @@ export default function PricingSection() {
           {pricingPlans.map((plan) => {
             const isPopular = plan.badgeType === "popular";
             const currentPrice = isYearly ? plan.yearlyPrice : plan.monthlyPrice;
-            const ctaUrl = `${plan.ctaHref}?plan=${plan.id}&billing=${billingCycle}`;
+            const ctaUrl = plan.isFlexibleOption
+              ? `${plan.ctaHref}?plan=${plan.id}&billing=monthly`
+              : `${plan.ctaHref}?plan=${plan.id}&billing=${billingCycle}`;
 
             return (
               <div
@@ -451,14 +453,11 @@ export default function PricingSection() {
                     
                     <div className="vachat-flexible-price-inner">
                       <div className="vachat-plan-price-row">
-                        {isYearly && (
-                          <span className="vachat-price-original">{plan.monthlyPrice}</span>
-                        )}
-                        <span className="vachat-price-value">{currentPrice}</span>
+                        <span className="vachat-price-value">{plan.monthlyPrice}</span>
                         <span className="vachat-price-period">{plan.period}</span>
                       </div>
                       <div className="vachat-flexible-subtext">
-                        {isYearly ? `Billed Annually` : "Billed Monthly"}
+                        Billed Monthly
                       </div>
                     </div>
 
@@ -470,9 +469,9 @@ export default function PricingSection() {
                         </svg>
                       </div>
                       <div className="vachat-lock-text-wrap">
-                        <span className="vachat-lock-title">{isYearly ? "Annual commitment (Save 20%)" : "Plan locked for 2 months"}</span>
+                        <span className="vachat-lock-title">Plan locked for 2 months</span>
                         <span className="vachat-lock-desc">
-                          {isYearly ? `₹${plan.yearlyBilledTotal.replace("₹", "")} charged annually` : "₹3,000 will be charged for 2 months (one-time)"}
+                          ₹3,000 will be charged for 2 months (one-time)
                         </span>
                       </div>
                     </div>
