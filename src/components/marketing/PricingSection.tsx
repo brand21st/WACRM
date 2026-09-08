@@ -13,6 +13,12 @@ interface FeatureItem {
   isExcluded?: boolean;
 }
 
+interface ConversationRates {
+  utility: string;
+  marketing: string;
+  authentication: string;
+}
+
 interface PricingPlan {
   id: string;
   name: string;
@@ -27,6 +33,7 @@ interface PricingPlan {
   pillLabel: string;
   pillType?: "teal" | "green";
   isFlexibleOption?: boolean;
+  rates: ConversationRates;
   features: FeatureItem[];
   ctaText: string;
   ctaHref: string;
@@ -47,6 +54,11 @@ const pricingPlans: PricingPlan[] = [
     isFlexibleOption: true,
     ctaText: "Start Now",
     ctaHref: APP_SIGNUP,
+    rates: {
+      utility: "₹ 0.1495",
+      marketing: "₹ 1.122",
+      authentication: "₹ 0.1495",
+    },
     features: [
       { id: "meta_api", name: "Official Meta WhatsApp API", isIncluded: true },
       { id: "free_setup", name: "Free Setup & Onboarding", isIncluded: true },
@@ -72,6 +84,11 @@ const pricingPlans: PricingPlan[] = [
     pillLabel: "Text AI Reply",
     ctaText: "Start Now",
     ctaHref: APP_SIGNUP,
+    rates: {
+      utility: "₹ 0.115",
+      marketing: "₹ 0.8631",
+      authentication: "₹ 0.115",
+    },
     features: [
       { id: "meta_api", name: "Official Meta WhatsApp API", isIncluded: true },
       { id: "free_setup", name: "Free Setup & Onboarding", isIncluded: true },
@@ -105,6 +122,11 @@ const pricingPlans: PricingPlan[] = [
     pillLabel: "AI + Voice Reply",
     ctaText: "Start Now",
     ctaHref: APP_SIGNUP,
+    rates: {
+      utility: "₹ 0.115",
+      marketing: "₹ 0.8631",
+      authentication: "₹ 0.115",
+    },
     features: [
       { id: "meta_api", name: "Official Meta WhatsApp API", isIncluded: true },
       { id: "free_setup", name: "Free Setup & Onboarding", isIncluded: true },
@@ -136,6 +158,11 @@ const pricingPlans: PricingPlan[] = [
     pillLabel: "All Features + Voice Cloning",
     ctaText: "Start Now",
     ctaHref: APP_SIGNUP,
+    rates: {
+      utility: "₹ 0.115",
+      marketing: "₹ 0.8631",
+      authentication: "₹ 0.115",
+    },
     features: [
       { id: "meta_api", name: "Official Meta WhatsApp API", isIncluded: true },
       { id: "free_setup", name: "Free Setup & Onboarding", isIncluded: true },
@@ -550,6 +577,22 @@ export default function PricingSection() {
                       </div>
                     </div>
                   ))}
+                </div>
+
+                {/* Meta Conversation Charges */}
+                <div className="vachat-rates-box">
+                  <div className="vachat-rate-row">
+                    <span className="vachat-rate-label">Utility</span>
+                    <span className="vachat-rate-val">{plan.rates.utility}</span>
+                  </div>
+                  <div className="vachat-rate-row">
+                    <span className="vachat-rate-label">Marketing</span>
+                    <span className="vachat-rate-val">{plan.rates.marketing}</span>
+                  </div>
+                  <div className="vachat-rate-row">
+                    <span className="vachat-rate-label">Authentication</span>
+                    <span className="vachat-rate-val">{plan.rates.authentication}</span>
+                  </div>
                 </div>
 
                 {/* CTA Action Button */}

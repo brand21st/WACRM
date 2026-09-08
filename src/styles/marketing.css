@@ -2598,6 +2598,44 @@
   justify-content: center;
 }
 
+/* Meta Conversation Rates Box */
+.vachat-rates-box {
+  margin-top: 16px;
+  margin-bottom: 18px;
+  border-top: 1px solid #e2e8f0;
+  padding-top: 8px;
+  display: flex;
+  flex-direction: column;
+}
+
+.vachat-rate-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8.5px 0;
+  border-bottom: 1px solid #edf2f7;
+}
+
+.vachat-rate-row:last-child {
+  border-bottom: none;
+  padding-bottom: 4px;
+}
+
+.vachat-rate-label {
+  font-size: 13.5px;
+  font-weight: 500;
+  color: #64748b;
+  letter-spacing: -0.1px;
+}
+
+.vachat-rate-val {
+  font-size: 14px;
+  font-weight: 800;
+  color: #0f172a;
+  letter-spacing: -0.2px;
+  white-space: nowrap;
+}
+
 /* Action Button */
 .vachat-plan-action {
   margin-top: auto;
