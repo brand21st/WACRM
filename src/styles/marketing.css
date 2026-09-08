@@ -2261,6 +2261,20 @@
   border: 1.5px solid #e2e8f0;
 }
 
+.vachat-pricing-card.plan-disabled {
+  opacity: 0.52;
+  filter: grayscale(25%);
+  border-color: #cbd5e1;
+  background-color: #f8fafc;
+}
+
+.vachat-pricing-card.plan-disabled:hover {
+  opacity: 0.75;
+  transform: none;
+  border-color: #cbd5e1;
+  box-shadow: 0 4px 20px -2px rgba(15, 23, 42, 0.05);
+}
+
 /* Floating Top Badges */
 .vachat-plan-badge {
   position: absolute;
@@ -2284,6 +2298,14 @@
   transform: translateX(-50%);
   background-color: #007a3d;
   color: #ffffff;
+}
+
+.badge-disabled {
+  left: 50%;
+  transform: translateX(-50%);
+  background-color: #64748b;
+  color: #ffffff;
+  box-shadow: 0 3px 10px rgba(100, 116, 139, 0.35);
 }
 
 .badge-best-value {
@@ -2415,6 +2437,19 @@
   color: #4b5563;
   line-height: 1.3;
   margin-top: 1px;
+}
+
+.vachat-disabled-overlay-msg {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #dc2626;
+  font-size: 11.5px;
+  font-weight: 700;
+  border-radius: 8px;
+  padding: 6px 10px;
+  text-align: center;
+  margin-bottom: 12px;
+  letter-spacing: 0.1px;
 }
 
 /* Price Box */
@@ -2589,6 +2624,22 @@
   background-color: #007338;
   transform: translateY(-2px);
   box-shadow: 0 6px 20px rgba(0, 135, 68, 0.38);
+  color: #ffffff !important;
+}
+
+.vachat-pricing-btn.vachat-btn-disabled {
+  background-color: #94a3b8;
+  color: #ffffff !important;
+  border: none;
+  cursor: pointer;
+  box-shadow: none;
+  font-family: inherit;
+}
+
+.vachat-pricing-btn.vachat-btn-disabled:hover {
+  background-color: #64748b;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(100, 116, 139, 0.25);
   color: #ffffff !important;
 }
 

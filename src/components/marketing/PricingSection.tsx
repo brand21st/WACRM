@@ -417,6 +417,7 @@ export default function PricingSection() {
         <div id="pricing-cards-grid" className="vachat-pricing-grid" role="region" aria-live="polite">
           {pricingPlans.map((plan) => {
             const isPopular = plan.badgeType === "popular";
+            const isDisabled = isYearly && plan.isFlexibleOption;
             const currentPrice = isYearly ? plan.yearlyPrice : plan.monthlyPrice;
             const ctaUrl = plan.isFlexibleOption
               ? `${plan.ctaHref}?plan=${plan.id}&billing=monthly`
@@ -425,14 +426,20 @@ export default function PricingSection() {
             return (
               <div
                 key={plan.id}
-                className={`vachat-pricing-card ${isPopular ? "featured" : ""}`}
+                className={`vachat-pricing-card ${isPopular ? "featured" : ""} ${isDisabled ? "plan-disabled" : ""}`}
               >
-                {/* Floating Top Badge (Growth only) */}
-                {plan.badge && (
-                  <div className="vachat-plan-badge badge-popular">
-                    <span className="badge-icon-star">★</span>
-                    <span>{plan.badge}</span>
+                {/* Floating Top Badge (Growth or Disabled status) */}
+                {isDisabled ? (
+                  <div className="vachat-plan-badge badge-disabled">
+                    <span>MONTHLY ONLY</span>
                   </div>
+                ) : (
+                  plan.badge && (
+                    <div className="vachat-plan-badge badge-popular">
+                      <span className="badge-icon-star">★</span>
+                      <span>{plan.badge}</span>
+                    </div>
+                  )
                 )}
 
                 {/* Plan Header */}
@@ -475,6 +482,12 @@ export default function PricingSection() {
                         </span>
                       </div>
                     </div>
+
+                    {isDisabled && (
+                      <div className="vachat-disabled-overlay-msg">
+                        <span>Available on Monthly Billing only</span>
+                      </div>
+                    )}
 
                     <div className={`vachat-plan-pill ${plan.pillType === "teal" ? "pill-teal" : ""}`}>
                       <span>{plan.pillLabel}</span>
@@ -541,15 +554,26 @@ export default function PricingSection() {
 
                 {/* CTA Action Button */}
                 <div className="vachat-plan-action">
-                  <a href={ctaUrl} className="vachat-pricing-btn">
-                    <span>{plan.ctaText}</span>
-                    <span className="vachat-btn-arrow">
-                      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="#008744" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                        <line x1="5" y1="12" x2="19" y2="12" />
-                        <polyline points="12 5 19 12 12 19" />
-                      </svg>
-                    </span>
-                  </a>
+                  {isDisabled ? (
+                    <button
+                      type="button"
+                      onClick={() => setBillingCycle("monthly")}
+                      className="vachat-pricing-btn vachat-btn-disabled"
+                      title="Switch to Monthly Billing to choose Super Starter"
+                    >
+                      <span>Monthly Plan Only</span>
+                    </button>
+                  ) : (
+                    <a href={ctaUrl} className="vachat-pricing-btn">
+                      <span>{plan.ctaText}</span>
+                      <span className="vachat-btn-arrow">
+                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="#008744" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                          <line x1="5" y1="12" x2="19" y2="12" />
+                          <polyline points="12 5 19 12 12 19" />
+                        </svg>
+                      </span>
+                    </a>
+                  )}
                 </div>
               </div>
             );
