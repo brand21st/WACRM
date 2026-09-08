@@ -17,9 +17,6 @@ export function buildFollowUpSystemPrompt(opts: {
   return [
     'You write ONE short WhatsApp follow-up after the customer went silent.',
     language,
-    'Look at the latest unanswered assistant question or next step — that is the follow-up topic.',
-    'Prefer action send when they were asked something (size, colour, product, address) and did not answer.',
-    'An earlier "no" or "later" does not cancel a later question they then continued with.',
     'Refer only to what they actually discussed. Be helpful, not pushy.',
     'Do not repeat the whole conversation. Do not invent facts.',
     'Do not introduce a new unrelated product.',
@@ -27,7 +24,7 @@ export function buildFollowUpSystemPrompt(opts: {
     'Do not fabricate urgency, discounts, prices, stock, delivery times, or order status.',
     'Do not mention that this message is automated.',
     'Do not use generic sales lines like "are you still interested" unless that is exactly what the thread needs.',
-    'Skip only when they clearly declined, said they are done, or there is nothing useful to add.',
+    'If there is no meaningful reason to follow up, skip.',
     'Reply with JSON only:',
     '{ "action": "send" | "skip", "message": "...", "reason": "..." }',
     'When action is skip, message may be empty.',
@@ -37,11 +34,6 @@ export function buildFollowUpSystemPrompt(opts: {
 export function parseFollowUpGeneration(raw: string): FollowUpGeneration {
   const json = extractJsonObject(raw)
   if (!json || typeof json !== 'object') {
-    const message = raw.trim()
-    // Models often ignore JSON and write the WhatsApp line directly.
-    if (looksLikePlainFollowUp(message)) {
-      return { action: 'send', message, reason: 'plain_text' }
-    }
     return { action: 'skip', message: '', reason: 'unparseable' }
   }
   const row = json as Record<string, unknown>
@@ -52,14 +44,6 @@ export function parseFollowUpGeneration(raw: string): FollowUpGeneration {
     return { action: 'skip', message: '', reason: reason || 'empty_message' }
   }
   return { action, message, reason }
-}
-
-function looksLikePlainFollowUp(text: string): boolean {
-  if (text.length < 8) return false
-  if (text.startsWith('{')) return false
-  if (/^```/.test(text)) return false
-  if (/\baction\s*[:=]\s*["']?skip\b/i.test(text)) return false
-  return true
 }
 
 function extractJsonObject(raw: string): unknown {

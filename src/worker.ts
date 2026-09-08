@@ -1,20 +1,5 @@
-import { supabaseAdmin } from '@/lib/ai/admin-client'
-import { drainDueConversationFollowUps } from '@/lib/ai/follow-up'
 import { createQueueWorkers } from '@/lib/queue/create-workers'
 import { getBullmqConnection } from '@/lib/queue/redis'
-
-const FOLLOW_UP_DRAIN_MS = 30_000
-
-async function drainFollowUps(): Promise<void> {
-  try {
-    const result = await drainDueConversationFollowUps(supabaseAdmin())
-    if (result.processed > 0) {
-      console.info('[worker] follow-up drain', result)
-    }
-  } catch (err) {
-    console.error('[worker] follow-up drain failed:', err)
-  }
-}
 
 async function main() {
   const connection = getBullmqConnection()
@@ -24,10 +9,6 @@ async function main() {
   }
 
   const workers = createQueueWorkers(connection)
-  const followUpDrain = setInterval(() => {
-    void drainFollowUps()
-  }, FOLLOW_UP_DRAIN_MS)
-  void drainFollowUps()
 
   for (const worker of workers) {
     worker.on('failed', (job, err) => {
@@ -54,7 +35,6 @@ async function main() {
     if (shuttingDown) return
     shuttingDown = true
     console.info(`[worker] ${signal} — closing`)
-    clearInterval(followUpDrain)
     await Promise.all(workers.map((w) => w.close()))
     process.exit(0)
   }

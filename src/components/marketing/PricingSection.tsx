@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useState } from "react";
 import { APP_ORIGIN } from "@/lib/hosts";
 
 const APP_SIGNUP = `${APP_ORIGIN}/signup`;
@@ -19,7 +19,10 @@ interface PricingPlan {
   subtitle: string;
   badge?: string;
   badgeType?: "popular";
-  price: string;
+  monthlyPrice: string;
+  yearlyPrice: string;
+  yearlyBilledTotal: string;
+  yearlySavings: string;
   period: string;
   pillLabel: string;
   features: FeatureItem[];
@@ -32,7 +35,10 @@ const pricingPlans: PricingPlan[] = [
     id: "starter",
     name: "STARTER",
     subtitle: "Perfect to get started with WhatsApp automation.",
-    price: "₹3,500",
+    monthlyPrice: "₹3,500",
+    yearlyPrice: "₹2,800",
+    yearlyBilledTotal: "₹33,600",
+    yearlySavings: "₹8,400",
     period: "/ month",
     pillLabel: "Text AI Reply",
     ctaText: "Start Now",
@@ -51,7 +57,7 @@ const pricingPlans: PricingPlan[] = [
       { id: "calls", name: "Call Recordings", isExcluded: true },
       { id: "workflows", name: "Automation Workflows", value: "Basic" },
       { id: "analytics", name: "Analytics & Reports", value: "Basic" },
-      { id: "support", name: "Support", value: "Standard" },
+      { id: "support", name: "Standard Support", value: "Standard" },
     ],
   },
   {
@@ -60,7 +66,10 @@ const pricingPlans: PricingPlan[] = [
     subtitle: "Advanced AI features with Voice Reply & more.",
     badge: "MOST POPULAR",
     badgeType: "popular",
-    price: "₹6,500",
+    monthlyPrice: "₹6,500",
+    yearlyPrice: "₹5,200",
+    yearlyBilledTotal: "₹62,400",
+    yearlySavings: "₹15,600",
     period: "/ month",
     pillLabel: "AI + Voice Reply",
     ctaText: "Start Now",
@@ -79,14 +88,17 @@ const pricingPlans: PricingPlan[] = [
       { id: "calls", name: "Call Recordings", isIncluded: true },
       { id: "workflows", name: "Automation Workflows", value: "Advanced" },
       { id: "analytics", name: "Analytics & Reports", value: "Advanced" },
-      { id: "support", name: "Support", value: "Priority Support" },
+      { id: "support", name: "Priority Support", value: "Priority" },
     ],
   },
   {
     id: "pro",
     name: "PRO",
     subtitle: "Complete automation with all features.",
-    price: "₹24,999",
+    monthlyPrice: "₹14,999",
+    yearlyPrice: "₹11,999",
+    yearlyBilledTotal: "₹1,43,988",
+    yearlySavings: "₹36,000",
     period: "/ month",
     pillLabel: "All Features + Voice Cloning",
     ctaText: "Start Now",
@@ -105,7 +117,7 @@ const pricingPlans: PricingPlan[] = [
       { id: "calls", name: "Call Recordings", isIncluded: true },
       { id: "workflows", name: "Automation Workflows", value: "Advanced" },
       { id: "analytics", name: "Analytics & Reports", value: "Advanced" },
-      { id: "support", name: "Support", value: "24/7 Priority Support" },
+      { id: "support", name: "24/7 Priority Support", value: "24/7 Priority" },
     ],
   },
 ];
@@ -299,6 +311,9 @@ const trustFeatures = [
 ];
 
 export default function PricingSection() {
+  const [billingCycle, setBillingCycle] = useState<"monthly" | "yearly">("monthly");
+  const isYearly = billingCycle === "yearly";
+
   return (
     <section id="pricing" className="vachat-pricing-section">
       <div className="wr">
@@ -310,12 +325,43 @@ export default function PricingSection() {
           <p className="vachat-pricing-subtitle">
             From getting started to full automation with AI &amp; voice cloning — choose your perfect plan.
           </p>
+
+          {/* Billing Toggle (Monthly / Yearly with 20% Discount) */}
+          <div className="vachat-billing-toggle-container">
+            <div className="vachat-billing-toggle-wrapper" role="tablist" aria-label="Billing frequency selection">
+              <button
+                type="button"
+                role="tab"
+                id="billing-tab-monthly"
+                aria-selected={!isYearly}
+                aria-controls="pricing-cards-grid"
+                className={`vachat-billing-toggle-btn ${!isYearly ? "active" : ""}`}
+                onClick={() => setBillingCycle("monthly")}
+              >
+                Monthly Billing
+              </button>
+              <button
+                type="button"
+                role="tab"
+                id="billing-tab-yearly"
+                aria-selected={isYearly}
+                aria-controls="pricing-cards-grid"
+                className={`vachat-billing-toggle-btn ${isYearly ? "active" : ""}`}
+                onClick={() => setBillingCycle("yearly")}
+              >
+                <span>Yearly Billing</span>
+                <span className="vachat-billing-discount-badge">Save 20%</span>
+              </button>
+            </div>
+          </div>
         </div>
 
         {/* Pricing Cards Grid */}
-        <div className="vachat-pricing-grid">
+        <div id="pricing-cards-grid" className="vachat-pricing-grid" role="region" aria-live="polite">
           {pricingPlans.map((plan) => {
             const isPopular = plan.badgeType === "popular";
+            const currentPrice = isYearly ? plan.yearlyPrice : plan.monthlyPrice;
+            const ctaUrl = `${plan.ctaHref}?plan=${plan.id}&billing=${billingCycle}`;
 
             return (
               <div
@@ -344,9 +390,24 @@ export default function PricingSection() {
                 {/* Price Display */}
                 <div className="vachat-plan-price-box">
                   <div className="vachat-plan-price-row">
-                    <span className="vachat-price-value">{plan.price}</span>
+                    {isYearly && (
+                      <span className="vachat-price-original">{plan.monthlyPrice}</span>
+                    )}
+                    <span className="vachat-price-value">{currentPrice}</span>
                     <span className="vachat-price-period">{plan.period}</span>
                   </div>
+
+                  {isYearly ? (
+                    <div className="vachat-plan-yearly-note">
+                      <span className="yearly-note-dot">●</span>
+                      <span>Billed annually at {plan.yearlyBilledTotal}/yr <strong className="yearly-savings-text">(Save {plan.yearlySavings}/yr)</strong></span>
+                    </div>
+                  ) : (
+                    <div className="vachat-plan-monthly-note">
+                      <span>Billed monthly</span>
+                    </div>
+                  )}
+
                   <div className="vachat-plan-pill">
                     <span>{plan.pillLabel}</span>
                   </div>
@@ -386,7 +447,7 @@ export default function PricingSection() {
 
                 {/* CTA Action Button */}
                 <div className="vachat-plan-action">
-                  <a href={plan.ctaHref} className="vachat-pricing-btn">
+                  <a href={ctaUrl} className="vachat-pricing-btn">
                     <span>{plan.ctaText}</span>
                     <span className="vachat-btn-arrow">
                       <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="#008744" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">

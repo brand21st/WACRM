@@ -26,16 +26,6 @@ describe('parseFollowUpGeneration', () => {
       parseFollowUpGeneration('{"action":"send","message":"","reason":"x"}').action,
     ).toBe('skip')
   })
-
-  it('treats a plain WhatsApp line as send when JSON is missing', () => {
-    expect(
-      parseFollowUpGeneration('ഒരു കളർ പറഞ്ഞാൽ മതി, ഞാൻ അതേ സെറ്റിൽ തന്നെ നോക്കാം.'),
-    ).toEqual({
-      action: 'send',
-      message: 'ഒരു കളർ പറഞ്ഞാൽ മതി, ഞാൻ അതേ സെറ്റിൽ തന്നെ നോക്കാം.',
-      reason: 'plain_text',
-    })
-  })
 })
 
 describe('hasMeaningfulFollowUpContext', () => {
