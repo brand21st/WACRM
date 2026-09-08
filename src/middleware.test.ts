@@ -123,6 +123,47 @@ describe("middleware — refreshed auth cookies survive redirects", () => {
     expect(res.cookies.get(ROTATED.name)?.value).toBe(ROTATED.value);
   });
 
+  it("forwards localhost /?code= to /auth/callback with the query intact", async () => {
+    mockUser = null;
+
+    const res = await middleware(
+      new NextRequest("http://localhost:3000/?code=abc"),
+    );
+
+    expect(res.status).toBe(307);
+    expect(res.headers.get("location")).toBe(
+      "http://localhost:3000/auth/callback?code=abc",
+    );
+  });
+
+  it("forwards app-host /?code= to /auth/callback without stripping next", async () => {
+    mockUser = null;
+
+    const res = await middleware(
+      new NextRequest(
+        "https://cloud.vachat.in/?code=abc&next=%2Fdashboard",
+      ),
+    );
+
+    expect(res.status).toBe(307);
+    expect(res.headers.get("location")).toBe(
+      "https://cloud.vachat.in/auth/callback?code=abc&next=%2Fdashboard",
+    );
+  });
+
+  it("sends landing-host /?code= to the app-host callback", async () => {
+    mockUser = null;
+
+    const res = await middleware(
+      new NextRequest("https://vachat.in/?code=abc"),
+    );
+
+    expect(res.status).toBe(308);
+    expect(res.headers.get("location")).toBe(
+      "https://cloud.vachat.in/auth/callback?code=abc",
+    );
+  });
+
   it("passes through public legal pages without a session", async () => {
     mockUser = null;
 

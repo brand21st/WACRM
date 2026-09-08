@@ -8,6 +8,7 @@ import {
   isWwwAppHost,
   normalizeHost,
 } from '@/lib/hosts'
+import { isSupabaseSiteUrlAuthLanding } from '@/lib/auth/callback'
 
 // Routes Meta/Shopify/cron hit without a browser session. Skip the
 // Supabase getUser() round-trip — it can hang or slow webhook acks.
@@ -54,6 +55,21 @@ export async function middleware(request: NextRequest) {
   }
 
   const hostname = requestHostname(request)
+
+  // Email confirm / OAuth often land on Site URL (`/?code=`). Exchange
+  // happens only on /auth/callback — salvage before the `/` bounce.
+  if (isSupabaseSiteUrlAuthLanding(pathname, request.nextUrl.searchParams)) {
+    const url = request.nextUrl.clone()
+    url.pathname = '/auth/callback'
+    if (isLandingHost(hostname) || isWwwAppHost(hostname)) {
+      url.protocol = 'https:'
+      url.hostname = APP_HOST
+      url.port = ''
+      return NextResponse.redirect(url, 308)
+    }
+    return NextResponse.redirect(url)
+  }
+
   if (isWwwAppHost(hostname)) {
     return redirectToAppHost(request)
   }

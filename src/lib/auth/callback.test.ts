@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   isDuplicateSignupUser,
+  isSupabaseSiteUrlAuthLanding,
   postAuthPath,
   safeAuthNextPath,
   signupDestination,
@@ -61,6 +62,33 @@ describe('signupEmailRedirectTo', () => {
     ).toBe(
       'https://cloud.vachat.in/auth/callback?next=%2Fjoin%2Finv-token',
     )
+  })
+})
+
+describe('isSupabaseSiteUrlAuthLanding', () => {
+  const params = (query: string) => new URLSearchParams(query)
+
+  it('detects PKCE code, token_hash, and OAuth error on /', () => {
+    expect(isSupabaseSiteUrlAuthLanding('/', params('code=abc'))).toBe(true)
+    expect(isSupabaseSiteUrlAuthLanding('/', params('token_hash=pkce_1'))).toBe(
+      true,
+    )
+    expect(isSupabaseSiteUrlAuthLanding('/', params('error=access_denied'))).toBe(
+      true,
+    )
+  })
+
+  it('ignores / without auth params and other paths that carry a code', () => {
+    expect(isSupabaseSiteUrlAuthLanding('/', params(''))).toBe(false)
+    expect(
+      isSupabaseSiteUrlAuthLanding('/auth/callback', params('code=abc')),
+    ).toBe(false)
+    expect(
+      isSupabaseSiteUrlAuthLanding(
+        '/api/shopify/oauth/callback',
+        params('code=shopify'),
+      ),
+    ).toBe(false)
   })
 })
 

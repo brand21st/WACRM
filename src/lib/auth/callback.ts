@@ -61,6 +61,24 @@ export function signupEmailRedirectTo(
   return `${origin.replace(/\/+$/, '')}/auth/callback?next=${encodeURIComponent(next)}`
 }
 
+/**
+ * Supabase Site URL is often the origin root. If `/auth/callback` is
+ * missing from Redirect URLs, verify/OAuth land on `/?code=` (or
+ * `/?token_hash=` / `/?error=`). Middleware must forward those to
+ * `/auth/callback` before the `/` bounce strips the query.
+ */
+export function isSupabaseSiteUrlAuthLanding(
+  pathname: string,
+  searchParams: { get: (name: string) => string | null },
+): boolean {
+  if (pathname !== '/') return false
+  return Boolean(
+    searchParams.get('code') ||
+      searchParams.get('token_hash') ||
+      searchParams.get('error'),
+  )
+}
+
 export function signupDestination(args: {
   inviteToken: string | null
   isPlatformAdmin?: boolean
