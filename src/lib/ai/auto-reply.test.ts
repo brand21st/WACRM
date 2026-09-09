@@ -3558,5 +3558,33 @@ describe('dispatchInboundToAiReply — agent product focus', () => {
       false,
     )
   })
+
+  it('keeps focus on a Malayalam availability question and injects catalog facts', async () => {
+    h.buildConversationContext.mockResolvedValue([
+      { role: 'user', content: 'ഇത് available ആണോ?' },
+    ])
+    h.generateReply.mockResolvedValue({
+      text: 'ഉണ്ട്, ഇപ്പോൾ സ്റ്റോക്കിലുണ്ട്.',
+      handoff: false,
+    })
+
+    await dispatchInboundToAiReply(ARGS)
+
+    expect(h.generateReply).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tools: expect.arrayContaining([
+          expect.objectContaining({ name: 'get_product' }),
+        ]),
+      }),
+    )
+    expect(h.generateReply.mock.calls[0][0].tools.some((t: { name: string }) => t.name === 'search_products')).toBe(
+      false,
+    )
+    const prompt = h.generateReply.mock.calls[0][0].systemPrompt as string
+    expect(prompt).toMatch(/Current product facts/)
+    expect(prompt).toMatch(/availability: in stock/)
+    expect(prompt).toMatch(/do not say you cannot check stock/)
+    expect(h.state.updatePayload?.ai_product_focus).not.toBeNull()
+  })
 })
 

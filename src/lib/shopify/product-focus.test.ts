@@ -116,6 +116,12 @@ describe('wantsProductOrder', () => {
     expect(wantsProductOrder('[Customer sent a voice note]')).toBe(false)
     expect(wantsProductOrder('how much is shipping?')).toBe(false)
     expect(wantsProductOrder('ഇത് വേണ്ട')).toBe(false)
+    expect(wantsProductOrder('നല്ലതാണ്')).toBe(false)
+    expect(wantsProductOrder('how much?')).toBe(false)
+    expect(wantsProductOrder('available?')).toBe(false)
+    expect(wantsProductOrder('എടുക്കാം')).toBe(true)
+    expect(wantsProductOrder('ഇത് എടുക്കാം')).toBe(true)
+    expect(wantsProductOrder('എടുക്കട്ടെ')).toBe(true)
   })
 
   it('detects WhatsApp cart-summary talk', () => {

@@ -124,6 +124,11 @@ export function buildSystemPrompt(args: {
    * Already formatted. Empty / omitted = nothing stored.
    */
   salesSnapshot?: string | null
+  /**
+   * Trusted catalog facts for the currently focused product.
+   * Already formatted. Empty / omitted = no live product loaded.
+   */
+  productFacts?: string | null
 }): string {
   const {
     userPrompt,
@@ -141,6 +146,7 @@ export function buildSystemPrompt(args: {
     replyLanguage,
     productFocus,
     salesSnapshot,
+    productFacts,
   } = args
   const catalog = catalogArg ?? Boolean(shopify)
   const name = customerName?.trim() || ''
@@ -156,7 +162,8 @@ export function buildSystemPrompt(args: {
           'Do not search the catalog or send other products. ' +
           'Light emoji in the text bubble is ok. No markdown. Voice scripts stay emoji-free. ' +
           'Match the customer’s tone. Do not overuse “Certainly”, “Absolutely”, “Sure”, or “I understand.” Do not repeat their question. ' +
-          'Never invent policies, prices, stock, discounts, reviews, orders, or completed actions. If you do not know, say so and give the next step.'
+          'Never invent policies, prices, stock, discounts, reviews, orders, or completed actions. ' +
+          'When Current product facts already include price or availability, answer from those facts — do not say you cannot check stock.'
         : 'You are a shopping and sales assistant on WhatsApp — product discovery, recommendations, and a personal shopper. ' +
         'You are shown the recent conversation between the business (assistant) and a customer (user). ' +
         'Help them find the right product, grow purchase confidence, then increase cart value only when an upgrade or add-on is genuinely useful. Never be pushy. ' +
@@ -213,6 +220,7 @@ export function buildSystemPrompt(args: {
     customerMemoryBlock(customerMemory),
     catalog ? salesVoiceBlock() : '',
     salesSnapshotBlock(salesSnapshot),
+    productFactsBlock(productFacts),
     formatReplyLanguageInstruction(replyLanguage),
   ].filter(Boolean) as string[]
 
@@ -275,14 +283,18 @@ export function buildSystemPrompt(args: {
     }
   } else if (catalog && focused) {
     parts.push(
-      'The WACRM catalog is the source of truth for this pinned product. Use get_product only if you need price or stock. ' +
+      'The WACRM catalog is the source of truth for this pinned product. ' +
+        'Answer from Current product facts first. Call get_product only when a needed field is missing from those facts. ' +
+        'If availability is present in the facts, do not say stock cannot be checked. ' +
         'Do not call search_products, list_new_arrivals, list_best_selling, recommend_products, compare_products, match_product_from_photo, send_whatsapp_catalog, or offer_cart. ' +
         'Do not mention a WhatsApp cart, item counts, Add to cart, Send order, or Review and Pay. ' +
         'Do not paste checkout, cart, or Buy now URLs — variant lists and Checkout NOW are sent separately. ' +
+        'The product card already shows title, price, and stock. In chat, give short guidance — do not recap title, price, and stock every turn. ' +
+        'If they ask what this is, give a short identity (what it is, material, category) from the facts, then stop if that answers the ask. ' +
         (shopify
           ? 'For business questions (shipping, delivery, returns), call search_store_info. '
           : '') +
-        'Never invent catalog items, SKUs, prices, stock, or policies.',
+        'Never invent catalog items, SKUs, prices, stock, or policies. Never mention Shopify, WACRM, Meta, or native checkout to the customer.',
     )
   } else {
     parts.push(
@@ -359,11 +371,13 @@ function customerMemoryBlock(raw?: string | null): string {
 function salesVoiceBlock(): string {
   return (
     'Sales conversation: the latest customer message overrides any remembered snapshot. ' +
-      'Ask at most one useful question at a time. ' +
-      'Do not name the store platform, native checkout, tools, handles, or other internal jargon to the customer. ' +
+      'Ask at most one useful question, and only when a missing field would move the sale and the product actually has that option. ' +
+      'A complete factual answer needs no question. If only one size remains for the chosen color, do not ask size. ' +
+      'Do not ask size or color when the facts show no options. ' +
+      'Do not name Shopify, WACRM, Meta, native checkout, tools, handles, or other internal jargon to the customer. ' +
       'Asking the price or “how much” is not a buy request. ' +
-      'Do not invent a budget or a desire to buy from polite comments like “nice” or “looks expensive”. ' +
-      'Never re-pitch a product they already rejected.'
+      'Do not invent a budget or a desire to buy from polite comments like “nice”, “looks good”, or “നല്ലതാണ്”. ' +
+      'Never re-pitch a product they already rejected. Do not invent marketing claims the catalog does not support.'
   )
 }
 
@@ -371,6 +385,12 @@ function salesSnapshotBlock(raw?: string | null): string {
   const snapshot = raw?.trim() || ''
   if (!snapshot) return ''
   return snapshot
+}
+
+function productFactsBlock(raw?: string | null): string {
+  const facts = raw?.trim() || ''
+  if (!facts) return ''
+  return facts
 }
 
 function customerAddressBlock(name: string, firstWelcome = false): string {

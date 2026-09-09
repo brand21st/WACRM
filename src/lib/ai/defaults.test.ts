@@ -171,6 +171,23 @@ describe('buildSystemPrompt', () => {
     expect(prompt).toMatch(/Do not call search_products, list_new_arrivals/)
     expect(prompt).toMatch(/compare_products/)
     expect(prompt).toMatch(/Do not mention a WhatsApp cart/)
+    expect(prompt).toMatch(/Answer from Current product facts first/)
+    expect(prompt).toMatch(/do not recap title, price, and stock/)
+  })
+
+  it('injects trusted current-product facts and forbids stock hedging', () => {
+    const prompt = buildSystemPrompt({
+      userPrompt: null,
+      mode: 'auto_reply',
+      shopify: true,
+      productFocus: { handle: 'ag2660', title: 'Rayon Side slit Coord' },
+      productFacts:
+        'Current product facts\ntitle: Rayon Side slit Coord\navailability: in stock\nattribute_material: Rayon',
+    })
+    expect(prompt).toMatch(/availability: in stock/)
+    expect(prompt).toMatch(/attribute_material: Rayon/)
+    expect(prompt).toMatch(/do not say you cannot check stock/)
+    expect(prompt).toMatch(/A complete factual answer needs no question/)
   })
 
   it('injects a compact sales snapshot and latest-message-wins sales tone', () => {
@@ -186,7 +203,8 @@ describe('buildSystemPrompt', () => {
     expect(prompt).toMatch(/how much” is not a buy request/)
     expect(prompt).toMatch(/budget_max: 3000/)
     expect(prompt).toMatch(/rejected_products: p-red/)
-    expect(prompt).toMatch(/Do not name the store platform/)
+    expect(prompt).toMatch(/Do not name Shopify, WACRM, Meta/)
+    expect(prompt).toMatch(/only when a missing field would move the sale/)
   })
 
   it('tells the model to use native WhatsApp cart when commerce is on', () => {

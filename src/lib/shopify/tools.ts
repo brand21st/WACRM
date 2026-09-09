@@ -22,6 +22,11 @@ import {
   type CustomerProductInterest,
 } from './recommend'
 import {
+  compactAttributes,
+  descriptionExcerpt,
+} from './product-facts'
+import { inStockColors, inStockSizes } from './match-variant'
+import {
   DEFAULT_SEARCH_CARDS,
   resolveProductCardLimit,
 } from '@/lib/ai/product-card-limit'
@@ -763,7 +768,11 @@ function recommendNote(
   return undefined
 }
 
-function summarizeProduct(p: ShopifyProductHit) {
+export function summarizeProduct(p: ShopifyProductHit) {
+  const excerpt = descriptionExcerpt(p.description)
+  const attributes = compactAttributes(p.attributes)
+  const colors = inStockColors(p.variants)
+  const sizes = inStockSizes(p.variants)
   return {
     id: p.catalogId ?? p.id,
     title: p.title,
@@ -776,6 +785,10 @@ function summarizeProduct(p: ShopifyProductHit) {
     product_url: p.productUrl,
     cart_url: p.cartUrl,
     checkout_url: p.checkoutUrl,
+    ...(excerpt ? { description_excerpt: excerpt } : {}),
+    ...(attributes.length ? { attributes } : {}),
+    ...(colors.length ? { in_stock_colors: colors } : {}),
+    ...(sizes.length ? { in_stock_sizes: sizes } : {}),
     variants: p.variants.slice(0, 8).map((v) => ({
       title: v.title,
       sku: v.sku,

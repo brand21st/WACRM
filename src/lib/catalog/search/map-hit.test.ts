@@ -117,4 +117,26 @@ describe('catalogProductToHit', () => {
     expect(hit.productUrl).toBe('https://wacrm.example/p/red-bag')
     expect(toCard(hit).retailerId).toBe('BAG-RED')
   })
+
+  it('copies catalog attributes onto the hit', () => {
+    const hit = catalogProductToHit(
+      product({
+        attributes: [
+          {
+            id: 'a1',
+            accountId: 'acct-a',
+            productId: 'cat-1',
+            variantId: null,
+            attributeId: 'attr-material',
+            key: 'material',
+            label: 'Material',
+            value: 'Rayon',
+          },
+        ],
+      }),
+    )
+    expect(hit.attributes).toEqual([
+      { key: 'material', label: 'Material', value: 'Rayon' },
+    ])
+  })
 })

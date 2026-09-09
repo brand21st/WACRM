@@ -47,7 +47,22 @@ export function catalogProductToHit(
     priceMax: priceString(product.priceMax),
     currency,
     variants,
+    attributes: compactAttributes(product.attributes),
   }
+}
+
+function compactAttributes(
+  attributes: CatalogProduct['attributes'],
+): ShopifyProductHit['attributes'] {
+  if (!attributes?.length) return undefined
+  const rows = attributes
+    .map((item) => ({
+      key: item.key.trim(),
+      label: item.label.trim() || item.key.trim(),
+      value: item.value.trim(),
+    }))
+    .filter((item) => item.key && item.value)
+  return rows.length > 0 ? rows : undefined
 }
 
 function mapVariant(

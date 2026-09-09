@@ -51,6 +51,8 @@ export interface ShopifyProductHit {
   /** WACRM catalog_products.id when the hit was mapped from catalog_*. */
   catalogId?: string
   brand?: string | null
+  /** Catalog attribute values (material, fabric, fit) when mapped from catalog_*. */
+  attributes?: { key: string; label: string; value: string }[]
   recommendReasons?: import('@/lib/catalog/intelligence/types').RecommendReason[]
   recommendMode?: import('@/lib/catalog/intelligence/types').RecommendIntent
   recommendScore?: number

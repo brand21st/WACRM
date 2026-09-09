@@ -48,7 +48,12 @@ export {
   executeShopifyTool,
   toCard,
   productInStock,
+  summarizeProduct,
 } from './tools'
+export {
+  formatCurrentProductFacts,
+  formatAvailabilityLine,
+} from './product-facts'
 export {
   inStockColors,
   inStockSizes,

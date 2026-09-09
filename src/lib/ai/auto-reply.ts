@@ -118,7 +118,8 @@ import {
   recordShownRecommendationEvents,
 } from '@/lib/catalog/intelligence/recommend'
 import { mergeAndPersistShoppingContext, loadShoppingContext, emptyShoppingContext, formatSalesSnapshot } from '@/lib/catalog/intelligence/shopping-context'
-import { classifySalesTurn, unlocksCatalogBrowse } from '@/lib/shopify/sales-turn'
+import { classifySalesTurn, shouldPersistSalesContext, unlocksCatalogBrowse } from '@/lib/shopify/sales-turn'
+import { formatCurrentProductFacts } from '@/lib/shopify/product-facts'
 import { recordCatalogProductEvents } from '@/lib/catalog/analytics/events'
 
 interface DispatchArgs {
@@ -496,7 +497,7 @@ export async function dispatchInboundToAiReply(
       await clearProductFocus(db, conversationId)
       productFocus = null
     }
-    if (salesTurn.kind !== 'stay') {
+    if (shouldPersistSalesContext(salesTurn.kind)) {
       try {
         shopping = await mergeAndPersistShoppingContext(db, {
           accountId,
@@ -540,6 +541,7 @@ export async function dispatchInboundToAiReply(
     const catalogConfig = shopify ?? catalogOnlyStoreConfig(accountId, {
       metaCatalogId: commerce?.metaCatalogId ?? null,
     })
+    let focusedHit: ShopifyProductHit | null = null
     if (productFocus) {
       try {
         const focusedLive = await getProductFromCatalog(
@@ -548,6 +550,7 @@ export async function dispatchInboundToAiReply(
           productFocus.handle,
         )
         if (focusedLive) {
+          focusedHit = focusedLive
           const selected = variantFromFocus(focusedLive, productFocus)
           productCards.push(
             toCard(focusedLive, commerce?.retailerIdSource ?? 'sku', selected),
@@ -621,6 +624,9 @@ export async function dispatchInboundToAiReply(
     }
 
     const salesSnapshot = formatSalesSnapshot(shopping, productFocus)
+    const productFacts = focusedHit
+      ? formatCurrentProductFacts(focusedHit, productFocus)
+      : ''
     const systemPrompt = buildSystemPrompt({
       userPrompt: config.systemPrompt,
       mode: 'auto_reply',
@@ -637,6 +643,7 @@ export async function dispatchInboundToAiReply(
       replyLanguage,
       productFocus,
       salesSnapshot,
+      productFacts,
     })
 
     const channels = resolveReplyChannels(
@@ -673,6 +680,7 @@ export async function dispatchInboundToAiReply(
       replyLanguage,
       productFocus,
       salesSnapshot,
+      productFacts,
       tools: shopifyTools.tools,
       executeTool: shopifyTools.executeTool,
     })
@@ -1280,6 +1288,7 @@ export async function generateCustomerFacingReply(args: {
   replyLanguage?: ChatLanguageLock | null
   productFocus?: ProductFocus | null
   salesSnapshot?: string | null
+  productFacts?: string | null
   tools?: LlmToolDef[]
   executeTool?: ExecuteLlmTool
 }): Promise<{ text: string; handoff: boolean }> {
@@ -1330,6 +1339,7 @@ export async function generateCustomerFacingReply(args: {
         replyLanguage: args.replyLanguage,
         productFocus: args.productFocus,
         salesSnapshot: args.salesSnapshot,
+        productFacts: args.productFacts,
       }),
       messages: args.messages,
       customerName: args.customerName,

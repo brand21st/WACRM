@@ -88,6 +88,31 @@ describe('mergeShoppingContext', () => {
     expect(merged.sizes).toEqual(['M'])
   })
 
+  it('applies budget from a Malayalam under-price line', async () => {
+    const db = createCatalogMemoryDb(intelSeed())
+    const merged = await mergeShoppingContext(db, {
+      accountId: 'acct-a',
+      text: '₹3000 ഉള്ളിൽ',
+    })
+    expect(merged.maxPrice).toBe(3000)
+  })
+
+  it('updates both switch and budget from combined Malayalam text', async () => {
+    const db = createCatalogMemoryDb(intelSeed())
+    const previous = emptyShoppingContext()
+    previous.selectedIds = ['p-red']
+    previous.colors = ['red']
+    const merged = await mergeShoppingContext(db, {
+      accountId: 'acct-a',
+      previous,
+      text: '3000 രൂപയ്ക്കുള്ളിൽ വേറെ saree',
+      rejectedIds: ['p-red'],
+    })
+    expect(merged.maxPrice).toBe(3000)
+    expect(merged.rejectedIds).toContain('p-red')
+    expect(merged.selectedIds).not.toContain('p-red')
+  })
+
   it('formats a compact sales snapshot without inventing facts', () => {
     const shopping = emptyShoppingContext('consideration')
     shopping.maxPrice = 3000

@@ -26,7 +26,7 @@ export function buildFollowUpSystemPrompt(opts: {
     'Do not claim the customer wants something they never requested.',
     'Do not fabricate urgency, discounts, prices, stock, delivery times, or order status.',
     'Do not mention that this message is automated.',
-    'Do not use generic sales lines like "are you still interested" unless that is exactly what the thread needs.',
+    'Never send a generic “are you still interested” line. Continue the actual thread: the current product, budget, or unanswered question.',
     'If they already purchased or clearly declined, skip.',
     'If there is no meaningful reason to follow up, skip.',
     snapshot ? snapshot : '',

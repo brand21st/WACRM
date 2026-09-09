@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { classifySalesTurn, unlocksCatalogBrowse } from './sales-turn'
+import { classifySalesTurn, unlocksCatalogBrowse, shouldPersistSalesContext } from './sales-turn'
 
 describe('classifySalesTurn', () => {
   it('treats greetings as stay', () => {
@@ -76,6 +76,59 @@ describe('classifySalesTurn', () => {
     expect(classifySalesTurn('available?', { hasFocus: true }).kind).toBe(
       'product_question',
     )
+    expect(classifySalesTurn('what is this?', { hasFocus: true }).kind).toBe(
+      'product_question',
+    )
+    expect(classifySalesTurn('tell me about this', { hasFocus: true }).kind).toBe(
+      'product_question',
+    )
+    expect(classifySalesTurn('ഈ product എന്താണ്?', { hasFocus: true }).kind).toBe(
+      'product_question',
+    )
+    expect(classifySalesTurn('ഇതെന്താണ്?', { hasFocus: true }).kind).toBe(
+      'product_question',
+    )
+    expect(classifySalesTurn('ഇത് ഏത് material ആണ്?', { hasFocus: true }).kind).toBe(
+      'product_question',
+    )
+    expect(classifySalesTurn('ഇത് available ആണോ?', { hasFocus: true }).kind).toBe(
+      'product_question',
+    )
+    expect(classifySalesTurn('cotton ആണോ?', { hasFocus: true }).kind).toBe(
+      'product_question',
+    )
+    expect(unlocksCatalogBrowse('product_question')).toBe(false)
+  })
+
+  it('treats a named color availability ask as variant, not a product switch', () => {
+    expect(classifySalesTurn('Red color ഉണ്ടോ?', { hasFocus: true }).kind).toBe(
+      'variant_change',
+    )
+  })
+
+  it('does not treat polite praise as purchase', () => {
+    expect(classifySalesTurn('നല്ലതാണ്', { hasFocus: true }).kind).toBe('stay')
+    expect(classifySalesTurn('nice', { hasFocus: true }).kind).toBe('stay')
+    expect(classifySalesTurn('looks good', { hasFocus: true }).kind).toBe('stay')
+    expect(classifySalesTurn('looks beautiful', { hasFocus: true }).kind).toBe('stay')
+  })
+
+  it('classifies Malayalam take-it as purchase', () => {
+    expect(classifySalesTurn('എടുക്കാം', { hasFocus: true }).kind).toBe('purchase')
+    expect(classifySalesTurn('ഇത് എടുക്കാം', { hasFocus: true }).kind).toBe('purchase')
+    expect(classifySalesTurn('എടുക്കട്ടെ', { hasFocus: true }).kind).toBe('purchase')
+  })
+
+  it('classifies budget plus another product as a switch that still carries the budget text', () => {
+    expect(
+      classifySalesTurn('3000 രൂപയ്ക്കുള്ളിൽ വേറെ saree', { hasFocus: true }).kind,
+    ).toBe('product_switch')
+  })
+
+  it('does not persist polite praise as shopping facts', () => {
+    expect(shouldPersistSalesContext('stay')).toBe(false)
+    expect(shouldPersistSalesContext('product_question')).toBe(true)
+    expect(shouldPersistSalesContext('purchase')).toBe(true)
   })
 
   it('classifies comparison asks', () => {

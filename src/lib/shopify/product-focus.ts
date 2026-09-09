@@ -39,7 +39,7 @@ const NATIVE_CART_TALK =
   /\b\d+\s+items?\b|\bin your cart\b|\byour cart\b|\bcart-ൽ\b|\bcart-il\b|\badd to cart\b|\bsend order\b|\breview and pay\b|\bwhatsapp catalog\b/i
 
 const ORDER_INTENT =
-  /\b(order|buy(?:ing)?|bought|purchase|checkout|cart|book(?:ing)?|wanna buy|cheyanam|cheyyanam|want(?:s)? to (?:buy|order|purchase)|want this|need this|need to (?:buy|order)|take (?:this|it|one)|i(?:'|’)?ll (?:take|buy)|i will (?:take|buy)|can i (?:buy|order)|add to cart|send (?:me )?(?:the )?(?:link|checkout)|i want (?:this|it|one|to (?:order|buy|purchase)))\b|ഇത്\s*വേണം|വാങ്ങ|ഓർഡർ|खरीद|ऑर्डर|வாங்க/i
+  /\b(order|buy(?:ing)?|bought|purchase|checkout|cart|book(?:ing)?|wanna buy|cheyanam|cheyyanam|want(?:s)? to (?:buy|order|purchase)|want this|need this|need to (?:buy|order)|take (?:this|it|one)|i(?:'|’)?ll (?:take|buy)|i will (?:take|buy)|can i (?:buy|order)|add to cart|send (?:me )?(?:the )?(?:link|checkout)|i want (?:this|it|one|to (?:order|buy|purchase)))\b|ഇത്\s*വേണം|(?:ഇത്\s*)?എടുക്കാം|എടുക്കട്ടെ|വാങ്ങ|ഓർഡർ|खरीद|ऑर्डर|வாங்க/i
 
 export function parseProductFocus(raw: unknown): ProductFocus | null {
   if (!raw || typeof raw !== 'object') return null
