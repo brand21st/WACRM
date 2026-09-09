@@ -32,6 +32,8 @@ const h = vi.hoisted(() => ({
   engineSendCatalogMessage: vi.fn(),
   buildCatalogCollectionSections: vi.fn(),
   loadCommerceSettings: vi.fn(),
+  handleInboundWhatsAppOrder: vi.fn(),
+  conversationHasPendingCommerceOrder: vi.fn(),
   engineSendMedia: vi.fn(),
   engineSendTypingIndicator: vi.fn(),
   textToSpeech: vi.fn(),
@@ -159,6 +161,8 @@ vi.mock('@/lib/commerce/checkout', () => ({
   tryCompleteCommerceAddress: vi.fn(async () => false),
   tryCompleteCommerceDiscount: vi.fn(async () => false),
   tryCompleteCommerceEmail: vi.fn(async () => false),
+  handleInboundWhatsAppOrder: h.handleInboundWhatsAppOrder,
+  conversationHasPendingCommerceOrder: h.conversationHasPendingCommerceOrder,
 }))
 vi.mock('./speech', () => ({
   canSpeak: (config: { ttsEnabled: boolean; voiceProvider: string; elevenlabsApiKey: string | null; sarvamApiKey: string | null }) =>
@@ -336,6 +340,8 @@ beforeEach(() => {
     hasRazorpayWebhookSecret: false,
     shipBeneficiary: null,
   })
+  h.handleInboundWhatsAppOrder.mockReset().mockResolvedValue('awaiting_address')
+  h.conversationHasPendingCommerceOrder.mockReset().mockResolvedValue(false)
   h.executeShopifyTool.mockResolvedValue({ json: '{}', cards: [] })
   h.buildCartOffer.mockReturnValue(null)
   h.resolveCartOfferItems.mockResolvedValue([])
@@ -3226,7 +3232,9 @@ describe('dispatchInboundToAiReply — agent product focus', () => {
     expect(h.engineSendText).not.toHaveBeenCalledWith(
       expect.objectContaining({ text: expect.stringMatching(/3 items/i) }),
     )
+    expect(h.generateReply).not.toHaveBeenCalled()
     expect(h.engineSendCtaUrl).not.toHaveBeenCalled()
+    expect(h.handleInboundWhatsAppOrder).not.toHaveBeenCalled()
   })
 
   it('sends variant lists then Confirm order / Continue chat on order intent', async () => {
@@ -3243,6 +3251,27 @@ describe('dispatchInboundToAiReply — agent product focus', () => {
     expect(h.engineSendInteractiveList).toHaveBeenCalledWith(
       expect.objectContaining({ buttonLabel: 'Choose color' }),
     )
+    expect(h.generateReply).not.toHaveBeenCalled()
+    expect(h.engineSendCtaUrl).not.toHaveBeenCalled()
+    expect(h.handleInboundWhatsAppOrder).not.toHaveBeenCalled()
+  })
+
+  it('sends variant lists for എടുക്കാം when color and size are still missing', async () => {
+    h.buildConversationContext.mockResolvedValue([
+      { role: 'user', content: 'എടുക്കാം' },
+    ])
+    h.generateReply.mockResolvedValue({
+      text: 'Choose a color for Pournami.',
+      handoff: false,
+    })
+
+    await dispatchInboundToAiReply(ARGS)
+
+    expect(h.engineSendInteractiveList).toHaveBeenCalledWith(
+      expect.objectContaining({ buttonLabel: 'Choose color' }),
+    )
+    expect(h.generateReply).not.toHaveBeenCalled()
+    expect(h.handleInboundWhatsAppOrder).not.toHaveBeenCalled()
     expect(h.engineSendCtaUrl).not.toHaveBeenCalled()
   })
 
@@ -3281,7 +3310,7 @@ describe('dispatchInboundToAiReply — agent product focus', () => {
     )
   })
 
-  it('sends the variant checkout card on Confirm order', async () => {
+  it('hands Confirm order to native checkout without a product card or Checkout NOW', async () => {
     h.loadCommerceSettings.mockResolvedValue({
       metaCatalogId: 'cat-1',
       metaCatalogAutoSync: false,
@@ -3319,14 +3348,232 @@ describe('dispatchInboundToAiReply — agent product focus', () => {
 
     await dispatchInboundToAiReply(ARGS)
 
+    expect(h.generateReply).not.toHaveBeenCalled()
+    expect(h.handleInboundWhatsAppOrder).toHaveBeenCalledWith(
+      expect.objectContaining({
+        conversationId: 'conv-1',
+        message: expect.objectContaining({
+          order: expect.objectContaining({
+            product_items: [
+              expect.objectContaining({ product_retailer_id: 'P-RED-L' }),
+            ],
+          }),
+        }),
+      }),
+    )
+    expect(h.engineSendCtaUrl).not.toHaveBeenCalled()
+    expect(h.engineSendMedia).not.toHaveBeenCalled()
+    expect(h.engineSendProduct).not.toHaveBeenCalled()
+  })
+
+  it('sends one Shopify Checkout NOW on Confirm order when native commerce is off', async () => {
+    h.loadCommerceSettings.mockResolvedValue({
+      metaCatalogId: null,
+      metaCatalogAutoSync: false,
+      lastMetaCatalogSyncAt: null,
+      metaCatalogItemCount: 0,
+      retailerIdSource: 'sku',
+      waPaymentConfigurationName: null,
+      razorpayKeyId: null,
+      hasRazorpaySecret: false,
+      hasRazorpayWebhookSecret: false,
+      shipBeneficiary: null,
+    })
+    h.state.conv = {
+      assigned_agent_id: null,
+      ai_autoreply_disabled: false,
+      ai_reply_count: 0,
+      ai_product_focus: focusedConv({
+        stage: 'ready_to_confirm',
+        variantId: '12',
+        color: 'Red',
+        size: 'L',
+      }),
+    }
+    h.buildConversationContext.mockResolvedValue([
+      {
+        role: 'user',
+        content:
+          '[Customer tapped "Confirm order" (action: wacrm:confirm_order)]',
+      },
+    ])
+    h.generateReply.mockResolvedValue({
+      text: 'Here is checkout for Pournami Red L.',
+      handoff: false,
+    })
+
+    await dispatchInboundToAiReply(ARGS)
+
+    expect(h.generateReply).not.toHaveBeenCalled()
+    expect(h.handleInboundWhatsAppOrder).not.toHaveBeenCalled()
+    expect(h.engineSendCtaUrl).toHaveBeenCalledTimes(1)
     expect(h.engineSendCtaUrl).toHaveBeenCalledWith(
       expect.objectContaining({
         displayText: 'Checkout NOW',
-        url: 'https://shop.example/cart/12:1?checkout',
-        shopifyHandle: 'pournami-red',
-        shopifyVariantId: '12',
       }),
     )
+    expect(h.engineSendMedia).not.toHaveBeenCalled()
+    expect(h.engineSendProduct).not.toHaveBeenCalled()
+  })
+
+  it('sends one Shopify Checkout NOW when native cart mapping is skipped', async () => {
+    h.loadCommerceSettings.mockResolvedValue({
+      metaCatalogId: 'cat-1',
+      metaCatalogAutoSync: false,
+      lastMetaCatalogSyncAt: null,
+      metaCatalogItemCount: 3,
+      retailerIdSource: 'sku',
+      waPaymentConfigurationName: 'razorpay_prod',
+      razorpayKeyId: null,
+      hasRazorpaySecret: false,
+      hasRazorpayWebhookSecret: false,
+      shipBeneficiary: null,
+    })
+    h.handleInboundWhatsAppOrder.mockResolvedValue('skipped')
+    h.state.conv = {
+      assigned_agent_id: null,
+      ai_autoreply_disabled: false,
+      ai_reply_count: 0,
+      ai_product_focus: focusedConv({
+        stage: 'ready_to_confirm',
+        variantId: '12',
+        color: 'Red',
+        size: 'L',
+      }),
+    }
+    h.buildConversationContext.mockResolvedValue([
+      {
+        role: 'user',
+        content:
+          '[Customer tapped "Confirm order" (action: wacrm:confirm_order)]',
+      },
+    ])
+    h.generateReply.mockResolvedValue({
+      text: 'Here is checkout for Pournami Red L.',
+      handoff: false,
+    })
+
+    await dispatchInboundToAiReply(ARGS)
+
+    expect(h.generateReply).not.toHaveBeenCalled()
+    expect(h.handleInboundWhatsAppOrder).toHaveBeenCalled()
+    expect(h.engineSendCtaUrl).toHaveBeenCalledTimes(1)
+    expect(h.engineSendCtaUrl).toHaveBeenCalledWith(
+      expect.objectContaining({ displayText: 'Checkout NOW' }),
+    )
+  })
+
+  it('keeps Confirm order on the focused handle and variant, not a previously shown product', async () => {
+    h.loadCommerceSettings.mockResolvedValue({
+      metaCatalogId: 'cat-1',
+      metaCatalogAutoSync: false,
+      lastMetaCatalogSyncAt: null,
+      metaCatalogItemCount: 3,
+      retailerIdSource: 'sku',
+      waPaymentConfigurationName: 'razorpay_prod',
+      razorpayKeyId: null,
+      hasRazorpaySecret: false,
+      hasRazorpayWebhookSecret: false,
+      shipBeneficiary: null,
+    })
+    const ag2664 = {
+      ...POURNAMI,
+      id: 'gid://shopify/Product/2664',
+      handle: 'ag2664',
+      title: 'AG2664 Coord',
+      variants: [
+        {
+          id: 'g-pink',
+          variantId: '2664-3xl',
+          title: 'Light Pink / 3XL',
+          sku: 'AG2664-LP-3XL',
+          price: '2499',
+          compareAtPrice: null,
+          available: true,
+          options: [
+            { name: 'Color', value: 'Light Pink' },
+            { name: 'Size', value: '3XL' },
+          ],
+        },
+      ],
+    }
+    h.getProductLive.mockResolvedValue(ag2664)
+    h.getProductFromCatalog.mockResolvedValue(ag2664)
+    h.state.conv = {
+      assigned_agent_id: null,
+      ai_autoreply_disabled: false,
+      ai_reply_count: 0,
+      ai_product_focus: focusedConv({
+        handle: 'ag2664',
+        title: 'AG2664 Coord',
+        stage: 'ready_to_confirm',
+        variantId: '2664-3xl',
+        color: 'Light Pink',
+        size: '3XL',
+      }),
+    }
+    h.buildConversationContext.mockResolvedValue([
+      {
+        role: 'user',
+        content:
+          '[Customer tapped "Confirm order" (action: wacrm:confirm_order)]',
+      },
+    ])
+
+    await dispatchInboundToAiReply(ARGS)
+
+    expect(h.getProductLive).toHaveBeenCalledWith(
+      expect.anything(),
+      'ag2664',
+    )
+    expect(h.handleInboundWhatsAppOrder).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: expect.objectContaining({
+          order: expect.objectContaining({
+            product_items: [
+              expect.objectContaining({
+                product_retailer_id: 'AG2664-LP-3XL',
+              }),
+            ],
+          }),
+        }),
+      }),
+    )
+    expect(h.engineSendCtaUrl).not.toHaveBeenCalled()
+  })
+
+  it('does not run sales AI while a native checkout is pending', async () => {
+    h.conversationHasPendingCommerceOrder.mockResolvedValue(true)
+    h.buildConversationContext.mockResolvedValue([
+      { role: 'user', content: 'വേറെ kurti കാണിക്കൂ' },
+    ])
+    h.generateReply.mockResolvedValue({
+      text: 'Here are more kurtis.',
+      handoff: false,
+    })
+
+    await dispatchInboundToAiReply(ARGS)
+
+    expect(h.generateReply).not.toHaveBeenCalled()
+    expect(h.engineSendCtaUrl).not.toHaveBeenCalled()
+    expect(h.engineSendInteractiveList).not.toHaveBeenCalled()
+    expect(h.handleInboundWhatsAppOrder).not.toHaveBeenCalled()
+  })
+
+  it('does not start purchase from നല്ലതാണ്', async () => {
+    h.buildConversationContext.mockResolvedValue([
+      { role: 'user', content: 'നല്ലതാണ്' },
+    ])
+    h.generateReply.mockResolvedValue({
+      text: 'Glad you like it.',
+      handoff: false,
+    })
+
+    await dispatchInboundToAiReply(ARGS)
+
+    expect(h.handleInboundWhatsAppOrder).not.toHaveBeenCalled()
+    expect(h.engineSendCtaUrl).not.toHaveBeenCalled()
+    expect(h.generateReply).toHaveBeenCalled()
   })
 
   it('keeps the focused product on Continue chat without checkout', async () => {

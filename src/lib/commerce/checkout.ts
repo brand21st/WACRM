@@ -3,18 +3,29 @@ import { loadCommerceSettings } from '@/lib/shopify/commerce-config'
 import { loadShopifyConfig } from '@/lib/shopify/config'
 import { isMissingDbRelation } from '@/lib/shopify/config-db'
 import {
+  CHECKOUT_BUTTON_LABEL,
+  VIEW_CART_BUTTON_LABEL,
+} from '@/lib/ai/checkout-cta'
+import {
   engineSendAddressMessage,
+  engineSendCtaUrl,
   engineSendInteractiveButtons,
   engineSendInteractiveList,
   engineSendOrderDetails,
   engineSendText,
 } from '@/lib/flows/meta-send'
+import { buildCartOffer } from '@/lib/shopify/cart-offer'
+import type { CartOfferItem } from '@/lib/shopify/cart-offer'
+import {
+  numericShopifyId,
+  parseFacebookShopifyRetailerId,
+} from '@/lib/shopify/retailer-id'
 import type { AddressMessageValues } from '@/lib/whatsapp/meta-api'
 import { buildOrderDetailsInteractive } from './order-details'
 import { newCommerceReferenceId } from './money'
 import { nativeCommerceEnabled } from './types'
 import type { CommerceBeneficiary, MappedCartLine } from './types'
-import { parseInboundOrderMessage } from './inbound-order'
+import { formatCartMoney, parseInboundOrderMessage } from './inbound-order'
 import { mapCartLinesToShopify } from './map-lines'
 import { recordCatalogLineEvents } from '@/lib/catalog/analytics/events'
 import {
@@ -81,20 +92,36 @@ export async function handleInboundWhatsAppOrder(args: {
   contactPhone: string | null
   contactName: string | null
   message: { order?: unknown }
-}): Promise<'awaiting_confirmation' | 'awaiting_address' | 'skipped'> {
+}): Promise<
+  'awaiting_confirmation' | 'awaiting_address' | 'shopify_checkout' | 'skipped'
+> {
   const parsed = parseInboundOrderMessage(args.message)
   if (!parsed) return 'skipped'
 
   const settings = await loadCommerceSettings(args.db, args.accountId)
-  if (!nativeCommerceEnabled(settings)) return 'skipped'
-
   const { lines, missing } = await mapCartLinesToShopify(
     args.db,
     args.accountId,
     parsed.items,
     settings.retailerIdSource,
   )
+
+  if (!nativeCommerceEnabled(settings)) {
+    const sent = await sendShopifyCheckoutForInboundCart({
+      ...args,
+      lines,
+      items: parsed.items,
+    })
+    return sent ? 'shopify_checkout' : 'skipped'
+  }
+
   if (missing.length > 0 || lines.length === 0) {
+    const sent = await sendShopifyCheckoutForInboundCart({
+      ...args,
+      lines,
+      items: parsed.items,
+    })
+    if (sent) return 'shopify_checkout'
     await insertInboxNote(
       args.db,
       args.conversationId,
@@ -162,6 +189,140 @@ export async function handleInboundWhatsAppOrder(args: {
     itemCount: lines.length,
   })
   return 'awaiting_confirmation'
+}
+
+/** When WhatsApp payments are off, still send Shopify View cart + Checkout NOW. */
+async function sendShopifyCheckoutForInboundCart(args: {
+  db: SupabaseClient
+  accountId: string
+  userId: string
+  conversationId: string
+  contactId: string
+  lines: MappedCartLine[]
+  items: Array<{
+    product_retailer_id: string
+    quantity: number
+    name?: string
+    item_price?: number
+    compare_at_price?: number
+    currency?: string
+  }>
+}): Promise<boolean> {
+  const domain = await loadStorefrontDomain(args.db, args.accountId)
+  const offerItems = shopifyCartItemsFromInboundOrder({
+    lines: args.lines,
+    items: args.items,
+  })
+  const offer = buildCartOffer(domain, offerItems)
+  if (!offer) {
+    await insertInboxNote(
+      args.db,
+      args.conversationId,
+      'WhatsApp cart received but Shopify checkout could not be built (missing store domain or variant id).',
+    )
+    return false
+  }
+
+  const sendArgs = {
+    accountId: args.accountId,
+    userId: args.userId,
+    conversationId: args.conversationId,
+    contactId: args.contactId,
+    aiGenerated: true as const,
+  }
+  const body = (offer.summaryLines.join('\n') || 'Your cart').slice(0, 1024)
+  try {
+    await engineSendCtaUrl({
+      ...sendArgs,
+      bodyText: body,
+      displayText: VIEW_CART_BUTTON_LABEL,
+      url: offer.cartUrl,
+    })
+    await engineSendCtaUrl({
+      ...sendArgs,
+      bodyText: body,
+      displayText: CHECKOUT_BUTTON_LABEL,
+      url: offer.checkoutUrl,
+    })
+    return true
+  } catch (err) {
+    console.error('[commerce] Shopify checkout CTA send failed:', err)
+    await insertInboxNote(
+      args.db,
+      args.conversationId,
+      `Could not send Shopify checkout: ${err instanceof Error ? err.message : String(err)}`,
+    )
+    return false
+  }
+}
+
+export function shopifyCartItemsFromInboundOrder(args: {
+  lines: MappedCartLine[]
+  items: Array<{
+    product_retailer_id: string
+    quantity: number
+    name?: string
+    item_price?: number
+    compare_at_price?: number
+    currency?: string
+  }>
+}): CartOfferItem[] {
+  const fromLines: CartOfferItem[] = []
+  for (const line of args.lines) {
+    const variantId = checkoutVariantId(line)
+    if (!variantId) continue
+    fromLines.push({
+      variantId,
+      quantity: line.quantity,
+      title: line.name,
+      price: line.amountPaise
+        ? formatCartMoney(line.amountPaise / 100, 'INR')
+        : undefined,
+    })
+  }
+  if (fromLines.length > 0) return fromLines
+
+  const fromIds: CartOfferItem[] = []
+  for (const item of args.items) {
+    const facebook = parseFacebookShopifyRetailerId(item.product_retailer_id)
+    const variantId =
+      facebook?.variantId ||
+      (/^\d+$/.test(item.product_retailer_id.trim())
+        ? item.product_retailer_id.trim()
+        : '')
+    if (!variantId) continue
+    fromIds.push({
+      variantId,
+      quantity: item.quantity,
+      title: item.name?.trim() || item.product_retailer_id,
+    })
+  }
+  return fromIds
+}
+
+async function loadStorefrontDomain(
+  db: SupabaseClient,
+  accountId: string,
+): Promise<string | null> {
+  const { data } = await db
+    .from('shopify_configs')
+    .select('primary_domain, shop_domain')
+    .eq('account_id', accountId)
+    .maybeSingle()
+  const row = data as { primary_domain?: string | null; shop_domain?: string | null } | null
+  const fromRow = row?.primary_domain || row?.shop_domain || null
+  if (fromRow) return fromRow
+  const shopify = await loadShopifyConfig(db, accountId).catch(() => null)
+  return shopify?.primaryDomain || shopify?.shopDomain || null
+}
+
+function checkoutVariantId(line: MappedCartLine): string {
+  const fromVariant = numericShopifyId(line.variantId)
+  if (fromVariant) return fromVariant
+  const facebook = parseFacebookShopifyRetailerId(line.retailer_id)
+  if (facebook) return facebook.variantId
+  if (/^\d+$/.test(line.retailer_id.trim())) return line.retailer_id.trim()
+  return ''
 }
 
 /**
@@ -1445,6 +1606,28 @@ async function loadAwaitingAddressOrder(
   }
   if (!data || data.awaiting_address !== true) return null
   return data
+}
+
+/** True when this thread has an unpaid native checkout still collecting address/payment. */
+export async function conversationHasPendingCommerceOrder(
+  db: SupabaseClient,
+  accountId: string,
+  conversationId: string,
+): Promise<boolean> {
+  const { data, error } = await db
+    .from('whatsapp_commerce_orders')
+    .select('id')
+    .eq('account_id', accountId)
+    .eq('conversation_id', conversationId)
+    .eq('status', 'pending')
+    .limit(1)
+    .maybeSingle()
+  if (error) {
+    if (isMissingDbRelation(error, 'whatsapp_commerce_orders')) return false
+    console.warn('[commerce] pending order lookup failed:', error)
+    return false
+  }
+  return Boolean(data && typeof data === 'object' && 'id' in data && data.id)
 }
 
 export async function insertInboxNote(

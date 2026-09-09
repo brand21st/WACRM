@@ -94,10 +94,14 @@ import {
 import { loadCommerceSettings } from '@/lib/shopify/commerce-config'
 import { nativeCommerceEnabled } from '@/lib/commerce/types'
 import {
+  conversationHasPendingCommerceOrder,
+  handleInboundWhatsAppOrder,
   tryCompleteCommerceAddress,
   tryCompleteCommerceDiscount,
   tryCompleteCommerceEmail,
 } from '@/lib/commerce/checkout'
+import { webhookMessageFromInboundCart } from '@/lib/commerce/inbound-order'
+import { retailerIdForVariant } from '@/lib/shopify/retailer-id'
 import type { CartOffer, ShopifyOrderCard, ShopifyProductCard, ShopifyProductHit, ShopifyStoreConfig, ShopifyVariantHit } from '@/lib/shopify'
 import { rehostPublicImage } from '@/lib/storage/generated-media'
 import type { ExecuteLlmTool, LlmToolDef } from './providers/shared'
@@ -420,6 +424,10 @@ export async function dispatchInboundToAiReply(
       if (handledAddress) return
     }
 
+    if (await conversationHasPendingCommerceOrder(db, accountId, conversationId)) {
+      return
+    }
+
     const productCards: ShopifyProductCard[] = []
     const orderCards: ShopifyOrderCard[] = []
     const cartOfferHolder: { value: CartOffer | null } = { value: null }
@@ -440,6 +448,10 @@ export async function dispatchInboundToAiReply(
     const moreOptionsTap = lastMessageHasAction(
       messages,
       WACRM_CHAT_BUTTON_IDS.moreOptions,
+    )
+    const confirmTap = lastMessageHasAction(
+      messages,
+      WACRM_CHAT_BUTTON_IDS.confirmOrder,
     )
     let productFocus = productsTap
       ? null
@@ -521,6 +533,29 @@ export async function dispatchInboundToAiReply(
       } catch (err) {
         console.warn('[ai auto-reply] shopping merge failed:', err)
       }
+    }
+    if (
+      productFocus &&
+      shopify &&
+      !continueChatTap &&
+      (confirmTap || salesTurn.kind === 'purchase')
+    ) {
+      if (!(await claimReplySlot(db, conversationId, config))) return
+      const handed = await handoffFocusedPurchase({
+        db,
+        shopify,
+        sendArgs,
+        conversationId,
+        focus: productFocus,
+        queryText,
+        confirmTap,
+        nativeCommerce,
+        retailerIdSource: commerce?.retailerIdSource,
+        catalogId: commerce?.metaCatalogId ?? shopify.metaCatalogId,
+        contactPhone: contactRow?.phone ?? null,
+        contactName: contactRow?.name ?? null,
+      })
+      if (handed) return
     }
     if (productFocus) {
       const scoped = scopeMessagesToProductFocus(messages, productFocus)
@@ -726,11 +761,6 @@ export async function dispatchInboundToAiReply(
       handoff = generated.handoff
     }
 
-    const confirmTap = lastMessageHasAction(
-      messages,
-      WACRM_CHAT_BUTTON_IDS.confirmOrder,
-    )
-
     let cartOffer = nativeCommerce || productFocus
       ? null
       : moreOptionsTap
@@ -928,8 +958,11 @@ export async function dispatchInboundToAiReply(
               sendArgs,
               textForCustomer,
               confirmTap,
-              nativeCommerce: false,
+              nativeCommerce,
               retailerIdSource: commerce?.retailerIdSource,
+              catalogId: commerce?.metaCatalogId ?? shopify.metaCatalogId,
+              contactPhone: contactRow?.phone ?? null,
+              contactName: contactRow?.name ?? null,
               compiledVoice,
               sendShoppingAudio,
               config,
@@ -1002,8 +1035,11 @@ export async function dispatchInboundToAiReply(
         confirmTap,
         continueChatTap,
         focusedOrderIntent,
-        nativeCommerce: false,
+        nativeCommerce,
         retailerIdSource: commerce?.retailerIdSource,
+        catalogId: commerce?.metaCatalogId ?? shopify.metaCatalogId,
+        contactPhone: contactRow?.phone ?? null,
+        contactName: contactRow?.name ?? null,
         compiledVoice,
         sendShoppingAudio,
         config,
@@ -1584,6 +1620,240 @@ function variantFromFocus(
   })
 }
 
+async function handoffFocusedPurchase(args: {
+  db: SupabaseClient
+  shopify: ShopifyStoreConfig
+  sendArgs: SendArgs
+  conversationId: string
+  focus: ProductFocus
+  queryText: string
+  confirmTap: boolean
+  nativeCommerce: boolean
+  retailerIdSource?: RetailerIdSource
+  catalogId?: string | null
+  contactPhone: string | null
+  contactName: string | null
+}): Promise<boolean> {
+  let live: ShopifyProductHit | null = null
+  try {
+    live = await getProductLive(args.shopify, args.focus.handle)
+  } catch (err) {
+    console.warn('[ai auto-reply] purchase handoff live load failed:', err)
+  }
+  if (!live) {
+    try {
+      live = await getProductFromCatalog(
+        args.db,
+        args.shopify,
+        args.focus.handle,
+      )
+    } catch (err) {
+      console.warn('[ai auto-reply] purchase handoff catalog load failed:', err)
+    }
+  }
+  if (!live) return false
+
+  const already = variantFromFocus(live, args.focus)
+  if (already && (args.confirmTap || args.focus.stage === 'ready_to_confirm')) {
+    await saveProductFocus(args.db, args.conversationId, {
+      ...args.focus,
+      title: live.title,
+      handle: live.handle,
+      variantId: already.variantId,
+      stage: 'ready_to_confirm',
+      introSent: true,
+    })
+    if (args.confirmTap) {
+      return completeFocusedPurchase({
+        db: args.db,
+        sendArgs: args.sendArgs,
+        product: live,
+        variant: already,
+        nativeCommerce: args.nativeCommerce,
+        retailerIdSource: args.retailerIdSource,
+        catalogId: args.catalogId,
+        contactPhone: args.contactPhone,
+        contactName: args.contactName,
+      })
+    }
+    await engineSendInteractiveButtons({
+      ...args.sendArgs,
+      bodyText: `Confirm ${live.title}?`,
+      buttons: [
+        { id: 'wacrm:confirm_order', title: 'Confirm order' },
+        { id: 'wacrm:continue_chat', title: 'Continue chat' },
+      ],
+      aiGenerated: true,
+    })
+    return true
+  }
+
+  const productCards: ShopifyProductCard[] = []
+  const listedResult = await applyVariantPicker({
+    sendArgs: args.sendArgs,
+    product: live,
+    ask: args.queryText,
+    bodyText: '',
+    chosenColor: args.focus.color,
+    chosenSize: args.focus.size,
+    productCards,
+    retailerIdSource: args.retailerIdSource,
+  })
+  if (listedResult === 'picker') {
+    await saveProductFocus(args.db, args.conversationId, {
+      ...args.focus,
+      title: live.title,
+      stage: 'collecting_variants',
+      introSent: true,
+    })
+    return true
+  }
+  if (listedResult === 'oos') {
+    await engineSendText({
+      ...args.sendArgs,
+      text: `${live.title} is out of stock in that option.`,
+      aiGenerated: true,
+    })
+    return true
+  }
+
+  const selected =
+    productCards[0]?.variantId
+      ? live.variants.find(
+          (v) =>
+            v.variantId === productCards[0]?.variantId ||
+            v.id === productCards[0]?.variantId,
+        ) ?? variantFromFocus(live, args.focus)
+      : variantFromFocus(live, args.focus)
+  await saveProductFocus(args.db, args.conversationId, {
+    ...args.focus,
+    title: live.title,
+    handle: live.handle,
+    variantId: selected?.variantId ?? args.focus.variantId ?? null,
+    color: args.focus.color,
+    size: args.focus.size,
+    stage: selected ? 'ready_to_confirm' : 'collecting_variants',
+    introSent: true,
+  })
+
+  if (!args.confirmTap) {
+    await engineSendInteractiveButtons({
+      ...args.sendArgs,
+      bodyText: `Confirm ${live.title}?`,
+      buttons: [
+        { id: 'wacrm:confirm_order', title: 'Confirm order' },
+        { id: 'wacrm:continue_chat', title: 'Continue chat' },
+      ],
+      aiGenerated: true,
+    })
+    return true
+  }
+
+  return completeFocusedPurchase({
+    db: args.db,
+    sendArgs: args.sendArgs,
+    product: live,
+    variant: selected,
+    nativeCommerce: args.nativeCommerce,
+    retailerIdSource: args.retailerIdSource,
+    catalogId: args.catalogId,
+    contactPhone: args.contactPhone,
+    contactName: args.contactName,
+  })
+}
+
+async function completeFocusedPurchase(args: {
+  db: SupabaseClient
+  sendArgs: SendArgs
+  product: ShopifyProductHit
+  variant: ShopifyVariantHit | null
+  nativeCommerce: boolean
+  retailerIdSource?: RetailerIdSource
+  catalogId?: string | null
+  contactPhone: string | null
+  contactName: string | null
+}): Promise<boolean> {
+  const variant = args.variant
+  if (!variant) return false
+  if (args.nativeCommerce) {
+    const started = await startNativeCheckoutFromVariant({
+      db: args.db,
+      sendArgs: args.sendArgs,
+      product: args.product,
+      variant,
+      retailerIdSource: args.retailerIdSource,
+      catalogId: args.catalogId,
+      contactPhone: args.contactPhone,
+      contactName: args.contactName,
+    })
+    if (started) return true
+  }
+  await sendSingleShopifyCheckoutCta(
+    args.sendArgs,
+    args.product,
+    variant,
+    args.retailerIdSource,
+  )
+  return true
+}
+
+async function startNativeCheckoutFromVariant(args: {
+  db: SupabaseClient
+  sendArgs: SendArgs
+  product: ShopifyProductHit
+  variant: ShopifyVariantHit
+  retailerIdSource?: RetailerIdSource
+  catalogId?: string | null
+  contactPhone: string | null
+  contactName: string | null
+}): Promise<boolean> {
+  const retailerId =
+    args.variant.retailerId?.trim() ||
+    retailerIdForVariant(
+      args.variant,
+      args.retailerIdSource ?? 'sku',
+      args.product.id,
+    )
+  if (!retailerId) return false
+  const price = Number(args.variant.price)
+  const result = await handleInboundWhatsAppOrder({
+    db: args.db,
+    accountId: args.sendArgs.accountId,
+    userId: args.sendArgs.userId,
+    conversationId: args.sendArgs.conversationId,
+    contactId: args.sendArgs.contactId,
+    contactPhone: args.contactPhone,
+    contactName: args.contactName,
+    message: webhookMessageFromInboundCart({
+      catalog_id: args.catalogId ?? undefined,
+      items: [
+        {
+          product_retailer_id: retailerId,
+          quantity: 1,
+          item_price: Number.isFinite(price) ? price : undefined,
+          currency: args.product.currency ?? undefined,
+          name: args.product.title,
+        },
+      ],
+    }),
+  })
+  return result !== 'skipped'
+}
+
+async function sendSingleShopifyCheckoutCta(
+  sendArgs: SendArgs,
+  product: ShopifyProductHit,
+  variant: ShopifyVariantHit,
+  retailerIdSource?: RetailerIdSource,
+): Promise<void> {
+  const card = toCard(product, retailerIdSource ?? 'sku', variant)
+  if (card.imageUrl) {
+    const ok = await sendCheckoutProductCard(sendArgs, card, card.imageUrl)
+    if (ok) return
+  }
+  await sendCheckoutCtaIfInStock(sendArgs, card)
+}
+
 async function finishFocusedVariantTurn(args: {
   db: SupabaseClient
   conversationId: string
@@ -1594,6 +1864,9 @@ async function finishFocusedVariantTurn(args: {
   confirmTap: boolean
   nativeCommerce: boolean
   retailerIdSource?: RetailerIdSource
+  catalogId?: string | null
+  contactPhone?: string | null
+  contactName?: string | null
   compiledVoice: boolean
   sendShoppingAudio: () => Promise<boolean>
   config: AiConfig
@@ -1622,53 +1895,20 @@ async function finishFocusedVariantTurn(args: {
   }
   await saveProductFocus(args.db, args.conversationId, next)
 
-  if (args.confirmTap && args.nativeCommerce) {
-    await engineSendText({
-      ...args.sendArgs,
-      text:
-        args.textForCustomer.trim() ||
-        'Add the items to your WhatsApp cart, then tap Send order. I’ll send a Review and Pay bill in this chat.',
-      aiGenerated: true,
-    })
-    await sendProductCards(args.sendArgs, args.productCards, args.shopify, {
-      focus: args.focus,
+  if (args.confirmTap && (selected || args.productCards[0])) {
+    await completeFocusedPurchase({
       db: args.db,
+      sendArgs: args.sendArgs,
+      product: args.product,
+      variant: selected,
+      nativeCommerce: args.nativeCommerce,
+      retailerIdSource: args.retailerIdSource,
+      catalogId: args.catalogId,
+      contactPhone: args.contactPhone ?? null,
+      contactName: args.contactName ?? null,
     })
     if (args.compiledVoice) await args.sendShoppingAudio()
     return true
-  }
-
-  if (args.confirmTap && (selected || args.productCards[0]) && !args.nativeCommerce) {
-    const card =
-      selected
-        ? toCard(args.product, args.retailerIdSource ?? 'sku', selected)
-        : args.productCards[0]
-    if (card) {
-      args.productCards.length = 0
-      args.productCards.push(card)
-      await sendCustomerFacingText({
-        db: args.db,
-        config: args.config,
-        conv: args.conv,
-        conversationId: args.conversationId,
-        sendArgs: args.sendArgs,
-        text: args.textForCustomer,
-        messages: args.messages,
-        shopify: true,
-        wantsText: args.wantsText,
-        wantsAudio: args.wantsAudio,
-        audioSent: false,
-        productCards: args.productCards,
-        orderCards: args.orderCards,
-        chatButtonMode: 'none',
-      })
-      await sendProductCards(args.sendArgs, args.productCards, args.shopify, {
-        focus: args.focus,
-        db: args.db,
-      })
-      if (args.compiledVoice) await args.sendShoppingAudio()
-      return true
-    }
   }
 
   await sendCustomerFacingText({
@@ -1704,6 +1944,9 @@ async function runFocusedProductTurn(args: {
   focusedOrderIntent: boolean
   nativeCommerce: boolean
   retailerIdSource?: RetailerIdSource
+  catalogId?: string | null
+  contactPhone?: string | null
+  contactName?: string | null
   compiledVoice: boolean
   sendShoppingAudio: () => Promise<boolean>
   config: AiConfig
@@ -1747,8 +1990,7 @@ async function runFocusedProductTurn(args: {
   if (live && args.focusedOrderIntent) {
     if (
       args.confirmTap &&
-      (args.focus.variantId || args.productCards[0]?.variantId) &&
-      !args.nativeCommerce
+      (args.focus.variantId || args.productCards[0]?.variantId)
     ) {
       return finishFocusedVariantTurn({
         ...args,
