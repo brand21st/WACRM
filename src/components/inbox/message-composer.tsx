@@ -46,7 +46,12 @@ import {
   uploadAccountMedia,
   deleteAccountMedia,
   MEDIA_MAX_BYTES_BY_KIND,
+  MEDIA_CAPTION_MAX,
+  MEDIA_PICKER_ACCEPT,
+  CHAT_MEDIA_BUCKET,
 } from "@/lib/storage/upload-media";
+import { isMediaQuickReplyKind } from "@/lib/quick-replies";
+import { createQuickReply } from "@/lib/create-quick-reply";
 import { ReplyQuote } from "./reply-quote";
 import { useTranslations } from "next-intl";
 import {
@@ -65,11 +70,7 @@ import { playRecordBeep } from "@/lib/inbox/voice-record-beep";
 /** Media content types an agent can send from the composer. */
 export type ComposerMediaKind = "image" | "video" | "document" | "audio";
 
-/** Supabase Storage bucket holding agent-sent chat attachments (migration 023). */
-export const CHAT_MEDIA_BUCKET = "chat-media";
-
-/** Meta caps media captions at 1024 chars. Enforced here and in the send route. */
-export const MEDIA_CAPTION_MAX = 1024;
+export { CHAT_MEDIA_BUCKET, MEDIA_CAPTION_MAX };
 
 /** Hard cap on a single voice recording so it can't blow the upload/
  *  transcode limits — auto-stops the recorder when reached. */
@@ -86,6 +87,8 @@ export interface SendMediaPayload {
   /** Original file name — surfaced to the recipient for documents. */
   filename?: string;
   replyToId?: string;
+  /** File belongs to a saved quick reply — do not GC on send failure. */
+  persistent?: boolean;
 }
 
 interface ReplyDraft {
@@ -95,17 +98,6 @@ interface ReplyDraft {
   preview: string;
 }
 
-// Mirrors the chat-media bucket's allowed_mime_types (migration 023) for
-// the file picker so unsupported files are rejected before upload rather
-// than failing with a confusing Storage error. Audio has no picker — it's
-// captured via the recorder.
-const PICKER_ACCEPT: Record<"image" | "video" | "document", string> = {
-  image: "image/png,image/jpeg,image/webp",
-  video: "video/mp4,video/3gpp",
-  document:
-    "application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,text/plain",
-};
-
 interface MediaDraft {
   kind: ComposerMediaKind;
   mediaUrl: string;
@@ -113,6 +105,8 @@ interface MediaDraft {
   path: string;
   filename: string;
   caption: string;
+  /** Quick-reply files belong to the saved row — never GC on discard. */
+  persistent?: boolean;
 }
 
 interface MessageComposerProps {
@@ -176,10 +170,11 @@ export function MessageComposer({
     draftRef.current = draft;
   }, [draft]);
 
-  // Best-effort GC of a staged object the user never sent. Fire-and-forget.
-  const removeStaged = useCallback((path: string | undefined) => {
-    if (!path) return;
-    void deleteAccountMedia(CHAT_MEDIA_BUCKET, path).catch(() => {});
+  // Best-effort GC of a staged object the user never sent. Skip persistent
+  // drafts — those files belong to a saved quick reply.
+  const removeStaged = useCallback((staged: MediaDraft | null | undefined) => {
+    if (!staged?.path || staged.persistent) return;
+    void deleteAccountMedia(CHAT_MEDIA_BUCKET, staged.path).catch(() => {});
   }, []);
 
   // Voice recording state. The recorder encodes Ogg/Opus in-browser
@@ -242,7 +237,7 @@ export function MessageComposer({
       cancelledRef.current = true;
       void recorderRef.current?.stop().catch(() => {});
       releaseMicHardware();
-      removeStaged(draftRef.current?.path);
+      removeStaged(draftRef.current);
     };
   }, [clearTimer, releaseMicHardware, removeStaged]);
 
@@ -371,18 +366,13 @@ export function MessageComposer({
     if (!title) return;
     setSavingQuickReply(true);
     try {
-      const res = await fetch("/api/quick-replies", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title,
-          kind: "interactive",
-          interactive_payload: interactivePayload,
-        }),
+      const saved = await createQuickReply({
+        title,
+        kind: "interactive",
+        interactive_payload: interactivePayload,
       });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        toast.error(data.error ?? t("quickReplySaveError"));
+      if (!saved.ok) {
+        toast.error(saved.error || t("quickReplySaveError"));
         return;
       }
       toast.success(t("quickReplySaved"));
@@ -394,12 +384,25 @@ export function MessageComposer({
   }, [interactivePayload, t]);
 
   // A picked quick reply: text fills the composer; interactive opens the
-  // builder pre-filled so the agent can tweak before sending.
+  // builder pre-filled so the agent can tweak before sending; media
+  // stages a persistent draft (the file stays on the saved row).
   const handlePickQuickReply = useCallback(
     (qr: QuickReply) => {
       setQuickReplyOpen(false);
       if (qr.kind === "interactive" && qr.interactive_payload) {
         openInteractiveBuilder(qr.interactive_payload);
+        return;
+      }
+      if (isMediaQuickReplyKind(qr.kind) && qr.media_url && qr.media_path) {
+        removeStaged(draftRef.current);
+        setDraft({
+          kind: qr.kind,
+          mediaUrl: qr.media_url,
+          path: qr.media_path,
+          filename: qr.media_filename ?? "",
+          caption: qr.content_text ?? "",
+          persistent: true,
+        });
         return;
       }
       const body = qr.content_text ?? "";
@@ -417,7 +420,7 @@ export function MessageComposer({
         }
       });
     },
-    [openInteractiveBuilder, adjustHeight],
+    [openInteractiveBuilder, adjustHeight, removeStaged],
   );
 
   // Upload a captured file to chat-media and stage it as a draft.
@@ -438,8 +441,9 @@ export function MessageComposer({
       setBusy(true);
       try {
         const { publicUrl, path } = await uploadAccountMedia(CHAT_MEDIA_BUCKET, file);
-        // Replacing an existing draft? GC the previous object first.
-        removeStaged(draftRef.current?.path);
+        // Replacing an existing draft? GC the previous object first
+        // (skipped when it came from a saved quick reply).
+        removeStaged(draftRef.current);
         setDraft({ kind, mediaUrl: publicUrl, path, filename: file.name, caption: "" });
       } catch (err) {
         toast.error(err instanceof Error ? err.message : "Upload failed.");
@@ -479,7 +483,7 @@ export function MessageComposer({
       setBusy(true);
       try {
         const { publicUrl, path } = await uploadAccountMedia(CHAT_MEDIA_BUCKET, file);
-        removeStaged(draftRef.current?.path);
+        removeStaged(draftRef.current);
         setDraft({ kind: "audio", mediaUrl: publicUrl, path, filename: file.name, caption: "" });
       } catch (err) {
         toast.error(err instanceof Error ? err.message : "Upload failed.");
@@ -627,17 +631,18 @@ export function MessageComposer({
         draft.kind === "audio" ? undefined : draft.caption.trim() || undefined,
       filename: draft.kind === "document" ? draft.filename : undefined,
       replyToId: replyTo?.id,
+      persistent: draft.persistent,
     });
     // The object is now owned by the sent message — clear without GC.
     setDraft(null);
     onClearReply?.();
   }, [draft, busy, onSendMedia, replyTo?.id, onClearReply]);
 
-  // Discard GCs the staged object — it was uploaded but never sent.
+  // Discard GCs the staged object — unless it belongs to a quick reply.
   const discardDraft = useCallback(() => {
-    removeStaged(draft?.path);
+    removeStaged(draft);
     setDraft(null);
-  }, [draft?.path, removeStaged]);
+  }, [draft, removeStaged]);
 
   const setCaption = useCallback((caption: string) => {
     setDraft((d) => (d ? { ...d, caption } : d));
@@ -677,7 +682,7 @@ export function MessageComposer({
       <input
         ref={imageInputRef}
         type="file"
-        accept={PICKER_ACCEPT.image}
+        accept={MEDIA_PICKER_ACCEPT.image}
         className="hidden"
         onChange={(e) => {
           handlePicked("image", e.target.files?.[0]);
@@ -687,7 +692,7 @@ export function MessageComposer({
       <input
         ref={videoInputRef}
         type="file"
-        accept={PICKER_ACCEPT.video}
+        accept={MEDIA_PICKER_ACCEPT.video}
         className="hidden"
         onChange={(e) => {
           handlePicked("video", e.target.files?.[0]);
@@ -697,7 +702,7 @@ export function MessageComposer({
       <input
         ref={documentInputRef}
         type="file"
-        accept={PICKER_ACCEPT.document}
+        accept={MEDIA_PICKER_ACCEPT.document}
         className="hidden"
         onChange={(e) => {
           handlePicked("document", e.target.files?.[0]);

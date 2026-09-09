@@ -21,6 +21,7 @@
 // mid-conversation.
 // ============================================================
 
+import { formatInboundOrderPreview } from '@/lib/commerce/inbound-order'
 import { INTERACTIVE_LIMITS } from './meta-api'
 
 export interface InteractiveButton {
@@ -138,6 +139,8 @@ export interface InteractiveInboundOrderPayload {
     item_price?: number
     currency?: string
     name?: string
+    image_url?: string
+    compare_at_price?: number
   }>
 }
 
@@ -401,10 +404,7 @@ export function interactivePayloadPreviewText(
   payload: InteractiveMessagePayload,
 ): string {
   if (payload.kind === 'inbound_order') {
-    const n = payload.items.length
-    return n === 1
-      ? `Cart: ${payload.items[0]?.name || payload.items[0]?.product_retailer_id}`
-      : `Cart: ${n} items`
+    return formatInboundOrderPreview(payload.items)
   }
   const body = payload.body?.trim()
   if (body) return body

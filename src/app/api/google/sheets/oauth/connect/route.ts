@@ -25,7 +25,7 @@ export async function POST(request: Request) {
 
     const redirectUri = `${appOrigin(request)}/api/google/sheets/oauth/callback`
     const state = signGoogleOAuthState(accountId, userId)
-    const authorizeUrl = buildGoogleAuthorizeUrl({ redirectUri, state })
+    const authorizeUrl = await buildGoogleAuthorizeUrl({ redirectUri, state })
 
     return NextResponse.json({
       authorize_url: authorizeUrl,

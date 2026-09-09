@@ -1,12 +1,15 @@
 import { NextResponse } from 'next/server'
 import { getCurrentAccount, requireRole, toErrorResponse } from '@/lib/auth/account'
 import { supabaseAdmin } from '@/lib/automations/admin-client'
-import { validateInteractivePayload } from '@/lib/whatsapp/interactive'
+import {
+  isQuickReplyKind,
+  parseQuickReplyContent,
+} from '@/lib/quick-replies'
 
-// Quick replies — reusable snippets (plain text or a saved interactive
-// message) shared across the account. GET lists; POST creates. Mirrors
-// the automations route: RLS-scoped read via the user client, service-
-// role write after an explicit role check.
+// Quick replies — reusable snippets (plain text, media, or a saved
+// interactive message) shared across the account. GET lists; POST creates.
+// Mirrors the automations route: RLS-scoped read via the user client,
+// service-role write after an explicit role check.
 
 export async function GET() {
   try {
@@ -31,33 +34,21 @@ export async function POST(request: Request) {
     return toErrorResponse(err)
   }
 
-  const body = await request.json().catch(() => null)
+  const body = (await request.json().catch(() => null)) as Record<
+    string,
+    unknown
+  > | null
   if (!body) return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
 
   const title = typeof body.title === 'string' ? body.title.trim() : ''
-  const kind = body.kind === 'interactive' ? 'interactive' : 'text'
   if (!title) {
     return NextResponse.json({ error: 'title is required' }, { status: 400 })
   }
 
-  let content_text: string | null = null
-  let interactive_payload: unknown = null
-
-  if (kind === 'interactive') {
-    const result = validateInteractivePayload(body.interactive_payload)
-    if (!result.ok) {
-      return NextResponse.json({ error: result.error }, { status: 400 })
-    }
-    interactive_payload = body.interactive_payload
-  } else {
-    const text = typeof body.content_text === 'string' ? body.content_text : ''
-    if (!text.trim()) {
-      return NextResponse.json(
-        { error: 'content_text is required for text quick replies' },
-        { status: 400 },
-      )
-    }
-    content_text = text
+  const kind = isQuickReplyKind(body.kind) ? body.kind : 'text'
+  const parsed = parseQuickReplyContent(body, kind)
+  if (!parsed.ok) {
+    return NextResponse.json({ error: parsed.error }, { status: 400 })
   }
 
   const { data, error } = await supabaseAdmin()
@@ -66,9 +57,7 @@ export async function POST(request: Request) {
       account_id: ctx.accountId,
       user_id: ctx.userId,
       title,
-      kind,
-      content_text,
-      interactive_payload,
+      ...parsed.fields,
     })
     .select()
     .single()

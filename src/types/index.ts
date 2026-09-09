@@ -876,7 +876,7 @@ export type {
 // Quick replies — reusable snippets (migration 035)
 // ============================================================
 
-export type QuickReplyKind = 'text' | 'interactive';
+export type QuickReplyKind = 'text' | 'interactive' | 'image' | 'video' | 'document';
 
 export interface QuickReply {
   id: string;
@@ -886,10 +886,16 @@ export interface QuickReply {
   user_id: string;
   title: string;
   kind: QuickReplyKind;
-  /** Set when `kind === 'text'`. */
+  /** Set when `kind === 'text'`. Caption when kind is image/video/document. */
   content_text?: string | null;
   /** Set when `kind === 'interactive'`. */
   interactive_payload?: InteractiveMessagePayload | null;
+  /** Public chat-media URL when kind is image/video/document. */
+  media_url?: string | null;
+  /** Storage object path — used to GC the file on delete/replace. */
+  media_path?: string | null;
+  /** Original filename, shown for documents. */
+  media_filename?: string | null;
   created_at: string;
   updated_at: string;
 }

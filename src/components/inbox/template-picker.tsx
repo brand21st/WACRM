@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { createClient } from "@/lib/supabase/client";
 import type { MessageTemplate } from "@/types";
 import { Button } from "@/components/ui/button";
@@ -15,13 +15,18 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
 import {
   ArrowLeft,
   ChevronRight,
+  FileText,
   LayoutTemplate,
   Loader2,
+  Search,
+  Store,
 } from "lucide-react";
 import { extractVariableIndices } from "@/lib/whatsapp/template-validators";
+import { isShopifyTemplateName } from "@/lib/shopify/notification-templates";
 import { useTranslations } from "next-intl";
 
 export interface TemplateSendValues {
@@ -34,6 +39,27 @@ interface TemplatePickerProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSelect: (template: MessageTemplate, values: TemplateSendValues) => void;
+}
+
+type SourceFilter = "all" | "shopify" | "other";
+
+const WHATSAPP_CATEGORY_COLORS: Record<string, string> = {
+  Marketing: "bg-purple-600/20 text-purple-400 border-purple-600/30",
+  Utility: "bg-blue-600/20 text-blue-400 border-blue-600/30",
+  Authentication: "bg-amber-600/20 text-amber-400 border-amber-600/30",
+};
+
+function humanizeTemplateName(name: string): string {
+  const stripped = isShopifyTemplateName(name)
+    ? name.slice("shopify_".length)
+    : name;
+  return stripped
+    .split("_")
+    .filter(Boolean)
+    .map((part, i) =>
+      i === 0 ? part.charAt(0).toUpperCase() + part.slice(1) : part,
+    )
+    .join(" ");
 }
 
 function renderBodyPreview(body: string, params: string[]): string {
@@ -74,6 +100,12 @@ function collectVariableSlots(template: MessageTemplate): {
   return { bodyVars, headerVarCount, urlButtonSlots };
 }
 
+function matchesSearch(template: MessageTemplate, query: string): boolean {
+  if (!query) return true;
+  const haystack = `${template.name} ${template.body_text}`.toLowerCase();
+  return haystack.includes(query);
+}
+
 export function TemplatePicker({
   open,
   onOpenChange,
@@ -87,6 +119,8 @@ export function TemplatePicker({
   const [params, setParams] = useState<string[]>([]);
   const [headerText, setHeaderText] = useState<string>("");
   const [buttonParams, setButtonParams] = useState<Record<number, string>>({});
+  const [search, setSearch] = useState("");
+  const [sourceFilter, setSourceFilter] = useState<SourceFilter>("all");
 
   useEffect(() => {
     if (!open) return;
@@ -132,11 +166,17 @@ export function TemplatePicker({
     };
   }, [open]);
 
+  function resetBrowse() {
+    setSearch("");
+    setSourceFilter("all");
+  }
+
   function resetSelection() {
     setSelected(null);
     setParams([]);
     setHeaderText("");
     setButtonParams({});
+    resetBrowse();
   }
 
   function handleOpenChange(next: boolean) {
@@ -187,65 +227,147 @@ export function TemplatePicker({
       (s) => (buttonParams[s.index] ?? "").trim().length > 0,
     );
 
+  const query = search.trim().toLowerCase();
+
+  const { shopifyTemplates, otherTemplates, hasShopify, hasOther } =
+    useMemo(() => {
+      const shopify: MessageTemplate[] = [];
+      const other: MessageTemplate[] = [];
+      for (const tpl of templates) {
+        if (isShopifyTemplateName(tpl.name)) shopify.push(tpl);
+        else other.push(tpl);
+      }
+      return {
+        shopifyTemplates: shopify.filter((tpl) => matchesSearch(tpl, query)),
+        otherTemplates: other.filter((tpl) => matchesSearch(tpl, query)),
+        hasShopify: shopify.length > 0,
+        hasOther: other.length > 0,
+      };
+    }, [templates, query]);
+
+  const visibleShopify =
+    sourceFilter === "other" ? [] : shopifyTemplates;
+  const visibleOther = sourceFilter === "shopify" ? [] : otherTemplates;
+  const hasVisibleResults =
+    visibleShopify.length > 0 || visibleOther.length > 0;
+
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="border-border bg-popover sm:max-w-lg">
+      <DialogContent className="border-border bg-popover sm:max-w-xl">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-popover-foreground">
             <LayoutTemplate className="h-4 w-4 text-primary" />
             {selected ? selected.name : t("sendTemplate")}
           </DialogTitle>
           <DialogDescription className="text-muted-foreground">
-            {selected
-              ? t("fillPlaceholders")
-              : t("pickTemplate")}
+            {selected ? t("fillPlaceholders") : t("pickTemplate")}
           </DialogDescription>
         </DialogHeader>
 
         {!selected ? (
-          <div className="max-h-[60vh] space-y-2 overflow-y-auto">
+          <div className="space-y-3">
             {loading ? (
               <div className="flex items-center justify-center py-8">
                 <Loader2 className="h-5 w-5 animate-spin text-primary" />
               </div>
             ) : templates.length === 0 ? (
               <div className="rounded-md border border-border bg-background/50 p-6 text-center">
-                <p className="text-sm text-popover-foreground">{t("noApprovedTemplates")}</p>
+                <p className="text-sm text-popover-foreground">
+                  {t("noApprovedTemplates")}
+                </p>
                 <p className="mt-1 text-xs text-muted-foreground">
                   {t("noApprovedTemplatesHint")}
                 </p>
               </div>
             ) : (
-              templates.map((t) => (
-                <button
-                  key={t.id}
-                  type="button"
-                  onClick={() => pickTemplate(t)}
-                  className="w-full rounded-md border border-border bg-background/50 p-3 text-left transition-colors hover:border-primary/40 hover:bg-popover"
-                >
-                  <div className="flex items-start gap-2">
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <p className="truncate text-sm font-medium text-popover-foreground">
-                          {t.name}
-                        </p>
-                        <Badge className="border border-primary/30 bg-primary/20 text-[10px] text-primary">
-                          {t.category}
-                        </Badge>
-                        {t.language && (
-                          <span className="text-[10px] uppercase text-muted-foreground">
-                            {t.language}
-                          </span>
-                        )}
-                      </div>
-                      <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
-                        {t.body_text}
-                      </p>
-                    </div>
-                    <ChevronRight className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
+              <>
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    placeholder={t("searchPlaceholder")}
+                    className="h-9 border-border bg-muted pl-9 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary/50"
+                  />
+                </div>
+
+                <div className="flex flex-wrap gap-1.5">
+                  <FilterChip
+                    active={sourceFilter === "all"}
+                    count={shopifyTemplates.length + otherTemplates.length}
+                    onClick={() => setSourceFilter("all")}
+                    label={t("categoryAll")}
+                  />
+                  {hasShopify && (
+                    <FilterChip
+                      active={sourceFilter === "shopify"}
+                      count={shopifyTemplates.length}
+                      onClick={() => setSourceFilter("shopify")}
+                      label={t("categoryShopify")}
+                    />
+                  )}
+                  {hasOther && (
+                    <FilterChip
+                      active={sourceFilter === "other"}
+                      count={otherTemplates.length}
+                      onClick={() => setSourceFilter("other")}
+                      label={t("categoryOther")}
+                    />
+                  )}
+                </div>
+
+                {hasVisibleResults ? (
+                  <div className="max-h-[50vh] space-y-3 overflow-y-auto pr-0.5">
+                    {visibleShopify.length > 0 && (
+                      <TemplateSection
+                        icon={Store}
+                        title={t("categoryShopify")}
+                        count={visibleShopify.length}
+                      >
+                        {visibleShopify.map((tpl) => (
+                          <TemplateCard
+                            key={tpl.id}
+                            template={tpl}
+                            onPick={pickTemplate}
+                          />
+                        ))}
+                      </TemplateSection>
+                    )}
+                    {visibleOther.length > 0 && (
+                      <TemplateSection
+                        icon={FileText}
+                        title={t("categoryOther")}
+                        count={visibleOther.length}
+                      >
+                        {visibleOther.map((tpl) => (
+                          <TemplateCard
+                            key={tpl.id}
+                            template={tpl}
+                            onPick={pickTemplate}
+                          />
+                        ))}
+                      </TemplateSection>
+                    )}
                   </div>
-                </button>
-              ))
+                ) : (
+                  <div className="rounded-md border border-border bg-background/50 p-6 text-center">
+                    <p className="text-sm text-popover-foreground">
+                      {t("noMatch")}
+                    </p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {t("noMatchHint")}
+                    </p>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={resetBrowse}
+                      className="mt-3 border-border text-popover-foreground hover:bg-muted"
+                    >
+                      {t("clearFilters")}
+                    </Button>
+                  </div>
+                )}
+              </>
             )}
           </div>
         ) : (
@@ -292,7 +414,8 @@ export function TemplatePicker({
             {slots?.urlButtonSlots.map((slot) => (
               <div key={slot.index} className="space-y-1">
                 <Label className="text-xs text-popover-foreground">
-                  {`URL button "${slot.text}" — value for `}{`{{1}}`}
+                  {`URL button "${slot.text}" — value for `}
+                  {`{{1}}`}
                 </Label>
                 <Input
                   value={buttonParams[slot.index] ?? ""}
@@ -305,8 +428,13 @@ export function TemplatePicker({
                   placeholder={t("urlSuffixValuePlaceholder")}
                   className="border-border bg-muted text-foreground placeholder:text-muted-foreground"
                 />
-                <p className="text-[10px] text-muted-foreground break-all">
-                  {t("finalUrl", { url: slot.url.replace(/\{\{1\}\}/g, buttonParams[slot.index] || "{{1}}") })}
+                <p className="text-[10px] break-all text-muted-foreground">
+                  {t("finalUrl", {
+                    url: slot.url.replace(
+                      /\{\{1\}\}/g,
+                      buttonParams[slot.index] || "{{1}}",
+                    ),
+                  })}
                 </p>
               </div>
             ))}
@@ -318,7 +446,12 @@ export function TemplatePicker({
             <>
               <Button
                 variant="outline"
-                onClick={resetSelection}
+                onClick={() => {
+                  setSelected(null);
+                  setParams([]);
+                  setHeaderText("");
+                  setButtonParams({});
+                }}
                 className="border-border text-popover-foreground hover:bg-muted"
               >
                 <ArrowLeft className="h-4 w-4" />
@@ -344,5 +477,107 @@ export function TemplatePicker({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function FilterChip({
+  active,
+  count,
+  onClick,
+  label,
+}: {
+  active: boolean;
+  count: number;
+  onClick: () => void;
+  label: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "inline-flex h-7 items-center gap-1.5 rounded-full border px-2.5 text-xs font-medium transition-colors",
+        active
+          ? "border-primary/40 bg-primary/15 text-primary"
+          : "border-border bg-background/50 text-muted-foreground hover:border-primary/30 hover:text-foreground",
+      )}
+    >
+      {label}
+      <span className="tabular-nums text-[10px] opacity-70">{count}</span>
+    </button>
+  );
+}
+
+function TemplateSection({
+  icon: Icon,
+  title,
+  count,
+  children,
+}: {
+  icon: typeof Store;
+  title: string;
+  count: number;
+  children: ReactNode;
+}) {
+  return (
+    <section className="overflow-hidden rounded-lg border border-border bg-muted/20">
+      <div className="sticky top-0 z-10 flex items-center gap-2 border-b border-border bg-popover/95 px-3 py-2 backdrop-blur-sm">
+        <Icon className="h-3.5 w-3.5 text-primary" />
+        <h3 className="text-xs font-semibold tracking-wide text-popover-foreground">
+          {title}
+        </h3>
+        <span className="rounded-full bg-muted px-1.5 py-px text-[10px] tabular-nums text-muted-foreground">
+          {count}
+        </span>
+      </div>
+      <div className="space-y-2 p-2">{children}</div>
+    </section>
+  );
+}
+
+function TemplateCard({
+  template,
+  onPick,
+}: {
+  template: MessageTemplate;
+  onPick: (template: MessageTemplate) => void;
+}) {
+  const categoryColor =
+    WHATSAPP_CATEGORY_COLORS[template.category] ??
+    WHATSAPP_CATEGORY_COLORS.Utility;
+
+  return (
+    <button
+      type="button"
+      onClick={() => onPick(template)}
+      className="w-full rounded-md border border-border bg-background/70 p-3 text-left transition-colors hover:border-primary/40 hover:bg-popover"
+    >
+      <div className="flex items-start gap-2">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="truncate text-sm font-medium text-popover-foreground">
+              {humanizeTemplateName(template.name)}
+            </p>
+            <Badge
+              className={cn("border text-[10px]", categoryColor)}
+            >
+              {template.category}
+            </Badge>
+            {template.language && (
+              <span className="text-[10px] uppercase text-muted-foreground">
+                {template.language}
+              </span>
+            )}
+          </div>
+          <p className="mt-0.5 truncate font-mono text-[10px] text-muted-foreground/80">
+            {template.name}
+          </p>
+          <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
+            {template.body_text}
+          </p>
+        </div>
+        <ChevronRight className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
+      </div>
+    </button>
   );
 }

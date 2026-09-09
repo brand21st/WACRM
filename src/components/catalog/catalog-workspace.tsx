@@ -718,7 +718,14 @@ export function CatalogWorkspace({
                       {formatPrice(product)}
                     </TableCell>
                     <TableCell>
-                      <Badge variant="outline">
+                      <Badge
+                        variant="outline"
+                        className={
+                          product.status === 'active'
+                            ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'
+                            : undefined
+                        }
+                      >
                         {product.status === 'active'
                           ? t('statusActive')
                           : product.status === 'draft'
@@ -731,9 +738,19 @@ export function CatalogWorkspace({
                     </TableCell>
                     <TableCell>
                       <Badge variant="secondary">
-                        {product.origin === 'shopify_import'
-                          ? t('originShopify')
-                          : t('originWacrm')}
+                        {product.origin === 'shopify_import' ? (
+                          <>
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              src="/shopify-logo.svg"
+                              alt=""
+                              className="h-3.5 w-auto shrink-0"
+                            />
+                            {t('originShopify')}
+                          </>
+                        ) : (
+                          t('originWacrm')
+                        )}
                       </Badge>
                     </TableCell>
                   </TableRow>

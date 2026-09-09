@@ -32,7 +32,12 @@ import {
   addressFormPreviewText,
   parseAddressMessageReply,
 } from '@/lib/commerce/address-form'
-import { parseInboundOrderMessage } from '@/lib/commerce/inbound-order'
+import { enrichInboundCartItems } from '@/lib/commerce/enrich-cart-items'
+import {
+  formatInboundOrderPreview,
+  parseInboundOrderMessage,
+} from '@/lib/commerce/inbound-order'
+import type { InboundCartItem } from '@/lib/commerce/types'
 import {
   handleWhatsAppPaymentStatus,
   isPaymentStatus,
@@ -786,7 +791,27 @@ async function processMessage(
     mirrorMedia ? { accountId } : null
   )
   let contentText = parsed.contentText
-  const { mediaUrl, mediaType, interactiveReplyId, mediaBuffer, interactivePayload } = parsed
+  const { mediaUrl, mediaType, interactiveReplyId, mediaBuffer } = parsed
+  let interactivePayload = parsed.interactivePayload
+
+  if (
+    message.type === 'order' &&
+    interactivePayload &&
+    interactivePayload.kind === 'inbound_order' &&
+    Array.isArray(interactivePayload.items)
+  ) {
+    try {
+      const items = await enrichInboundCartItems(
+        supabaseAdmin(),
+        accountId,
+        interactivePayload.items as InboundCartItem[],
+      )
+      interactivePayload = { ...interactivePayload, items }
+      contentText = formatInboundOrderPreview(items)
+    } catch (err) {
+      console.warn('[webhook] inbound cart enrich failed:', err)
+    }
+  }
 
   // Resolve swipe-reply context if present. A missing parent is fine —
   // we just store NULL and the UI renders the message without a quote.

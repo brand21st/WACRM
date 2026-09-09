@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
-import { CornerUpLeft, Copy, SmilePlus } from "lucide-react";
+import { CornerUpLeft, Copy, Loader2, SmilePlus, Zap } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import {
@@ -11,6 +11,11 @@ import {
 } from "@/components/ui/popover";
 import type { Message } from "@/types";
 import { useTranslations } from "next-intl";
+import {
+  canSaveMessageAsQuickReply,
+  quickReplyDraftFromMessage,
+} from "@/lib/quick-reply-from-message";
+import { commitQuickReplyDraft } from "@/lib/create-quick-reply";
 
 // WhatsApp's own quick-reaction bar starts with these six. Picking the same
 // set keeps the affordance familiar without pulling in a 300KB emoji library.
@@ -41,9 +46,11 @@ export function MessageActions({
   // interacts elsewhere.
   const [touchOpen, setTouchOpen] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [savingQuickReply, setSavingQuickReply] = useState(false);
 
   const isAgent =
     message.sender_type === "agent" || message.sender_type === "bot";
+  const canSaveQuickReply = canSaveMessageAsQuickReply(message);
 
   const handleContextMenu = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -76,6 +83,33 @@ export function MessageActions({
     setTouchOpen(false);
   };
 
+  const handleSaveQuickReply = async () => {
+    const draft = quickReplyDraftFromMessage(message);
+    if (!draft.ok) {
+      toast.error(t("quickReplyUnsupported"));
+      return;
+    }
+    const title = window
+      .prompt(t("quickReplyNamePrompt"), draft.defaultTitle)
+      ?.trim();
+    if (!title) return;
+
+    setSavingQuickReply(true);
+    try {
+      const result = await commitQuickReplyDraft(draft, title);
+      if (result.ok) {
+        toast.success(t("quickReplySaved"));
+      } else {
+        toast.error(result.error || t("quickReplySaveError"));
+      }
+    } catch {
+      toast.error(t("quickReplySaveError"));
+    } finally {
+      setSavingQuickReply(false);
+      setTouchOpen(false);
+    }
+  };
+
   // Row alignment lives here (not in MessageBubble) so the `group/actions`
   // hover region matches the bubble's content width — hovering empty space
   // in the row no longer reveals the toolbar.
@@ -96,7 +130,9 @@ export function MessageActions({
       <div className="group/actions relative min-w-0 max-w-[88%] lg:max-w-[75%]">
         {children}
       <div
-        data-touch-open={touchOpen || pickerOpen ? "true" : undefined}
+        data-touch-open={
+          touchOpen || pickerOpen || savingQuickReply ? "true" : undefined
+        }
         className={cn(
           "absolute -top-3 z-10 flex h-7 items-center gap-0.5 rounded-full border border-border bg-popover/95 px-1 shadow-md backdrop-blur-sm transition-opacity",
           "opacity-0 group-hover/actions:opacity-100 group-focus-within/actions:opacity-100",
@@ -144,6 +180,21 @@ export function MessageActions({
         >
           <Copy className="h-3.5 w-3.5" />
         </button>
+        {canSaveQuickReply ? (
+          <button
+            type="button"
+            onClick={() => void handleSaveQuickReply()}
+            disabled={savingQuickReply}
+            className="flex h-5 w-5 items-center justify-center rounded-full text-popover-foreground hover:bg-muted hover:text-foreground disabled:opacity-50"
+            aria-label={t("saveAsQuickReply")}
+          >
+            {savingQuickReply ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Zap className="h-3.5 w-3.5" />
+            )}
+          </button>
+        ) : null}
       </div>
       </div>
     </div>

@@ -33,6 +33,19 @@ export const MEDIA_MAX_BYTES_BY_KIND = {
   document: 16 * 1024 * 1024,
 } as const;
 
+/** Meta caps media captions at 1024 chars. */
+export const MEDIA_CAPTION_MAX = 1024;
+
+/** Mirrors the chat-media bucket allow-list (migration 023) for file pickers. */
+export const MEDIA_PICKER_ACCEPT: Record<"image" | "video" | "document", string> = {
+  image: "image/png,image/jpeg,image/webp",
+  video: "video/mp4,video/3gpp",
+  document:
+    "application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,text/plain",
+};
+
+export const CHAT_MEDIA_BUCKET = "chat-media";
+
 /**
  * Build the account-scoped object path for an upload. Pure + exported so
  * it can be unit-tested without a Supabase client.

@@ -18,34 +18,27 @@ export class GoogleOAuthError extends Error {
   }
 }
 
-export function googleSheetsClientId(): string {
-  const id = process.env.GOOGLE_SHEETS_CLIENT_ID?.trim()
-  if (!id) {
+async function requireGoogleOAuthClient() {
+  const { resolveGoogleOAuthCredentials } = await import(
+    '@/lib/google-sheets/platform-settings'
+  )
+  const creds = await resolveGoogleOAuthCredentials()
+  if (!creds.configured) {
     throw new GoogleOAuthError(
       'not_configured',
-      'GOOGLE_SHEETS_CLIENT_ID is not configured',
+      'Google OAuth is not configured',
     )
   }
-  return id
+  return creds
 }
 
-export function googleSheetsClientSecret(): string {
-  const secret = process.env.GOOGLE_SHEETS_CLIENT_SECRET?.trim()
-  if (!secret) {
-    throw new GoogleOAuthError(
-      'not_configured',
-      'GOOGLE_SHEETS_CLIENT_SECRET is not configured',
-    )
-  }
-  return secret
-}
-
-export function buildGoogleAuthorizeUrl(args: {
+export async function buildGoogleAuthorizeUrl(args: {
   redirectUri: string
   state: string
-}): string {
+}): Promise<string> {
+  const { clientId } = await requireGoogleOAuthClient()
   const url = new URL(AUTH_URL)
-  url.searchParams.set('client_id', googleSheetsClientId())
+  url.searchParams.set('client_id', clientId)
   url.searchParams.set('redirect_uri', args.redirectUri)
   url.searchParams.set('response_type', 'code')
   url.searchParams.set('scope', GOOGLE_SHEETS_SCOPES.join(' '))
@@ -99,10 +92,11 @@ export async function exchangeGoogleAuthorizationCode(args: {
   code: string
   redirectUri: string
 }): Promise<GoogleTokenSet> {
+  const { clientId, clientSecret } = await requireGoogleOAuthClient()
   const body = new URLSearchParams({
     code: args.code,
-    client_id: googleSheetsClientId(),
-    client_secret: googleSheetsClientSecret(),
+    client_id: clientId,
+    client_secret: clientSecret,
     redirect_uri: args.redirectUri,
     grant_type: 'authorization_code',
   })
@@ -125,10 +119,11 @@ export async function exchangeGoogleAuthorizationCode(args: {
 export async function refreshGoogleAccessToken(
   refreshToken: string,
 ): Promise<GoogleTokenSet> {
+  const { clientId, clientSecret } = await requireGoogleOAuthClient()
   const body = new URLSearchParams({
     refresh_token: refreshToken,
-    client_id: googleSheetsClientId(),
-    client_secret: googleSheetsClientSecret(),
+    client_id: clientId,
+    client_secret: clientSecret,
     grant_type: 'refresh_token',
   })
   const res = await fetch(TOKEN_URL, {

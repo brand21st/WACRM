@@ -7,6 +7,11 @@ export interface ParsedInboundOrder {
   previewText: string
 }
 
+export interface CartMoneyTotal {
+  amount: number
+  currency: string
+}
+
 export function parseInboundOrderMessage(message: {
   order?: unknown
 }): ParsedInboundOrder | null {
@@ -43,7 +48,85 @@ export function formatInboundOrderPreview(items: InboundCartItem[]): string {
     const label = item.name?.trim() || item.product_retailer_id
     return `${label} × ${item.quantity}`
   })
-  return `Cart: ${lines.join(', ')}`.slice(0, 1024)
+  const total = cartItemsTotal(items)
+  const suffix = total ? ` · ${formatCartMoney(total.amount, total.currency)}` : ''
+  return `Cart: ${lines.join(', ')}${suffix}`.slice(0, 1024)
+}
+
+export function cartItemCount(items: InboundCartItem[]): number {
+  return items.reduce((sum, item) => sum + Math.max(1, item.quantity || 1), 0)
+}
+
+/** Sum of priced lines only. Null when no line has a price. */
+export function cartItemsTotal(items: InboundCartItem[]): CartMoneyTotal | null {
+  let amount = 0
+  let currency = ''
+  let priced = false
+  for (const item of items) {
+    const { unit } = pickCartDisplayPrice({
+      whatsapp: item.item_price,
+      catalog: item.item_price,
+      compareAt: item.compare_at_price,
+    })
+    if (unit == null) continue
+    priced = true
+    amount += unit * Math.max(1, item.quantity || 1)
+    if (!currency && item.currency) currency = item.currency
+  }
+  if (!priced) return null
+  return { amount, currency: currency || 'INR' }
+}
+
+/**
+ * Catalog list/sale price for inbox carts. WhatsApp often sends a ₹1
+ * stub while `compare_at` holds the real product price.
+ */
+export function pickCartDisplayPrice(args: {
+  whatsapp?: number
+  catalog?: number
+  compareAt?: number
+}): { unit?: number; compareAt?: number } {
+  const catalog = toDisplayPrice(args.catalog)
+  const whatsapp = toDisplayPrice(args.whatsapp)
+  const compareAt = toDisplayPrice(args.compareAt)
+  const sell = catalog ?? whatsapp
+  if (compareAt != null && sell != null && compareAt > sell) {
+    if (sell <= 1) return { unit: compareAt }
+    return { unit: sell, compareAt }
+  }
+  if (catalog != null) {
+    return {
+      unit: catalog,
+      compareAt:
+        compareAt != null && compareAt > catalog ? compareAt : undefined,
+    }
+  }
+  if (whatsapp != null) return { unit: whatsapp }
+  if (compareAt != null) return { unit: compareAt }
+  return {}
+}
+
+function toDisplayPrice(raw: number | undefined): number | undefined {
+  return raw != null && Number.isFinite(raw) && raw >= 0 ? raw : undefined
+}
+
+/** Product-price formatter (2 fraction digits). Do not use deal `formatCurrency`. */
+export function formatCartMoney(amount: number, currency?: string): string {
+  const code = (currency || 'INR').trim() || 'INR'
+  const value = Number.isFinite(amount) ? amount : 0
+  try {
+    return new Intl.NumberFormat(undefined, {
+      style: 'currency',
+      currency: code,
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(value)
+  } catch {
+    return `${code} ${new Intl.NumberFormat(undefined, {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(value)}`
+  }
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {

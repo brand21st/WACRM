@@ -32,6 +32,14 @@ type SettingsPayload = {
   unsynced_paid_count: number;
 };
 
+type GooglePayload = {
+  google_client_id: string;
+  has_google_client_secret: boolean;
+  configured: boolean;
+  source: Source;
+  redirect_uri: string;
+};
+
 export default function SuperAdminSettingsPage() {
   const t = useTranslations("SuperAdmin.settings");
   const appearanceT = useTranslations("SuperAdmin.appearance");
@@ -46,9 +54,19 @@ export default function SuperAdminSettingsPage() {
   const [webhookSecret, setWebhookSecret] = useState("");
   const [webhookEdited, setWebhookEdited] = useState(false);
   const [clearWebhook, setClearWebhook] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(true);
+  const [googleSaving, setGoogleSaving] = useState(false);
+  const [googlePayload, setGooglePayload] = useState<GooglePayload | null>(null);
+  const [googleClientId, setGoogleClientId] = useState("");
+  const [googleSecret, setGoogleSecret] = useState("");
+  const [googleSecretEdited, setGoogleSecretEdited] = useState(false);
+  const [clearGoogleSecret, setClearGoogleSecret] = useState(false);
 
   const origin = typeof window !== "undefined" ? window.location.origin : "";
   const webhookUrl = origin ? `${origin}/api/billing/razorpay/webhook` : "";
+  const googleRedirect =
+    googlePayload?.redirect_uri ||
+    (origin ? `${origin}/api/google/sheets/oauth/callback` : "");
 
   const apply = useCallback((d: SettingsPayload) => {
     setPayload(d);
@@ -74,9 +92,34 @@ export default function SuperAdminSettingsPage() {
     return true;
   }, [apply, t]);
 
+  const applyGoogle = useCallback((d: GooglePayload) => {
+    setGooglePayload(d);
+    setGoogleClientId(d.google_client_id ?? "");
+    setGoogleSecret("");
+    setGoogleSecretEdited(false);
+    setClearGoogleSecret(false);
+  }, []);
+
+  const loadGoogle = useCallback(async () => {
+    const res = await fetch("/api/super-admin/google");
+    const d = (await res.json().catch(() => ({}))) as GooglePayload & {
+      error?: string;
+    };
+    if (!res.ok) {
+      toast.error(d.error ?? t("googleLoadFailed"));
+      return false;
+    }
+    applyGoogle(d);
+    return true;
+  }, [applyGoogle, t]);
+
   useEffect(() => {
     void load().finally(() => setLoading(false));
   }, [load]);
+
+  useEffect(() => {
+    void loadGoogle().finally(() => setGoogleLoading(false));
+  }, [loadGoogle]);
 
   async function save() {
     setSaving(true);
@@ -137,6 +180,41 @@ export default function SuperAdminSettingsPage() {
     if (!webhookUrl) return;
     await navigator.clipboard.writeText(webhookUrl);
     toast.success(t("copied"));
+  }
+
+  async function saveGoogle() {
+    setGoogleSaving(true);
+    try {
+      const res = await fetch("/api/super-admin/google", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          google_client_id: googleClientId,
+          google_client_secret: clearGoogleSecret
+            ? null
+            : googleSecretEdited
+              ? googleSecret
+              : undefined,
+        }),
+      });
+      const data = (await res.json().catch(() => ({}))) as GooglePayload & {
+        error?: string;
+      };
+      if (!res.ok) {
+        toast.error(data.error ?? t("googleSaveFailed"));
+        return;
+      }
+      toast.success(t("googleSaved"));
+      applyGoogle(data);
+    } finally {
+      setGoogleSaving(false);
+    }
+  }
+
+  async function copyGoogleRedirect() {
+    if (!googleRedirect) return;
+    await navigator.clipboard.writeText(googleRedirect);
+    toast.success(t("googleCopied"));
   }
 
   const source = payload?.source ?? "none";
@@ -278,6 +356,93 @@ export default function SuperAdminSettingsPage() {
           </div>
         </CardContent>
       </Card>
+      )}
+
+      {googleLoading ? (
+        <p className="text-muted-foreground">{t("loading")}</p>
+      ) : (
+        <Card>
+          <CardHeader>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <CardTitle className="text-base">{t("googleTitle")}</CardTitle>
+                <CardDescription>{t("googleDesc")}</CardDescription>
+              </div>
+              <StatusBadge
+                configured={Boolean(googlePayload?.configured)}
+                source={googlePayload?.source ?? "none"}
+                mode={null}
+                configuredLabel={t("statusConfigured")}
+                envLabel={t("statusEnv")}
+                missingLabel={t("statusMissing")}
+                testLabel={t("modeTest")}
+                liveLabel={t("modeLive")}
+              />
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-xs text-muted-foreground">{t("googleHint")}</p>
+            {googlePayload?.source === "env" ? (
+              <p className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+                {t("googleEnvFallback")}
+              </p>
+            ) : null}
+
+            <div className="space-y-2">
+              <Label htmlFor="google-client-id">{t("googleClientId")}</Label>
+              <Input
+                id="google-client-id"
+                value={googleClientId}
+                onChange={(e) => setGoogleClientId(e.target.value)}
+                placeholder="….apps.googleusercontent.com"
+                autoComplete="off"
+              />
+            </div>
+
+            <SecretField
+              id="google-client-secret"
+              label={t("googleClientSecret")}
+              saved={Boolean(googlePayload?.has_google_client_secret)}
+              pendingClear={clearGoogleSecret}
+              value={googleSecret}
+              savedLabel={t("savedStatus")}
+              notSetLabel={t("notSet")}
+              willClearLabel={t("willClear")}
+              keepPlaceholder={t("keepPlaceholder")}
+              pastePlaceholder={t("pastePlaceholder")}
+              clearLabel={t("clear")}
+              onChange={(v) => {
+                setGoogleSecret(v);
+                setGoogleSecretEdited(true);
+                setClearGoogleSecret(false);
+              }}
+              onClear={() => {
+                setGoogleSecret("");
+                setGoogleSecretEdited(false);
+                setClearGoogleSecret(true);
+              }}
+            />
+
+            <div className="space-y-2">
+              <Label>{t("googleRedirectUri")}</Label>
+              <div className="flex gap-2">
+                <Input readOnly value={googleRedirect} />
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => void copyGoogleRedirect()}
+                >
+                  <Copy className="h-4 w-4" />
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">{t("googleRedirectHint")}</p>
+            </div>
+
+            <Button onClick={() => void saveGoogle()} disabled={googleSaving}>
+              {googleSaving ? t("saving") : t("save")}
+            </Button>
+          </CardContent>
+        </Card>
       )}
     </div>
   );

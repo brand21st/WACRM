@@ -1,8 +1,19 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { ExternalLink, List, MapPin, Reply, ShoppingBag } from "lucide-react";
+import {
+  cartItemCount,
+  cartItemsTotal,
+  formatCartMoney,
+  pickCartDisplayPrice,
+} from "@/lib/commerce/inbound-order";
+import type { InboundCartItem } from "@/lib/commerce/types";
 import { cn } from "@/lib/utils";
-import type { InteractiveMessagePayload } from "@/lib/whatsapp/interactive";
+import type {
+  InteractiveInboundOrderPayload,
+  InteractiveMessagePayload,
+} from "@/lib/whatsapp/interactive";
 
 /**
  * WhatsApp-style read-only render of an interactive message. Used both
@@ -22,28 +33,7 @@ export function InteractivePreview({
   className?: string;
 }) {
   if (payload.kind === "inbound_order") {
-    return (
-      <div
-        className={cn(
-          "w-full max-w-[260px] overflow-hidden rounded-lg bg-card text-foreground shadow-sm ring-1 ring-border",
-          className,
-        )}
-      >
-        <div className="px-3 py-2">
-          <p className="mb-1 flex items-center gap-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            <ShoppingBag className="h-3 w-3" />
-            Cart
-          </p>
-          <ul className="space-y-1 text-sm">
-            {payload.items.map((item, i) => (
-              <li key={`${item.product_retailer_id}-${i}`}>
-                {(item.name || item.product_retailer_id) + ` × ${item.quantity}`}
-              </li>
-            ))}
-          </ul>
-        </div>
-      </div>
-    );
+    return <InboundCartPreview payload={payload} className={className} />;
   }
 
   const header =
@@ -162,6 +152,216 @@ export function InteractivePreview({
       ) : null}
     </div>
   );
+}
+
+function InboundCartPreview({
+  payload,
+  className,
+}: {
+  payload: InteractiveInboundOrderPayload;
+  className?: string;
+}) {
+  const lookupKey = payload.items
+    .map(
+      (item) =>
+        `${item.product_retailer_id}:${item.name ?? ""}:${item.item_price ?? ""}:${item.compare_at_price ?? ""}:${item.image_url ?? ""}:${item.quantity}`,
+    )
+    .join("|");
+  const needsLookup = payload.items.some(
+    (item) =>
+      !item.name?.trim() ||
+      item.item_price == null ||
+      item.item_price <= 1 ||
+      !item.image_url?.trim(),
+  );
+  const [items, setItems] = useState(payload.items);
+
+  useEffect(() => {
+    if (!needsLookup) {
+      setItems(payload.items);
+      return;
+    }
+    const snapshot = payload.items;
+    const ids = [
+      ...new Set(
+        snapshot.map((item) => item.product_retailer_id.trim()).filter(Boolean),
+      ),
+    ];
+    if (ids.length === 0) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch(
+          `/api/catalog/by-retailer?ids=${encodeURIComponent(ids.join(","))}`,
+        );
+        if (!res.ok) return;
+        const data = (await res.json()) as {
+          items?: Array<{
+            retailer_id?: string;
+            name?: string;
+            price?: number;
+            compare_at?: number | null;
+            currency?: string;
+            image_url?: string | null;
+          }>;
+        };
+        if (cancelled || !Array.isArray(data.items)) return;
+        const byId = new Map(
+          data.items
+            .filter((row) => row.retailer_id)
+            .map((row) => [String(row.retailer_id), row]),
+        );
+        setItems(
+          snapshot.map((item) => {
+            const hit = byId.get(item.product_retailer_id);
+            if (!hit) return item;
+            const display = pickCartDisplayPrice({
+              whatsapp: item.item_price,
+              catalog: hit.price ?? undefined,
+              compareAt: hit.compare_at ?? undefined,
+            });
+            return {
+              ...item,
+              name: item.name?.trim() || hit.name || undefined,
+              item_price: display.unit ?? item.item_price ?? hit.price,
+              compare_at_price: display.compareAt,
+              currency: item.currency || hit.currency,
+              image_url: item.image_url || hit.image_url || undefined,
+            };
+          }),
+        );
+      } catch {
+        // Keep the stored payload; retailer IDs still render.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // lookupKey captures item identity; avoid payload.items (new array each render).
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- lookupKey
+  }, [lookupKey, needsLookup]);
+
+  return <InboundCartCard items={items} className={className} />;
+}
+
+export function InboundCartCard({
+  items,
+  className,
+}: {
+  items: InboundCartItem[];
+  className?: string;
+}) {
+  const count = cartItemCount(items);
+  const total = cartItemsTotal(items);
+
+  return (
+    <div
+      className={cn(
+        "w-full max-w-[280px] overflow-hidden rounded-lg bg-card text-foreground shadow-sm ring-1 ring-border",
+        className,
+      )}
+    >
+      <div className="px-3 py-2.5">
+        <p className="mb-2 flex items-center gap-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          <ShoppingBag className="h-3 w-3" />
+          Cart
+          <span className="font-normal normal-case tracking-normal">
+            · {count} {count === 1 ? "item" : "items"}
+          </span>
+        </p>
+        <ul className="space-y-3 text-sm">
+          {items.map((item, i) => {
+            const name = item.name?.trim() || item.product_retailer_id;
+            const { title, variant } = splitCartLineName(name);
+            const qty = Math.max(1, item.quantity || 1);
+            const priced = pickCartDisplayPrice({
+              whatsapp: item.item_price,
+              catalog: item.item_price,
+              compareAt: item.compare_at_price,
+            });
+            const unit = priced.unit;
+            const compareAt = priced.compareAt;
+            const line = unit != null ? unit * qty : undefined;
+            return (
+              <li key={`${item.product_retailer_id}-${i}`} className="flex gap-2.5">
+                {item.image_url ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={item.image_url}
+                    alt=""
+                    referrerPolicy="no-referrer"
+                    className="h-14 w-14 shrink-0 rounded-md object-cover object-top ring-1 ring-border"
+                  />
+                ) : (
+                  <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground ring-1 ring-border">
+                    <ShoppingBag className="h-4 w-4" />
+                  </div>
+                )}
+                <div className="min-w-0 flex-1">
+                  <p
+                    className="line-clamp-2 leading-snug font-medium break-words"
+                    title={name}
+                  >
+                    {title}
+                  </p>
+                  {variant ? (
+                    <p
+                      className="mt-0.5 line-clamp-1 text-xs leading-snug text-muted-foreground"
+                      title={variant}
+                    >
+                      {variant}
+                    </p>
+                  ) : null}
+                  <div className="mt-1 flex items-baseline justify-between gap-2 text-xs">
+                    <span className="shrink-0 text-muted-foreground">
+                      Qty {qty}
+                      {unit != null && qty > 1
+                        ? ` · ${formatCartMoney(unit, item.currency)}`
+                        : ""}
+                    </span>
+                    {line != null ? (
+                      <span className="min-w-0 text-right tabular-nums">
+                        {compareAt != null ? (
+                          <s className="mr-1.5 text-muted-foreground">
+                            {formatCartMoney(compareAt * qty, item.currency)}
+                          </s>
+                        ) : null}
+                        <span className="font-medium text-foreground">
+                          {formatCartMoney(line, item.currency)}
+                        </span>
+                      </span>
+                    ) : null}
+                  </div>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+        {total ? (
+          <div className="mt-2 flex items-center justify-between border-t border-border pt-2 text-sm font-medium">
+            <span>Total</span>
+            <span className="tabular-nums">
+              {formatCartMoney(total.amount, total.currency)}
+            </span>
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+/** Catalog enrich joins title and variant with an em dash. */
+export function splitCartLineName(name: string): {
+  title: string;
+  variant?: string;
+} {
+  const sep = " — ";
+  const idx = name.indexOf(sep);
+  if (idx <= 0) return { title: name };
+  const title = name.slice(0, idx).trim();
+  const variant = name.slice(idx + sep.length).trim();
+  if (!title || !variant) return { title: name };
+  return { title, variant };
 }
 
 /** WhatsApp `~strike~` in interactive body text (sale compare-at on product cards). */

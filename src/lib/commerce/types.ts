@@ -37,6 +37,8 @@ export interface InboundCartItem {
   item_price?: number
   currency?: string
   name?: string
+  image_url?: string
+  compare_at_price?: number
 }
 
 export type CommerceOrderStatus =

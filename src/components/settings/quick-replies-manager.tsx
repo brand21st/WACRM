@@ -1,7 +1,17 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { Loader2, MessageSquare, Pencil, Plus, Trash2, Zap } from "lucide-react";
+import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
+import {
+  FileText,
+  ImageIcon,
+  Loader2,
+  MessageSquare,
+  Pencil,
+  Plus,
+  Trash2,
+  Video,
+  Zap,
+} from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -21,11 +31,25 @@ import {
   toComposerInteractivePayload,
   type ComposerInteractivePayload,
 } from "@/components/interactive/interactive-builder";
+import { interactivePayloadPreviewText } from "@/lib/whatsapp/interactive";
 import {
-  interactivePayloadPreviewText,
-  type InteractiveMessagePayload,
-} from "@/lib/whatsapp/interactive";
+  CHAT_MEDIA_BUCKET,
+  MEDIA_CAPTION_MAX,
+  MEDIA_MAX_BYTES_BY_KIND,
+  MEDIA_PICKER_ACCEPT,
+  deleteAccountMedia,
+  uploadAccountMedia,
+} from "@/lib/storage/upload-media";
+import { isMediaQuickReplyKind } from "@/lib/quick-replies";
 import type { QuickReply, QuickReplyKind } from "@/types";
+
+const KIND_TABS: { id: QuickReplyKind; label: string }[] = [
+  { id: "text", label: "Text" },
+  { id: "image", label: "Image" },
+  { id: "video", label: "Video" },
+  { id: "document", label: "Document" },
+  { id: "interactive", label: "Interactive" },
+];
 
 interface DraftState {
   id?: string;
@@ -33,6 +57,13 @@ interface DraftState {
   kind: QuickReplyKind;
   content_text: string;
   interactive_payload: ComposerInteractivePayload;
+  media_url: string;
+  media_path: string;
+  media_filename: string;
+  /** Path already on the saved row — never GC on cancel. */
+  originalMediaPath: string;
+  /** Path uploaded in this dialog session — GC on cancel if unused. */
+  sessionUploadPath: string;
 }
 
 function emptyDraft(): DraftState {
@@ -41,7 +72,17 @@ function emptyDraft(): DraftState {
     kind: "text",
     content_text: "",
     interactive_payload: blankButtonsPayload(),
+    media_url: "",
+    media_path: "",
+    media_filename: "",
+    originalMediaPath: "",
+    sessionUploadPath: "",
   };
+}
+
+function gcPath(path: string | undefined) {
+  if (!path) return;
+  void deleteAccountMedia(CHAT_MEDIA_BUCKET, path).catch(() => {});
 }
 
 export function QuickRepliesManager() {
@@ -49,6 +90,8 @@ export function QuickRepliesManager() {
   const [loading, setLoading] = useState(true);
   const [draft, setDraft] = useState<DraftState | null>(null);
   const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -72,10 +115,23 @@ export function QuickRepliesManager() {
       title: qr.title,
       kind: qr.kind,
       content_text: qr.content_text ?? "",
-      interactive_payload: toComposerInteractivePayload(
-        qr.interactive_payload,
-      ),
+      interactive_payload: toComposerInteractivePayload(qr.interactive_payload),
+      media_url: qr.media_url ?? "",
+      media_path: qr.media_path ?? "",
+      media_filename: qr.media_filename ?? "",
+      originalMediaPath: qr.media_path ?? "",
+      sessionUploadPath: "",
     });
+
+  const closeDraft = useCallback((current: DraftState | null) => {
+    if (
+      current?.sessionUploadPath &&
+      current.sessionUploadPath !== current.originalMediaPath
+    ) {
+      gcPath(current.sessionUploadPath);
+    }
+    setDraft(null);
+  }, []);
 
   const save = useCallback(async () => {
     if (!draft) return;
@@ -83,10 +139,34 @@ export function QuickRepliesManager() {
       toast.error("Give the quick reply a name.");
       return;
     }
-    const payload =
-      draft.kind === "interactive"
-        ? { title: draft.title, kind: "interactive", interactive_payload: draft.interactive_payload }
-        : { title: draft.title, kind: "text", content_text: draft.content_text };
+
+    let payload: Record<string, unknown>;
+    if (draft.kind === "interactive") {
+      payload = {
+        title: draft.title,
+        kind: "interactive",
+        interactive_payload: draft.interactive_payload,
+      };
+    } else if (isMediaQuickReplyKind(draft.kind)) {
+      if (!draft.media_url || !draft.media_path) {
+        toast.error("Upload a file for this quick reply.");
+        return;
+      }
+      payload = {
+        title: draft.title,
+        kind: draft.kind,
+        media_url: draft.media_url,
+        media_path: draft.media_path,
+        media_filename: draft.media_filename,
+        content_text: draft.content_text,
+      };
+    } else {
+      payload = {
+        title: draft.title,
+        kind: "text",
+        content_text: draft.content_text,
+      };
+    }
 
     setSaving(true);
     try {
@@ -126,11 +206,49 @@ export function QuickRepliesManager() {
     [load],
   );
 
+  const handleFile = useCallback(
+    async (file: File | undefined) => {
+      if (!draft || !isMediaQuickReplyKind(draft.kind) || !file) return;
+      const max = MEDIA_MAX_BYTES_BY_KIND[draft.kind];
+      if (file.size > max) {
+        toast.error(
+          `File is ${(file.size / 1024 / 1024).toFixed(1)} MB — ${draft.kind} limit is ${Math.round(max / 1024 / 1024)} MB.`,
+        );
+        return;
+      }
+      setUploading(true);
+      try {
+        const { publicUrl, path } = await uploadAccountMedia(
+          CHAT_MEDIA_BUCKET,
+          file,
+        );
+        if (
+          draft.sessionUploadPath &&
+          draft.sessionUploadPath !== draft.originalMediaPath
+        ) {
+          gcPath(draft.sessionUploadPath);
+        }
+        setDraft({
+          ...draft,
+          media_url: publicUrl,
+          media_path: path,
+          media_filename: file.name,
+          sessionUploadPath: path,
+        });
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "Upload failed.");
+      } finally {
+        setUploading(false);
+      }
+    },
+    [draft],
+  );
+
   return (
     <div>
       <SettingsPanelHead
         title="Quick replies"
-        description="Reusable snippets — plain text or a saved interactive message — that agents can insert from the inbox composer."
+        description="Reusable snippets — text, image, video, document, or a saved interactive message — that agents can insert from the inbox composer."
         action={
           <Button onClick={openCreate}>
             <Plus className="mr-1 h-4 w-4" />
@@ -154,17 +272,13 @@ export function QuickRepliesManager() {
               key={qr.id}
               className="flex items-start gap-3 rounded-lg border border-border bg-card p-3"
             >
-              {qr.kind === "interactive" ? (
-                <Zap className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-              ) : (
-                <MessageSquare className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-              )}
+              <KindIcon kind={qr.kind} />
               <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium text-foreground">{qr.title}</p>
+                <p className="truncate text-sm font-medium text-foreground">
+                  {qr.title}
+                </p>
                 <p className="truncate text-xs text-muted-foreground">
-                  {qr.kind === "interactive" && qr.interactive_payload
-                    ? interactivePayloadPreviewText(qr.interactive_payload)
-                    : qr.content_text}
+                  {previewFor(qr)}
                 </p>
               </div>
               <div className="flex shrink-0 gap-1">
@@ -185,15 +299,24 @@ export function QuickRepliesManager() {
         </ul>
       )}
 
-      <Dialog open={!!draft} onOpenChange={(o) => !o && setDraft(null)}>
+      <Dialog
+        open={!!draft}
+        onOpenChange={(o) => {
+          if (!o) closeDraft(draft);
+        }}
+      >
         <DialogContent className="sm:max-w-2xl">
           <DialogHeader>
-            <DialogTitle>{draft?.id ? "Edit quick reply" : "New quick reply"}</DialogTitle>
+            <DialogTitle>
+              {draft?.id ? "Edit quick reply" : "New quick reply"}
+            </DialogTitle>
           </DialogHeader>
           {draft && (
             <div className="max-h-[70vh] space-y-3 overflow-y-auto">
               <div>
-                <label className="mb-1 block text-xs text-muted-foreground">Name</label>
+                <label className="mb-1 block text-xs text-muted-foreground">
+                  Name
+                </label>
                 <Input
                   value={draft.title}
                   onChange={(e) => setDraft({ ...draft, title: e.target.value })}
@@ -201,38 +324,58 @@ export function QuickRepliesManager() {
                   className="bg-muted text-foreground"
                 />
               </div>
-              <div className="flex gap-2">
-                <KindTab
-                  active={draft.kind === "text"}
-                  label="Text"
-                  onClick={() => setDraft({ ...draft, kind: "text" })}
-                />
-                <KindTab
-                  active={draft.kind === "interactive"}
-                  label="Interactive"
-                  onClick={() => setDraft({ ...draft, kind: "interactive" })}
-                />
+              <div className="flex flex-wrap gap-1.5">
+                {KIND_TABS.map((tab) => (
+                  <KindTab
+                    key={tab.id}
+                    active={draft.kind === tab.id}
+                    label={tab.label}
+                    onClick={() => setDraft({ ...draft, kind: tab.id })}
+                  />
+                ))}
               </div>
               {draft.kind === "text" ? (
                 <Textarea
                   value={draft.content_text}
-                  onChange={(e) => setDraft({ ...draft, content_text: e.target.value })}
+                  onChange={(e) =>
+                    setDraft({ ...draft, content_text: e.target.value })
+                  }
                   placeholder="The message text to insert"
                   className="min-h-28 bg-muted text-foreground"
                 />
-              ) : (
+              ) : draft.kind === "interactive" ? (
                 <InteractiveBuilder
                   value={draft.interactive_payload}
-                  onChange={(p) => setDraft({ ...draft, interactive_payload: p })}
+                  onChange={(p) =>
+                    setDraft({ ...draft, interactive_payload: p })
+                  }
+                />
+              ) : (
+                <MediaDraftFields
+                  kind={draft.kind}
+                  mediaUrl={draft.media_url}
+                  filename={draft.media_filename}
+                  caption={draft.content_text}
+                  uploading={uploading}
+                  fileInputRef={fileInputRef}
+                  onCaptionChange={(content_text) =>
+                    setDraft({ ...draft, content_text })
+                  }
+                  onPickFile={() => fileInputRef.current?.click()}
+                  onFile={(file) => void handleFile(file)}
                 />
               )}
             </div>
           )}
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDraft(null)} disabled={saving}>
+            <Button
+              variant="outline"
+              onClick={() => closeDraft(draft)}
+              disabled={saving}
+            >
               Cancel
             </Button>
-            <Button onClick={save} disabled={saving}>
+            <Button onClick={save} disabled={saving || uploading}>
               {saving && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
               Save
             </Button>
@@ -241,6 +384,27 @@ export function QuickRepliesManager() {
       </Dialog>
     </div>
   );
+}
+
+function previewFor(qr: QuickReply): string {
+  if (qr.kind === "interactive" && qr.interactive_payload) {
+    return interactivePayloadPreviewText(qr.interactive_payload);
+  }
+  if (isMediaQuickReplyKind(qr.kind)) {
+    return qr.content_text?.trim() || qr.media_filename || qr.kind;
+  }
+  return qr.content_text ?? "";
+}
+
+function KindIcon({ kind }: { kind: QuickReplyKind }) {
+  const className = "mt-0.5 h-4 w-4 shrink-0 text-muted-foreground";
+  if (kind === "interactive") {
+    return <Zap className="mt-0.5 h-4 w-4 shrink-0 text-primary" />;
+  }
+  if (kind === "image") return <ImageIcon className={className} />;
+  if (kind === "video") return <Video className={className} />;
+  if (kind === "document") return <FileText className={className} />;
+  return <MessageSquare className={className} />;
 }
 
 function KindTab({
@@ -258,11 +422,94 @@ function KindTab({
       onClick={onClick}
       className={
         active
-          ? "flex-1 rounded-md border border-primary bg-primary/10 px-3 py-1.5 text-sm font-medium text-primary"
-          : "flex-1 rounded-md border border-border bg-muted px-3 py-1.5 text-sm font-medium text-muted-foreground hover:text-foreground"
+          ? "rounded-md border border-primary bg-primary/10 px-3 py-1.5 text-sm font-medium text-primary"
+          : "rounded-md border border-border bg-muted px-3 py-1.5 text-sm font-medium text-muted-foreground hover:text-foreground"
       }
     >
       {label}
     </button>
+  );
+}
+
+function MediaDraftFields({
+  kind,
+  mediaUrl,
+  filename,
+  caption,
+  uploading,
+  fileInputRef,
+  onCaptionChange,
+  onPickFile,
+  onFile,
+}: {
+  kind: "image" | "video" | "document";
+  mediaUrl: string;
+  filename: string;
+  caption: string;
+  uploading: boolean;
+  fileInputRef: RefObject<HTMLInputElement | null>;
+  onCaptionChange: (caption: string) => void;
+  onPickFile: () => void;
+  onFile: (file: File | undefined) => void;
+}) {
+  return (
+    <div className="space-y-3">
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept={MEDIA_PICKER_ACCEPT[kind]}
+        className="hidden"
+        onChange={(e) => {
+          onFile(e.target.files?.[0]);
+          e.target.value = "";
+        }}
+      />
+      {mediaUrl ? (
+        <div className="rounded-lg border border-border bg-muted/40 p-3">
+          {kind === "image" && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={mediaUrl}
+              alt={filename}
+              className="max-h-40 rounded-md object-cover"
+            />
+          )}
+          {kind === "video" && (
+            <video src={mediaUrl} controls className="max-h-40 rounded-md" />
+          )}
+          {kind === "document" && (
+            <div className="flex items-center gap-2 text-sm text-foreground">
+              <FileText className="h-5 w-5 shrink-0 text-muted-foreground" />
+              <span className="truncate">{filename || "Document"}</span>
+            </div>
+          )}
+        </div>
+      ) : (
+        <p className="rounded-lg border border-dashed border-border py-6 text-center text-sm text-muted-foreground">
+          No file yet.
+        </p>
+      )}
+      <Button
+        type="button"
+        variant="outline"
+        onClick={onPickFile}
+        disabled={uploading}
+      >
+        {uploading ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null}
+        {mediaUrl ? "Replace file" : "Upload file"}
+      </Button>
+      <div>
+        <label className="mb-1 block text-xs text-muted-foreground">
+          Caption (optional)
+        </label>
+        <Input
+          value={caption}
+          maxLength={MEDIA_CAPTION_MAX}
+          onChange={(e) => onCaptionChange(e.target.value)}
+          placeholder="Shown with the file on WhatsApp"
+          className="bg-muted text-foreground"
+        />
+      </div>
+    </div>
   );
 }
