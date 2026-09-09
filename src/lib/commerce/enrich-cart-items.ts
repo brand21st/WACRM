@@ -267,14 +267,14 @@ function matchProductVariant(
 
 export function displayCatalogLineName(
   productTitle: string,
-  variantTitle?: string | null,
+  variantTitle?: unknown,
 ): string {
   return displayName(productTitle, variantTitle)
 }
 
-function displayName(productTitle: string, variantTitle?: string | null): string {
+function displayName(productTitle: string, variantTitle?: unknown): string {
   const product = productTitle.trim()
-  const variant = (variantTitle ?? '').trim()
+  const variant = typeof variantTitle === 'string' ? variantTitle.trim() : ''
   const name =
     variant && variant !== 'Default' ? `${product} — ${variant}` : product
   return name.slice(0, NAME_MAX)
@@ -430,7 +430,7 @@ async function loadHeroImages(
 }
 
 function pickHeroUrl(
-  media: Array<{ url?: string | null; role?: string | null }>,
+  media: Array<{ url?: unknown; role?: unknown }>,
 ): string | undefined {
   const hero = media.find((item) => item.role === 'hero')
   return sanitizeImageUrl(hero?.url ?? media[0]?.url)
