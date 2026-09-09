@@ -48,6 +48,18 @@ describe('buildFollowUpSystemPrompt', () => {
     expect(prompt).toMatch(/Do not pitch rejected_products/)
     expect(prompt).toMatch(/Never send a generic “are you still interested”/)
   })
+
+  it('includes current product facts when provided', () => {
+    const prompt = buildFollowUpSystemPrompt({
+      salesSnapshot: 'current_product: Pournami Blue',
+      productFacts:
+        'Current product facts (trusted catalog data)\ntitle: Pournami Blue\nin_stock_colors: Blue\nmaterial: unavailable',
+    })
+    expect(prompt).toMatch(/title: Pournami Blue/)
+    expect(prompt).toMatch(/in_stock_colors: Blue/)
+    expect(prompt).toMatch(/stay on that product/)
+    expect(prompt).toMatch(/Never send a generic “are you still interested”/)
+  })
 })
 
 describe('hasMeaningfulFollowUpContext', () => {

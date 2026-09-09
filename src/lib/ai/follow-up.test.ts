@@ -10,6 +10,9 @@ const h = vi.hoisted(() => ({
   engineSendText: vi.fn(),
   enqueueAiConversationFollowUp: vi.fn(),
   removeAiConversationFollowUp: vi.fn(),
+  getProductFromCatalog: vi.fn(),
+  loadShopifyConfig: vi.fn(),
+  loadCommerceSettings: vi.fn(),
   db: null as unknown,
 }))
 
@@ -27,6 +30,26 @@ vi.mock('@/lib/flows/meta-send', () => ({ engineSendText: h.engineSendText }))
 vi.mock('@/lib/queue/enqueue', () => ({
   enqueueAiConversationFollowUp: h.enqueueAiConversationFollowUp,
   removeAiConversationFollowUp: h.removeAiConversationFollowUp,
+}))
+vi.mock('@/lib/shopify', () => ({
+  getProductFromCatalog: h.getProductFromCatalog,
+  loadShopifyConfig: h.loadShopifyConfig,
+  catalogOnlyStoreConfig: (accountId: string, extras?: Record<string, unknown>) => ({
+    accountId,
+    shopDomain: '',
+    accessToken: '',
+    isActive: false,
+    shopName: null,
+    primaryDomain: null,
+    currency: null,
+    metaCatalogId: extras?.metaCatalogId ?? null,
+    lastVerifiedAt: null,
+    lastCatalogSyncAt: null,
+    catalogProductCount: 0,
+  }),
+}))
+vi.mock('@/lib/shopify/commerce-config', () => ({
+  loadCommerceSettings: h.loadCommerceSettings,
 }))
 
 import {
@@ -242,6 +265,9 @@ beforeEach(() => {
   h.engineSendText.mockReset().mockResolvedValue({ whatsapp_message_id: 'wamid.1' })
   h.enqueueAiConversationFollowUp.mockReset().mockResolvedValue(true)
   h.removeAiConversationFollowUp.mockReset().mockResolvedValue(undefined)
+  h.getProductFromCatalog.mockReset().mockResolvedValue(null)
+  h.loadShopifyConfig.mockReset().mockResolvedValue(null)
+  h.loadCommerceSettings.mockReset().mockResolvedValue(null)
 })
 
 describe('scheduleConversationFollowUp', () => {
@@ -646,6 +672,34 @@ describe('processConversationFollowUp', () => {
         },
       },
     ]
+    h.getProductFromCatalog.mockResolvedValue({
+      id: 'gid://shopify/Product/1',
+      handle: 'pournami-blue',
+      title: 'Pournami Blue',
+      description: '',
+      imageUrl: 'https://cdn.example/p.jpg',
+      productUrl: 'https://shop.example/products/pournami-blue',
+      cartUrl: null,
+      checkoutUrl: 'https://shop.example/cart/1:1?checkout',
+      priceMin: '2499',
+      priceMax: '2499',
+      currency: 'INR',
+      variants: [
+        {
+          id: 'v1',
+          variantId: '1',
+          title: 'Blue / M',
+          sku: 'B-M',
+          price: '2499',
+          compareAtPrice: null,
+          available: true,
+          options: [
+            { name: 'Color', value: 'Blue' },
+            { name: 'Size', value: 'M' },
+          ],
+        },
+      ],
+    })
     h.db = memoryDb(state)
     await processConversationFollowUp({
       accountId: ACCOUNT,
@@ -658,6 +712,9 @@ describe('processConversationFollowUp', () => {
     expect(prompt).toMatch(/budget_max: 3000/)
     expect(prompt).toMatch(/Do not re-pitch rejected_products/)
     expect(prompt).toMatch(/rejected_products: old-red-saree/)
+    expect(prompt).toMatch(/Current product facts/)
+    expect(prompt).toMatch(/in_stock_colors: Blue/)
+    expect(prompt).toMatch(/Never send a generic “are you still interested”/)
   })
 })
 

@@ -3540,51 +3540,83 @@ describe('dispatchInboundToAiReply — agent product focus', () => {
     h.buildConversationContext.mockResolvedValue([
       { role: 'user', content: 'same one in red, M' },
     ])
-    h.generateReply.mockResolvedValue({
-      text: 'Pournami in red, size M.',
-      handoff: false,
-    })
 
     await dispatchInboundToAiReply(ARGS)
 
-    expect(h.generateReply).toHaveBeenCalledWith(
+    expect(h.generateReply).not.toHaveBeenCalled()
+    expect(h.engineSendText).toHaveBeenCalledWith(
       expect.objectContaining({
-        tools: expect.arrayContaining([
-          expect.objectContaining({ name: 'get_product' }),
-        ]),
+        text: expect.stringMatching(/Red \/ M/),
       }),
     )
-    expect(h.generateReply.mock.calls[0][0].tools.some((t: { name: string }) => t.name === 'search_products')).toBe(
-      false,
-    )
+    expect(h.state.updatePayload?.ai_product_focus).not.toBeNull()
   })
 
   it('keeps focus on a Malayalam availability question and injects catalog facts', async () => {
     h.buildConversationContext.mockResolvedValue([
       { role: 'user', content: 'ഇത് available ആണോ?' },
     ])
+
+    await dispatchInboundToAiReply(ARGS)
+
+    expect(h.generateReply).not.toHaveBeenCalled()
+    expect(h.engineSendText).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: expect.stringMatching(/സ്റ്റോക്ക്|available|in stock/i),
+      }),
+    )
+    expect(h.state.updatePayload?.ai_product_focus).not.toBeNull()
+  })
+
+  it('skips the LLM for a complete material answer from catalog fabric', async () => {
+    h.loadContactMemory.mockResolvedValue({
+      profileSummary: '',
+      lastSessionSummary: '',
+      facts: {
+        language: 'Malayalam',
+        language_code: 'ml',
+        language_script: 'native',
+        language_locked: true,
+      },
+      notes: [],
+      summarizedThroughAt: null,
+      messageCountAtSummary: 0,
+      conversationId: null,
+    })
+    h.getProductFromCatalog.mockResolvedValue({
+      ...POURNAMI,
+      attributes: [{ key: 'fabric', label: 'Fabric', value: 'Rayon' }],
+    })
+    h.buildConversationContext.mockResolvedValue([
+      { role: 'user', content: 'ഇത് ഏത് material ആണ്?' },
+    ])
+
+    await dispatchInboundToAiReply(ARGS)
+
+    expect(h.generateReply).not.toHaveBeenCalled()
+    expect(h.engineSendText).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: 'ഇത് Rayon material ആണ്.',
+      }),
+    )
+  })
+
+  it('still uses generateReply for an open product question and passes a reply directive', async () => {
+    h.buildConversationContext.mockResolvedValue([
+      { role: 'user', content: 'how does this fit?' },
+    ])
     h.generateReply.mockResolvedValue({
-      text: 'ഉണ്ട്, ഇപ്പോൾ സ്റ്റോക്കിലുണ്ട്.',
+      text: 'It is a regular fit.',
       handoff: false,
     })
 
     await dispatchInboundToAiReply(ARGS)
 
-    expect(h.generateReply).toHaveBeenCalledWith(
-      expect.objectContaining({
-        tools: expect.arrayContaining([
-          expect.objectContaining({ name: 'get_product' }),
-        ]),
-      }),
-    )
-    expect(h.generateReply.mock.calls[0][0].tools.some((t: { name: string }) => t.name === 'search_products')).toBe(
-      false,
-    )
+    expect(h.generateReply).toHaveBeenCalled()
     const prompt = h.generateReply.mock.calls[0][0].systemPrompt as string
+    expect(prompt).toMatch(/This-turn reply: Answer this other question only/)
+    expect(prompt).toMatch(/Do not recap the product card/)
     expect(prompt).toMatch(/Current product facts/)
-    expect(prompt).toMatch(/availability: in stock/)
-    expect(prompt).toMatch(/do not say you cannot check stock/)
-    expect(h.state.updatePayload?.ai_product_focus).not.toBeNull()
   })
 })
 

@@ -10,17 +10,20 @@ export type FollowUpGeneration = {
 export function buildFollowUpSystemPrompt(opts: {
   replyLanguage?: ChatLanguageLock | null
   salesSnapshot?: string | null
+  productFacts?: string | null
 }): string {
   const language = opts.replyLanguage?.locked
     ? `Write in ${opts.replyLanguage.name} (${opts.replyLanguage.script} script).`
     : 'Match the language the customer was using in the transcript.'
   const snapshot = opts.salesSnapshot?.trim()
+  const facts = opts.productFacts?.trim()
 
   return [
     'You write ONE short WhatsApp follow-up after the customer went silent.',
     language,
     'Refer only to what they actually discussed. Be helpful, not pushy.',
     'Use the current product, budget, and unresolved question from the sales snapshot when present.',
+    'When current product facts are present, stay on that product: mention in-stock options, budget, or the unanswered question. Do not invent stock or material.',
     'Do not pitch rejected_products. Do not introduce a new unrelated product.',
     'Do not repeat the whole conversation. Do not invent facts.',
     'Do not claim the customer wants something they never requested.',
@@ -30,6 +33,7 @@ export function buildFollowUpSystemPrompt(opts: {
     'If they already purchased or clearly declined, skip.',
     'If there is no meaningful reason to follow up, skip.',
     snapshot ? snapshot : '',
+    facts ? facts : '',
     'Reply with JSON only:',
     '{ "action": "send" | "skip", "message": "...", "reason": "..." }',
     'When action is skip, message may be empty.',

@@ -23,6 +23,13 @@ import {
 } from './follow-up-prompt'
 import { loadShoppingContext, formatSalesSnapshot } from '@/lib/catalog/intelligence/shopping-context'
 import { parseProductFocus } from '@/lib/shopify/product-focus'
+import {
+  catalogOnlyStoreConfig,
+  getProductFromCatalog,
+  loadShopifyConfig,
+} from '@/lib/shopify'
+import { loadCommerceSettings } from '@/lib/shopify/commerce-config'
+import { formatCurrentProductFacts } from '@/lib/shopify/product-facts'
 import type { AiConfig } from './types'
 
 export type FollowUpSkipReason =
@@ -255,12 +262,21 @@ export async function processConversationFollowUp(args: {
       stored: memory?.facts ?? null,
       customerText: lastCustomerText,
     }).lock
+    const productFacts = await loadFocusedProductFacts(
+      db,
+      args.accountId,
+      productFocus,
+    )
 
     let generated
     try {
       const result = await generateReply({
         config,
-        systemPrompt: buildFollowUpSystemPrompt({ replyLanguage, salesSnapshot }),
+        systemPrompt: buildFollowUpSystemPrompt({
+          replyLanguage,
+          salesSnapshot,
+          productFacts,
+        }),
         messages,
         replyLanguage,
         skipSpokenRewrite: true,
@@ -383,6 +399,29 @@ async function restorePending(
     .update({ status: 'pending', skip_reason: null })
     .eq('id', id)
     .eq('status', 'sending')
+}
+
+async function loadFocusedProductFacts(
+  db: SupabaseClient,
+  accountId: string,
+  productFocus: ReturnType<typeof parseProductFocus>,
+): Promise<string> {
+  if (!productFocus?.handle) return ''
+  try {
+    const shopify = await loadShopifyConfig(db, accountId).catch(() => null)
+    const commerce = await loadCommerceSettings(db, accountId).catch(() => null)
+    const catalogConfig =
+      shopify ??
+      catalogOnlyStoreConfig(accountId, {
+        metaCatalogId: commerce?.metaCatalogId ?? null,
+      })
+    const hit = await getProductFromCatalog(db, catalogConfig, productFocus.handle)
+    if (!hit) return ''
+    return formatCurrentProductFacts(hit, productFocus)
+  } catch (err) {
+    console.warn('[follow-up] focused product facts failed:', err)
+    return ''
+  }
 }
 
 async function loadEligibleConversation(

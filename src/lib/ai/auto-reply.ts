@@ -120,6 +120,7 @@ import {
 import { mergeAndPersistShoppingContext, loadShoppingContext, emptyShoppingContext, formatSalesSnapshot } from '@/lib/catalog/intelligence/shopping-context'
 import { classifySalesTurn, shouldPersistSalesContext, unlocksCatalogBrowse } from '@/lib/shopify/sales-turn'
 import { formatCurrentProductFacts } from '@/lib/shopify/product-facts'
+import { buildFocusedFactReply, focusedReplyDirective } from '@/lib/shopify/sales-reply'
 import { recordCatalogProductEvents } from '@/lib/catalog/analytics/events'
 
 interface DispatchArgs {
@@ -627,6 +628,35 @@ export async function dispatchInboundToAiReply(
     const productFacts = focusedHit
       ? formatCurrentProductFacts(focusedHit, productFocus)
       : ''
+    const replyDirective = focusedReplyDirective(salesTurn)
+    const factReply =
+      focusedHit && productFocus
+        ? buildFocusedFactReply({
+            topic: salesTurn.topic,
+            kind: salesTurn.kind,
+            ask: queryText,
+            hit: focusedHit,
+            focus: productFocus,
+            language: replyLanguage,
+          })
+        : null
+    if (factReply && shouldPersistSalesContext(salesTurn.kind)) {
+      try {
+        shopping = await mergeAndPersistShoppingContext(db, {
+          accountId,
+          contactId,
+          conversationId,
+          previous: shopping,
+          nextAction: factReply.nextAction,
+          unresolvedQuestion:
+            factReply.nextAction === 'wait_for_customer'
+              ? null
+              : (shopping.unresolvedQuestion ?? queryText.trim().slice(0, 240)),
+        })
+      } catch (err) {
+        console.warn('[ai auto-reply] fact-reply shopping persist failed:', err)
+      }
+    }
     const systemPrompt = buildSystemPrompt({
       userPrompt: config.systemPrompt,
       mode: 'auto_reply',
@@ -644,6 +674,7 @@ export async function dispatchInboundToAiReply(
       productFocus,
       salesSnapshot,
       productFacts,
+      replyDirective,
     })
 
     const channels = resolveReplyChannels(
@@ -660,30 +691,40 @@ export async function dispatchInboundToAiReply(
     // Realtime has no tool loop. Catalog product tools are always bound,
     // so voice replies go through generateCustomerFacingReply.
 
-    const { text, handoff } = await generateCustomerFacingReply({
-      db,
-      config,
-      accountId,
-      conversationId,
-      systemPrompt,
-      messages,
-      knowledge,
-      catalog: true,
-      shopify: Boolean(shopify),
-      nativeCommerce: nativeCommerce && !productFocus,
-      whatsappCatalog,
-      photoMatches,
-      customerName,
-      firstInbound: isFirstInbound,
-      shopName: shopify?.shopName,
-      customerMemory,
-      replyLanguage,
-      productFocus,
-      salesSnapshot,
-      productFacts,
-      tools: shopifyTools.tools,
-      executeTool: shopifyTools.executeTool,
-    })
+    let text: string
+    let handoff: boolean
+    if (factReply) {
+      text = factReply.text
+      handoff = false
+    } else {
+      const generated = await generateCustomerFacingReply({
+        db,
+        config,
+        accountId,
+        conversationId,
+        systemPrompt,
+        messages,
+        knowledge,
+        catalog: true,
+        shopify: Boolean(shopify),
+        nativeCommerce: nativeCommerce && !productFocus,
+        whatsappCatalog,
+        photoMatches,
+        customerName,
+        firstInbound: isFirstInbound,
+        shopName: shopify?.shopName,
+        customerMemory,
+        replyLanguage,
+        productFocus,
+        salesSnapshot,
+        productFacts,
+        replyDirective,
+        tools: shopifyTools.tools,
+        executeTool: shopifyTools.executeTool,
+      })
+      text = generated.text
+      handoff = generated.handoff
+    }
 
     const confirmTap = lastMessageHasAction(
       messages,
@@ -1289,6 +1330,7 @@ export async function generateCustomerFacingReply(args: {
   productFocus?: ProductFocus | null
   salesSnapshot?: string | null
   productFacts?: string | null
+  replyDirective?: string | null
   tools?: LlmToolDef[]
   executeTool?: ExecuteLlmTool
 }): Promise<{ text: string; handoff: boolean }> {
@@ -1340,6 +1382,7 @@ export async function generateCustomerFacingReply(args: {
         productFocus: args.productFocus,
         salesSnapshot: args.salesSnapshot,
         productFacts: args.productFacts,
+        replyDirective: args.replyDirective,
       }),
       messages: args.messages,
       customerName: args.customerName,

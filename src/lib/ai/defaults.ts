@@ -129,6 +129,10 @@ export function buildSystemPrompt(args: {
    * Already formatted. Empty / omitted = no live product loaded.
    */
   productFacts?: string | null
+  /**
+   * One-line instruction for this turn (topic-only answer, no card recap).
+   */
+  replyDirective?: string | null
 }): string {
   const {
     userPrompt,
@@ -147,6 +151,7 @@ export function buildSystemPrompt(args: {
     productFocus,
     salesSnapshot,
     productFacts,
+    replyDirective,
   } = args
   const catalog = catalogArg ?? Boolean(shopify)
   const name = customerName?.trim() || ''
@@ -221,6 +226,7 @@ export function buildSystemPrompt(args: {
     catalog ? salesVoiceBlock() : '',
     salesSnapshotBlock(salesSnapshot),
     productFactsBlock(productFacts),
+    replyDirectiveBlock(replyDirective),
     formatReplyLanguageInstruction(replyLanguage),
   ].filter(Boolean) as string[]
 
@@ -394,6 +400,12 @@ function productFactsBlock(raw?: string | null): string {
   const facts = raw?.trim() || ''
   if (!facts) return ''
   return facts
+}
+
+function replyDirectiveBlock(raw?: string | null): string {
+  const directive = raw?.trim() || ''
+  if (!directive) return ''
+  return `This-turn reply: ${directive}`
 }
 
 function customerAddressBlock(name: string, firstWelcome = false): string {

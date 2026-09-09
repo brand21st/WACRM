@@ -194,6 +194,19 @@ describe('buildSystemPrompt', () => {
     expect(prompt).toMatch(/A complete factual answer needs no question/)
   })
 
+  it('injects a this-turn reply directive for focused fact questions', () => {
+    const prompt = buildSystemPrompt({
+      userPrompt: null,
+      mode: 'auto_reply',
+      shopify: true,
+      productFocus: { handle: 'ag2660', title: 'Rayon Side slit Coord' },
+      replyDirective:
+        'Answer this material question only. Do not recap the product card.',
+    })
+    expect(prompt).toMatch(/This-turn reply: Answer this material question only/)
+    expect(prompt).toMatch(/Do not recap the product card/)
+  })
+
   it('injects a compact sales snapshot and latest-message-wins sales tone', () => {
     const prompt = buildSystemPrompt({
       userPrompt: null,

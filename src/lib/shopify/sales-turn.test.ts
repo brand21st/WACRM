@@ -67,42 +67,58 @@ describe('classifySalesTurn', () => {
   })
 
   it('keeps product questions on the current item', () => {
-    expect(classifySalesTurn('what material is this?', { hasFocus: true }).kind).toBe(
-      'product_question',
-    )
-    expect(classifySalesTurn('how much?', { hasFocus: true }).kind).toBe(
-      'product_question',
-    )
-    expect(classifySalesTurn('available?', { hasFocus: true }).kind).toBe(
-      'product_question',
-    )
-    expect(classifySalesTurn('what is this?', { hasFocus: true }).kind).toBe(
-      'product_question',
-    )
-    expect(classifySalesTurn('tell me about this', { hasFocus: true }).kind).toBe(
-      'product_question',
-    )
-    expect(classifySalesTurn('ഈ product എന്താണ്?', { hasFocus: true }).kind).toBe(
-      'product_question',
-    )
-    expect(classifySalesTurn('ഇതെന്താണ്?', { hasFocus: true }).kind).toBe(
-      'product_question',
-    )
-    expect(classifySalesTurn('ഇത് ഏത് material ആണ്?', { hasFocus: true }).kind).toBe(
-      'product_question',
-    )
-    expect(classifySalesTurn('ഇത് available ആണോ?', { hasFocus: true }).kind).toBe(
-      'product_question',
-    )
-    expect(classifySalesTurn('cotton ആണോ?', { hasFocus: true }).kind).toBe(
-      'product_question',
-    )
-    expect(classifySalesTurn('what fabric is this?', { hasFocus: true }).kind).toBe(
-      'product_question',
-    )
-    expect(classifySalesTurn('is this cotton?', { hasFocus: true }).kind).toBe(
-      'product_question',
-    )
+    expect(classifySalesTurn('what material is this?', { hasFocus: true })).toMatchObject({
+      kind: 'product_question',
+      topic: 'material',
+    })
+    expect(classifySalesTurn('how much?', { hasFocus: true })).toMatchObject({
+      kind: 'product_question',
+      topic: 'price',
+    })
+    expect(classifySalesTurn('available?', { hasFocus: true })).toMatchObject({
+      kind: 'product_question',
+      topic: 'availability',
+    })
+    expect(classifySalesTurn('what is this?', { hasFocus: true })).toMatchObject({
+      kind: 'product_question',
+      topic: 'identity',
+    })
+    expect(classifySalesTurn('tell me about this', { hasFocus: true })).toMatchObject({
+      kind: 'product_question',
+      topic: 'identity',
+    })
+    expect(classifySalesTurn('ഈ product എന്താണ്?', { hasFocus: true })).toMatchObject({
+      kind: 'product_question',
+      topic: 'identity',
+    })
+    expect(classifySalesTurn('ഇതെന്താണ്?', { hasFocus: true })).toMatchObject({
+      kind: 'product_question',
+      topic: 'identity',
+    })
+    expect(classifySalesTurn('ഇത് ഏത് material ആണ്?', { hasFocus: true })).toMatchObject({
+      kind: 'product_question',
+      topic: 'material',
+    })
+    expect(classifySalesTurn('ഇത് available ആണോ?', { hasFocus: true })).toMatchObject({
+      kind: 'product_question',
+      topic: 'availability',
+    })
+    expect(classifySalesTurn('cotton ആണോ?', { hasFocus: true })).toMatchObject({
+      kind: 'product_question',
+      topic: 'material',
+    })
+    expect(classifySalesTurn('what fabric is this?', { hasFocus: true })).toMatchObject({
+      kind: 'product_question',
+      topic: 'material',
+    })
+    expect(classifySalesTurn('is this cotton?', { hasFocus: true })).toMatchObject({
+      kind: 'product_question',
+      topic: 'material',
+    })
+    expect(classifySalesTurn('how does this fit?', { hasFocus: true })).toMatchObject({
+      kind: 'product_question',
+      topic: 'other',
+    })
     expect(unlocksCatalogBrowse('product_question')).toBe(false)
   })
 

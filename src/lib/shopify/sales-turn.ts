@@ -14,9 +14,17 @@ export type SalesTurnKind =
   | 'comparison'
   | 'stay'
 
+export type ProductQuestionTopic =
+  | 'identity'
+  | 'material'
+  | 'availability'
+  | 'price'
+  | 'other'
+
 export type SalesTurn = {
   kind: SalesTurnKind
   nextAction: SalesNextAction
+  topic?: ProductQuestionTopic
 }
 
 const MORE_OPTIONS = /(?:action:\s*)?wacrm:more_options\b/i
@@ -44,8 +52,20 @@ const SUBSTITUTION =
 const PREFERENCE =
   /\b(?:i (?:prefer|like)|prefer|actually|instead)\s+(?:the\s+)?(black|navy|red|blue|white|green|pink|gold|beige|yellow|orange|purple|brown|grey|gray|[smlxl]{1,3})\b|\b(?:change(?:d)? (?:to|it to)|make it)\s+(black|navy|red|blue|white|green|pink|gold|beige)\b/i
 
+const MATERIAL_TOPIC =
+  /\b(material|fabric|fibre|fiber|cotton|linen|silk|rayon)\b|ഏത്\s*(?:material|fabric)|cotton\s*ആണോ|is this cotton/i
+
+const IDENTITY_TOPIC =
+  /ഈ\s*(?:product|ഉൽപ്പന്നം)?\s*എന്താണ്|ഇത്\s*എന്താണ്|ഇതെന്താണ്|ഇതിനെക്കുറിച്ച്|what is this|what'?s this|tell me about this/i
+
+const AVAILABILITY_TOPIC =
+  /\b(available|availability|in stock)\b|available\s*ആണോ|ലഭ്യമാണോ|സ്റ്റോക്ക്|\bഉണ്ടോ\b/i
+
+const PRICE_TOPIC =
+  /\b(price|how much|cost)\b|what(?:'s| is) (?:the )?price|വില|എത്ര/i
+
 const QUESTION =
-  /\b(material|fabric|fit|price|available|availability|in stock|how much|what(?:'s| is) (?:the )?price|details?|tell me about this|what is this|what'?s this|is this cotton|എത്ര|വില|ലഭ്യമാണോ|സ്റ്റോക്ക്)\b/i
+  /\b(fit|details?|sizes?|colou?rs?)\b|ഏത്\s*fit/i
 
 const FOCUSED_QUESTION =
   /ഈ\s*(?:product|ഉൽപ്പന്നം)?\s*എന്താണ്|ഇത്\s*എന്താണ്|ഇതെന്താണ്|ഇതിനെക്കുറിച്ച്|ഏത്\s*(?:material|fabric|fit)|available\s*ആണോ|\bഉണ്ടോ\b|cotton\s*ആണോ|(?:sizes?|colou?rs?)\s*(?:ഉണ്ടോ)?/i
@@ -96,8 +116,15 @@ export function classifySalesTurn(
     return turn('budget_change')
   }
 
-  if (QUESTION.test(raw) || (opts?.hasFocus && FOCUSED_QUESTION.test(raw))) {
-    return turn('product_question')
+  if (
+    MATERIAL_TOPIC.test(raw) ||
+    IDENTITY_TOPIC.test(raw) ||
+    AVAILABILITY_TOPIC.test(raw) ||
+    PRICE_TOPIC.test(raw) ||
+    QUESTION.test(raw) ||
+    (opts?.hasFocus && FOCUSED_QUESTION.test(raw))
+  ) {
+    return turn('product_question', questionTopic(raw))
   }
 
   const req = parseShoppingRequirements(raw)
@@ -149,8 +176,17 @@ export function shouldPersistSalesContext(kind: SalesTurnKind): boolean {
   )
 }
 
-function turn(kind: SalesTurnKind): SalesTurn {
+function turn(kind: SalesTurnKind, topic?: ProductQuestionTopic): SalesTurn {
+  if (topic) return { kind, nextAction: nextActionForSalesTurn(kind), topic }
   return { kind, nextAction: nextActionForSalesTurn(kind) }
+}
+
+function questionTopic(raw: string): ProductQuestionTopic {
+  if (MATERIAL_TOPIC.test(raw)) return 'material'
+  if (PRICE_TOPIC.test(raw)) return 'price'
+  if (AVAILABILITY_TOPIC.test(raw)) return 'availability'
+  if (IDENTITY_TOPIC.test(raw)) return 'identity'
+  return 'other'
 }
 
 function isVariantWithoutProductNoun(
