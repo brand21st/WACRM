@@ -316,6 +316,13 @@ export interface ShopifyToolContext {
   customerInterest?: CustomerProductInterest
   customerText?: string | null
   focusedHandle?: string | null
+  shopping?: {
+    maxPrice?: number
+    minPrice?: number
+    seedId?: string | null
+    optionValue?: string | null
+    rejectedIds?: string[]
+  } | null
 }
 
 export interface ShopifyToolResult {
@@ -359,8 +366,8 @@ export async function executeShopifyTool(
         }
         const parsed = parseBudget(ctx.customerText) ?? parseBudget(raw)
         const budget = {
-          min: fromArgs.min ?? parsed?.min,
-          max: fromArgs.max ?? parsed?.max,
+          min: fromArgs.min ?? parsed?.min ?? ctx.shopping?.minPrice,
+          max: fromArgs.max ?? parsed?.max ?? ctx.shopping?.maxPrice,
         }
         const ranked = await searchShoppingCatalog(
           ctx.db,
@@ -372,7 +379,7 @@ export async function executeShopifyTool(
         if (ranked.hits.length > 0) {
           await recordSearchMatchEvents(ctx, ranked.hits, 'search_products')
           return productsResult(
-            ranked.hits,
+            excludeRejected(ranked.hits, ctx.shopping?.rejectedIds),
             ctx.retailerIdSource,
             limit,
             ranked.exact
@@ -396,7 +403,7 @@ export async function executeShopifyTool(
         const relatedLimit = Math.min(limit, 10)
         const related = await listNewArrivals(ctx.db, ctx.config, relatedLimit)
         return productsResult(
-          related,
+          excludeRejected(related, ctx.shopping?.rejectedIds),
           ctx.retailerIdSource,
           relatedLimit,
           related.length > 0
@@ -412,7 +419,7 @@ export async function executeShopifyTool(
       case 'list_new_arrivals': {
         const limit = resolveProductCardLimit(args.limit, ctx.customerText)
         return productsResult(
-          await listNewArrivals(ctx.db, ctx.config, limit),
+          excludeRejected(await listNewArrivals(ctx.db, ctx.config, limit), ctx.shopping?.rejectedIds),
           ctx.retailerIdSource,
           limit,
         )
@@ -449,6 +456,15 @@ export async function executeShopifyTool(
         const query = str(args.query) || ctx.customerInterest?.query || ''
         const ask = (ctx.customerText ?? '').trim() || query
         const filters = requirementsFromToolArgs(args, ask)
+        if (filters.maxPrice == null && ctx.shopping?.maxPrice != null) {
+          filters.maxPrice = ctx.shopping.maxPrice
+        }
+        if (filters.minPrice == null && ctx.shopping?.minPrice != null) {
+          filters.minPrice = ctx.shopping.minPrice
+        }
+        if (!filters.optionValue && ctx.shopping?.optionValue) {
+          filters.optionValue = ctx.shopping.optionValue
+        }
         let hits = await listRecommendedProducts(
           ctx.db,
           ctx.config,
@@ -460,7 +476,7 @@ export async function executeShopifyTool(
             limit,
             shownCards: ctx.productCards,
             role,
-            seedId: str(args.seed_id) || undefined,
+            seedId: str(args.seed_id) || ctx.shopping?.seedId || undefined,
             customerText: ask,
             filters,
             contactId: ctx.contactId,
@@ -487,7 +503,7 @@ export async function executeShopifyTool(
                 )
         }
         return productsResult(
-          hits,
+          excludeRejected(hits, ctx.shopping?.rejectedIds),
           ctx.retailerIdSource,
           limit,
           recommendNote(role, hits, filters, salesMode),
@@ -661,6 +677,21 @@ async function recordSearchMatchEvents(
     productIds,
     conversationId: ctx.conversationId,
     contactId: ctx.contactId,
+  })
+}
+
+function excludeRejected(
+  hits: ShopifyProductHit[],
+  rejectedIds?: string[] | null,
+): ShopifyProductHit[] {
+  if (!rejectedIds?.length) return hits
+  const reject = new Set(rejectedIds.map((id) => id.trim().toLowerCase()).filter(Boolean))
+  if (reject.size === 0) return hits
+  return hits.filter((hit) => {
+    const keys = [hit.catalogId, hit.id, hit.handle]
+      .filter((value): value is string => Boolean(value && value.trim()))
+      .map((value) => value.trim().toLowerCase())
+    return !keys.some((key) => reject.has(key))
   })
 }
 

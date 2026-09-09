@@ -639,6 +639,7 @@ describe('matchProductsToAsk', () => {
     expect(parseBudget('5000 താഴെ')).toEqual({ max: 5000 })
     expect(parseBudget('5000 thazhe')).toEqual({ max: 5000 })
     expect(parseBudget('2000 ullil')).toEqual({ max: 2000 })
+    expect(parseBudget('₹3000 ഉള്ളിൽ')).toEqual({ max: 3000 })
   })
 
   it('returns close alternatives when nothing is an exact match', () => {
@@ -1332,6 +1333,25 @@ describe('executeShopifyTool', () => {
     )
     expect(result.cards.map((c) => c.title)).toEqual(['Navy Formal Shirt'])
     expect(JSON.parse(result.json).note).toMatch(/closest catalog options/)
+  })
+
+  it('uses remembered shopping budget when search omits max_price', async () => {
+    catalogSearch.searchCatalog.mockResolvedValue([
+      catalogProduct('Navy Formal Shirt', 'navy-formal-shirt', 1499),
+      catalogProduct('Black Silk Shirt', 'black-silk-shirt', 2499),
+    ])
+    const result = await executeShopifyTool(
+      {
+        db: {} as SupabaseClient,
+        config: STORE,
+        contactPhone: null,
+        customerText: 'show black shirts',
+        shopping: { maxPrice: 1500, rejectedIds: ['black-silk-shirt'] },
+      },
+      'search_products',
+      { query: 'black shirt' },
+    )
+    expect(result.cards.map((c) => c.title)).toEqual(['Navy Formal Shirt'])
   })
 
   it('does not substitute new arrivals when a budget filter empties search', async () => {

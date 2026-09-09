@@ -141,7 +141,7 @@ export function parseBudget(text: string | null | undefined): PriceBudget | null
     if (Number.isFinite(max)) return { max }
   }
   const localized = raw.match(
-    /(\d{2,7})\s*(?:രൂപ(?:യ്ക്കുള്ളിൽ|ത്തിനുള്ളിൽ)|രൂപ\s*(?:യ്ക്കുള്ളിൽ|ത്തിനുള്ളിൽ|താഴെ)|(?:rs\.?|₹|inr)?\s*(?:യ്ക്കുള്ളിൽ|ത്തിനുള്ളിൽ|താഴെ|thazhe|ullil))(?=\s|$|[^\w])/i,
+    /(\d{2,7})\s*(?:രൂപ(?:യ്ക്കുള്ളിൽ|ത്തിനുള്ളിൽ)|രൂപ\s*(?:യ്ക്കുള്ളിൽ|ത്തിനുള്ളിൽ|താഴെ)|(?:rs\.?|₹|inr)?\s*(?:യ്ക്കുള്ളിൽ|ത്തിനുള്ളിൽ|താഴെ|ഉള്ളിൽ|thazhe|ullil))(?=\s|$|[^\w])/i,
   )
   if (localized) {
     const max = Number(localized[1])

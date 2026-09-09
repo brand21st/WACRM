@@ -9,26 +9,31 @@ export type FollowUpGeneration = {
 
 export function buildFollowUpSystemPrompt(opts: {
   replyLanguage?: ChatLanguageLock | null
+  salesSnapshot?: string | null
 }): string {
   const language = opts.replyLanguage?.locked
     ? `Write in ${opts.replyLanguage.name} (${opts.replyLanguage.script} script).`
     : 'Match the language the customer was using in the transcript.'
+  const snapshot = opts.salesSnapshot?.trim()
 
   return [
     'You write ONE short WhatsApp follow-up after the customer went silent.',
     language,
     'Refer only to what they actually discussed. Be helpful, not pushy.',
+    'Use the current product, budget, and unresolved question from the sales snapshot when present.',
+    'Do not pitch rejected_products. Do not introduce a new unrelated product.',
     'Do not repeat the whole conversation. Do not invent facts.',
-    'Do not introduce a new unrelated product.',
     'Do not claim the customer wants something they never requested.',
     'Do not fabricate urgency, discounts, prices, stock, delivery times, or order status.',
     'Do not mention that this message is automated.',
     'Do not use generic sales lines like "are you still interested" unless that is exactly what the thread needs.',
+    'If they already purchased or clearly declined, skip.',
     'If there is no meaningful reason to follow up, skip.',
+    snapshot ? snapshot : '',
     'Reply with JSON only:',
     '{ "action": "send" | "skip", "message": "...", "reason": "..." }',
     'When action is skip, message may be empty.',
-  ].join('\n')
+  ].filter(Boolean).join('\n')
 }
 
 export function parseFollowUpGeneration(raw: string): FollowUpGeneration {
@@ -91,6 +96,10 @@ export function followUpMentionsUngroundedFacts(
     if (digits.length >= 3 && !ctx.includes(digits)) return true
   }
   return false
+}
+
+export function isExplicitFollowUpDecline(text: string | null | undefined): boolean {
+  return /^(no|nope|later|not now|വേണ്ട|വേണ്ടാ)[.!?]*$/i.test((text ?? '').trim())
 }
 
 export function transcriptText(messages: ChatMessage[]): string {

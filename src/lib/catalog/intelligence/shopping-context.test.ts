@@ -4,6 +4,7 @@ import { intelSeed } from './facts.test'
 import { parseShoppingRequirements } from './requirements'
 import {
   emptyShoppingContext,
+  formatSalesSnapshot,
   mergeShoppingContext,
   persistShoppingContext,
   loadShoppingContext,
@@ -15,6 +16,21 @@ describe('parseShoppingFacts', () => {
   it('returns empty context for junk facts', () => {
     expect(parseShoppingFacts(null).stage).toBe('discovery')
     expect(parseShoppingFacts('nope').selectedIds).toEqual([])
+  })
+
+  it('reads optional sales-summary fields without a migration', () => {
+    const parsed = parseShoppingFacts({
+      colors: ['red'],
+      sizes: ['M'],
+      comparisonIds: ['p-red', 'p-navy'],
+      unresolvedQuestion: 'is this silk?',
+      nextAction: 'ask_variant',
+      stage: 'consideration',
+    })
+    expect(parsed.sizes).toEqual(['M'])
+    expect(parsed.comparisonIds).toEqual(['p-red', 'p-navy'])
+    expect(parsed.unresolvedQuestion).toBe('is this silk?')
+    expect(parsed.nextAction).toBe('ask_variant')
   })
 })
 
@@ -45,7 +61,49 @@ describe('mergeShoppingContext', () => {
       text: "don't like navy",
     })
     expect(merged.dislikes).toContain('navy')
-    expect(merged.colors).toEqual(['navy'])
+    expect(merged.colors).toEqual([])
+  })
+
+  it('replaces the previous color when the customer changes preference', async () => {
+    const db = createCatalogMemoryDb(intelSeed())
+    const previous = emptyShoppingContext()
+    previous.colors = ['red']
+    const merged = await mergeShoppingContext(db, {
+      accountId: 'acct-a',
+      previous,
+      text: 'actually blue',
+    })
+    expect(merged.colors).toEqual(['blue'])
+  })
+
+  it('stores the latest size instead of appending', async () => {
+    const db = createCatalogMemoryDb(intelSeed())
+    const previous = emptyShoppingContext()
+    previous.sizes = ['S']
+    const merged = await mergeShoppingContext(db, {
+      accountId: 'acct-a',
+      previous,
+      text: 'size M',
+    })
+    expect(merged.sizes).toEqual(['M'])
+  })
+
+  it('formats a compact sales snapshot without inventing facts', () => {
+    const shopping = emptyShoppingContext('consideration')
+    shopping.maxPrice = 3000
+    shopping.colors = ['blue']
+    shopping.rejectedIds = ['p-red']
+    shopping.categoryHint = 'saree'
+    const snap = formatSalesSnapshot(shopping, {
+      handle: 'pournami-blue',
+      title: 'Pournami Blue',
+    })
+    expect(snap).toMatch(/budget_max: 3000/)
+    expect(snap).toMatch(/colors: blue/)
+    expect(snap).toMatch(/rejected_products: p-red/)
+    expect(snap).toMatch(/current_product: Pournami Blue/)
+    expect(snap).toMatch(/latest customer message overrides/i)
+    expect(snap).not.toMatch(/wants to buy/i)
   })
 
   it('drops another account’s ids and invented titles', async () => {

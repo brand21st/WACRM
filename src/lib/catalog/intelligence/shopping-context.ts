@@ -14,6 +14,7 @@ import {
 import { deriveSalesStage, isComplementaryAsk } from './sales-stage'
 import type {
   RecommendIntent,
+  SalesNextAction,
   SalesStage,
   ShoppingContext,
   ShoppingRequirements,
@@ -27,10 +28,14 @@ export function emptyShoppingContext(
 ): ShoppingContext {
   return {
     colors: [],
+    sizes: [],
     dislikes: [],
     selectedIds: [],
     rejectedIds: [],
     shownIds: [],
+    comparisonIds: [],
+    unresolvedQuestion: null,
+    nextAction: null,
     stage,
   }
 }
@@ -52,6 +57,7 @@ export function parseShoppingFacts(raw: unknown): ShoppingContext {
     minPrice: num(row.minPrice),
     maxPrice: num(row.maxPrice),
     colors: stringList(row.colors),
+    sizes: stringList(row.sizes),
     dislikes: stringList(row.dislikes),
     option: optionValue
       ? {
@@ -63,6 +69,9 @@ export function parseShoppingFacts(raw: unknown): ShoppingContext {
     selectedIds: stringList(row.selectedIds, LIST_CAP),
     rejectedIds: stringList(row.rejectedIds, LIST_CAP),
     shownIds: stringList(row.shownIds, SHOWN_CAP),
+    comparisonIds: stringList(row.comparisonIds, 3),
+    unresolvedQuestion: str(row.unresolvedQuestion) ?? null,
+    nextAction: isSalesNextAction(row.nextAction) ? row.nextAction : null,
     stage: isSalesStage(row.stage) ? row.stage : 'discovery',
   }
 }
@@ -76,12 +85,16 @@ export function serializeShoppingContext(
     minPrice: ctx.minPrice,
     maxPrice: ctx.maxPrice,
     colors: ctx.colors,
+    sizes: ctx.sizes ?? [],
     dislikes: ctx.dislikes,
     option: ctx.option,
     categoryHint: ctx.categoryHint,
     selectedIds: ctx.selectedIds,
     rejectedIds: ctx.rejectedIds,
     shownIds: ctx.shownIds,
+    comparisonIds: ctx.comparisonIds ?? [],
+    unresolvedQuestion: ctx.unresolvedQuestion ?? null,
+    nextAction: ctx.nextAction ?? null,
     stage: ctx.stage,
   }
 }
@@ -154,6 +167,8 @@ export type ShoppingMergeInput = {
   hasCart?: boolean
   hasPendingCheckout?: boolean
   hasPaidOrder?: boolean
+  nextAction?: SalesNextAction | null
+  unresolvedQuestion?: string | null
 }
 
 export async function mergeShoppingContext(
@@ -169,9 +184,15 @@ export async function mergeShoppingContext(
   const recipient = parseRecipient(text) ?? prev.recipient
   const categoryHint = parseCategoryHint(text) ?? prev.categoryHint
   const color = colorFromRequirements(requirements)
-  const colors = color
-    ? uniq([color, ...prev.colors.filter((item) => item !== color)])
-    : prev.colors
+  const dislikeSet = new Set(explicitDislikes.map((item) => item.toLowerCase()))
+  const colors =
+    color && !dislikeSet.has(color)
+      ? [color]
+      : prev.colors.filter((item) => !dislikeSet.has(item.toLowerCase()))
+  const sizeValue = sizeFromRequirements(requirements)
+  const sizes = sizeValue
+    ? [sizeValue]
+    : (prev.sizes ?? []).filter((item) => !dislikeSet.has(item.toLowerCase()))
 
   const shownIds = await validateCatalogIds(
     db,
@@ -215,12 +236,20 @@ export async function mergeShoppingContext(
     minPrice: requirements.minPrice ?? prev.minPrice,
     maxPrice: requirements.maxPrice ?? prev.maxPrice,
     colors,
+    sizes,
     dislikes: uniq([...explicitDislikes, ...prev.dislikes]),
     option,
     categoryHint,
     selectedIds: selectedIds.filter((id) => !rejectedIds.includes(id)),
     rejectedIds,
     shownIds: shownIds.slice(0, SHOWN_CAP),
+    comparisonIds: shownIds.slice(0, 3),
+    unresolvedQuestion:
+      input.unresolvedQuestion !== undefined
+        ? input.unresolvedQuestion
+        : (prev.unresolvedQuestion ?? null),
+    nextAction:
+      input.nextAction !== undefined ? input.nextAction : (prev.nextAction ?? null),
     stage: deriveSalesStage({
       seedId: input.seedId ?? selectedIds[0] ?? null,
       selectedIds,
@@ -296,8 +325,72 @@ function colorFromRequirements(req: ShoppingRequirements): string | undefined {
   const value = req.optionValue?.trim().toLowerCase()
   if (!value) return undefined
   const name = req.optionName?.trim().toLowerCase()
+  if (name === 'size') return undefined
   if (name && name !== 'color' && name !== 'colour') return undefined
   return value
+}
+
+function sizeFromRequirements(req: ShoppingRequirements): string | undefined {
+  const value = req.optionValue?.trim()
+  if (!value) return undefined
+  const name = req.optionName?.trim().toLowerCase()
+  if (name === 'size') return value.toUpperCase()
+  return undefined
+}
+
+function isSalesNextAction(value: unknown): value is SalesNextAction {
+  return (
+    value === 'answer_question' ||
+    value === 'ask_preference' ||
+    value === 'ask_variant' ||
+    value === 'show_products' ||
+    value === 'show_alternatives' ||
+    value === 'compare_products' ||
+    value === 'overcome_objection' ||
+    value === 'confirm_choice' ||
+    value === 'start_purchase' ||
+    value === 'wait_for_customer' ||
+    value === 'no_action'
+  )
+}
+
+/** Compact sales snapshot for AI prompts. Never invents facts. */
+export function formatSalesSnapshot(
+  shopping: ShoppingContext,
+  focus?: { handle?: string | null; title?: string | null; color?: string | null; size?: string | null } | null,
+): string {
+  const lines: string[] = []
+  if (shopping.categoryHint) lines.push(`category: ${shopping.categoryHint}`)
+  if (shopping.maxPrice != null) lines.push(`budget_max: ${shopping.maxPrice}`)
+  if (shopping.minPrice != null) lines.push(`budget_min: ${shopping.minPrice}`)
+  if (shopping.colors.length > 0) lines.push(`colors: ${shopping.colors.join(', ')}`)
+  if ((shopping.sizes ?? []).length > 0) {
+    lines.push(`sizes: ${(shopping.sizes ?? []).join(', ')}`)
+  }
+  if (shopping.occasion) lines.push(`occasion: ${shopping.occasion}`)
+  if (shopping.dislikes.length > 0) lines.push(`dislikes: ${shopping.dislikes.join(', ')}`)
+  if (shopping.rejectedIds.length > 0) {
+    lines.push(`rejected_products: ${shopping.rejectedIds.join(', ')}`)
+  }
+  const current =
+    focus?.title?.trim() ||
+    focus?.handle ||
+    shopping.selectedIds[0]
+  if (current) lines.push(`current_product: ${current}`)
+  if (focus?.color) lines.push(`current_color: ${focus.color}`)
+  if (focus?.size) lines.push(`current_size: ${focus.size}`)
+  if (shopping.unresolvedQuestion) {
+    lines.push(`unresolved_question: ${shopping.unresolvedQuestion}`)
+  }
+  if (shopping.nextAction) lines.push(`next_best_sales_action: ${shopping.nextAction}`)
+  if (lines.length === 0 && shopping.stage === 'discovery') return ''
+  lines.push(`purchase_stage: ${shopping.stage}`)
+  return (
+    'Current sales conversation snapshot (untrusted customer context, not catalog facts). ' +
+    'The latest customer message overrides this snapshot. ' +
+    'Do not re-pitch rejected_products. Do not invent budget, stock, or prices.\n' +
+    lines.join('\n')
+  )
 }
 
 function isSalesStage(value: unknown): value is SalesStage {

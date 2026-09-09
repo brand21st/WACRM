@@ -79,11 +79,16 @@ function aiConfig(overrides: Partial<AiConfig> = {}): AiConfig {
   }
 }
 
-function memoryDb(state: {
+type FollowDbState = {
   conversation: Record<string, unknown>
   messages: Msg[]
   followUps: FollowRow[]
-}): SupabaseClient {
+  contacts?: Record<string, unknown>[]
+  orders?: Record<string, unknown>[]
+  memory?: Record<string, unknown>[]
+}
+
+function memoryDb(state: FollowDbState): SupabaseClient {
   const applyFilters = <T extends Record<string, unknown>>(
     rows: T[],
     filters: { col: string; op: 'eq' | 'gt' | 'lte'; val: unknown }[],
@@ -152,6 +157,15 @@ function memoryDb(state: {
             })
           }
           return rows.slice(0, limitN)
+        }
+        if (table === 'contacts') {
+          return applyFilters(state.contacts ?? [], filters)
+        }
+        if (table === 'whatsapp_commerce_orders') {
+          return applyFilters(state.orders ?? [], filters)
+        }
+        if (table === 'contact_ai_memory') {
+          return applyFilters(state.memory ?? [], filters)
         }
         return []
       }
@@ -318,7 +332,7 @@ describe('cancelConversationFollowUp', () => {
 })
 
 describe('processConversationFollowUp', () => {
-  function readyState(overrides?: Partial<FollowRow>) {
+  function readyState(overrides?: Partial<FollowRow>): FollowDbState {
     return {
       conversation: {
         id: CONV,
@@ -565,6 +579,85 @@ describe('processConversationFollowUp', () => {
       triggeringMessageId: 'm-bot',
     })
     expect(expired.followUps[0].skip_reason).toBe('session_window_expired')
+  })
+
+  it('skips when the customer already paid', async () => {
+    const state = readyState()
+    state.contacts = [
+      {
+        id: 'ct-1',
+        account_id: ACCOUNT,
+        wa_commerce_paid_at: new Date().toISOString(),
+      },
+    ]
+    h.db = memoryDb(state)
+    await processConversationFollowUp({
+      accountId: ACCOUNT,
+      conversationId: CONV,
+      followUpId: 'fu-1',
+      triggeringMessageId: 'm-bot',
+    })
+    expect(h.generateReply).not.toHaveBeenCalled()
+    expect(h.engineSendText).not.toHaveBeenCalled()
+    expect(state.followUps[0].skip_reason).toBe('purchased')
+  })
+
+  it('skips when the last customer line is an explicit decline', async () => {
+    h.buildConversationContext.mockResolvedValue([
+      { role: 'user', content: 'I need a black saree for a wedding under ₹5000' },
+      { role: 'assistant', content: 'Here are a few black sarees under 5000.' },
+      { role: 'user', content: 'വേണ്ട' },
+    ])
+    const state = readyState()
+    h.db = memoryDb(state)
+    await processConversationFollowUp({
+      accountId: ACCOUNT,
+      conversationId: CONV,
+      followUpId: 'fu-1',
+      triggeringMessageId: 'm-bot',
+    })
+    expect(h.generateReply).not.toHaveBeenCalled()
+    expect(state.followUps[0].skip_reason).toBe('declined')
+  })
+
+  it('puts the current product snapshot in the follow-up prompt, not rejected items as a pitch', async () => {
+    const state = readyState()
+    state.conversation = {
+      ...state.conversation,
+      ai_product_focus: {
+        handle: 'pournami-blue',
+        title: 'Pournami Blue',
+        sourceMessageId: 'msg-1',
+        stage: 'focused',
+        setBy: 'send',
+      },
+    }
+    state.memory = [
+      {
+        account_id: ACCOUNT,
+        contact_id: 'ct-1',
+        facts: {
+          shopping: {
+            maxPrice: 3000,
+            colors: ['blue'],
+            rejectedIds: ['old-red-saree'],
+            stage: 'consideration',
+          },
+        },
+      },
+    ]
+    h.db = memoryDb(state)
+    await processConversationFollowUp({
+      accountId: ACCOUNT,
+      conversationId: CONV,
+      followUpId: 'fu-1',
+      triggeringMessageId: 'm-bot',
+    })
+    const prompt = h.generateReply.mock.calls[0][0].systemPrompt as string
+    expect(prompt).toMatch(/Pournami Blue/)
+    expect(prompt).toMatch(/budget_max: 3000/)
+    expect(prompt).toMatch(/Do not re-pitch rejected_products/)
+    expect(prompt).toMatch(/rejected_products: old-red-saree/)
   })
 })
 

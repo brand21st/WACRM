@@ -173,6 +173,22 @@ describe('buildSystemPrompt', () => {
     expect(prompt).toMatch(/Do not mention a WhatsApp cart/)
   })
 
+  it('injects a compact sales snapshot and latest-message-wins sales tone', () => {
+    const prompt = buildSystemPrompt({
+      userPrompt: null,
+      mode: 'auto_reply',
+      shopify: true,
+      salesSnapshot:
+        'Current sales conversation snapshot\ncategory: saree\nbudget_max: 3000\nrejected_products: p-red',
+    })
+    expect(prompt).toMatch(/latest customer message overrides/)
+    expect(prompt).toMatch(/Ask at most one useful question/)
+    expect(prompt).toMatch(/how much” is not a buy request/)
+    expect(prompt).toMatch(/budget_max: 3000/)
+    expect(prompt).toMatch(/rejected_products: p-red/)
+    expect(prompt).toMatch(/Do not name the store platform/)
+  })
+
   it('tells the model to use native WhatsApp cart when commerce is on', () => {
     const prompt = buildSystemPrompt({
       userPrompt: null,

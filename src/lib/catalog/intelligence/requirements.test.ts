@@ -4,6 +4,7 @@ import {
   parseDislikes,
   parseOccasion,
   parseRecipient,
+  parseRejectsShown,
   parseSelectsShown,
   parseShoppingRequirements,
   parseShownOrdinal,
@@ -36,6 +37,9 @@ describe('parseShoppingRequirements', () => {
     expect(parseShoppingRequirements('2000 thazhe')).toMatchObject({
       maxPrice: 2000,
     })
+    expect(parseShoppingRequirements('₹3000 ഉള്ളിൽ')).toMatchObject({
+      maxPrice: 3000,
+    })
   })
 })
 
@@ -46,7 +50,10 @@ describe('shopping phrase helpers', () => {
     expect(parseDislikes("don't like red and no gold")).toEqual(['red', 'gold'])
     expect(parseShownOrdinal('the second one')).toBe(1)
     expect(parseSelectsShown('I will take this')).toBe(true)
+    expect(parseRejectsShown('ഇത് വേണ്ട')).toBe(true)
+    expect(parseSelectsShown('ഇത് വേണം')).toBe(true)
     expect(parseCategoryHint('another saree')).toBe('saree')
+    expect(parseCategoryHint('blue kurti')).toBe('kurti')
   })
 })
 

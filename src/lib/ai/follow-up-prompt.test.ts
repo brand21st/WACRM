@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
+  buildFollowUpSystemPrompt,
   followUpMentionsUngroundedFacts,
   hasMeaningfulFollowUpContext,
+  isExplicitFollowUpDecline,
   parseFollowUpGeneration,
 } from './follow-up-prompt'
 
@@ -25,6 +27,25 @@ describe('parseFollowUpGeneration', () => {
     expect(
       parseFollowUpGeneration('{"action":"send","message":"","reason":"x"}').action,
     ).toBe('skip')
+  })
+})
+
+describe('isExplicitFollowUpDecline', () => {
+  it('treats a whole-message no/later/വേണ്ട as decline', () => {
+    expect(isExplicitFollowUpDecline('വേണ്ട')).toBe(true)
+    expect(isExplicitFollowUpDecline('later')).toBe(true)
+    expect(isExplicitFollowUpDecline('no')).toBe(true)
+    expect(isExplicitFollowUpDecline('ഇത് വേണ്ട')).toBe(false)
+  })
+})
+
+describe('buildFollowUpSystemPrompt', () => {
+  it('includes the sales snapshot and tells the model not to pitch rejects', () => {
+    const prompt = buildFollowUpSystemPrompt({
+      salesSnapshot: 'current_product: Pournami Blue\nrejected_products: p-red',
+    })
+    expect(prompt).toMatch(/current_product: Pournami Blue/)
+    expect(prompt).toMatch(/Do not pitch rejected_products/)
   })
 })
 

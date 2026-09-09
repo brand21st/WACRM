@@ -40,18 +40,35 @@ export type RecommendReason =
   | 'same_occasion'
   | 'within_budget'
 
+export type SalesNextAction =
+  | 'answer_question'
+  | 'ask_preference'
+  | 'ask_variant'
+  | 'show_products'
+  | 'show_alternatives'
+  | 'compare_products'
+  | 'overcome_objection'
+  | 'confirm_choice'
+  | 'start_purchase'
+  | 'wait_for_customer'
+  | 'no_action'
+
 export type ShoppingContext = {
   occasion?: string
   recipient?: string
   minPrice?: number
   maxPrice?: number
   colors: string[]
+  sizes?: string[]
   dislikes: string[]
   option?: { name?: string; value: string }
   categoryHint?: string
   selectedIds: string[]
   rejectedIds: string[]
   shownIds: string[]
+  comparisonIds?: string[]
+  unresolvedQuestion?: string | null
+  nextAction?: SalesNextAction | null
   stage: SalesStage
 }
 

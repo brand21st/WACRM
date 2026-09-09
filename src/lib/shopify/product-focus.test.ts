@@ -107,6 +107,7 @@ describe('wantsProductOrder', () => {
       'need to order',
       'wants to purchase',
       'വാങ്ങണം',
+      'ഇത് വേണം',
       'ऑर्डर करना है',
       'Enikk ithu purchase cheyanam',
     ]) {
@@ -114,6 +115,7 @@ describe('wantsProductOrder', () => {
     }
     expect(wantsProductOrder('[Customer sent a voice note]')).toBe(false)
     expect(wantsProductOrder('how much is shipping?')).toBe(false)
+    expect(wantsProductOrder('ഇത് വേണ്ട')).toBe(false)
   })
 
   it('detects WhatsApp cart-summary talk', () => {

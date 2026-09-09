@@ -117,7 +117,8 @@ import {
   loadCatalogSalesMode,
   recordShownRecommendationEvents,
 } from '@/lib/catalog/intelligence/recommend'
-import { mergeAndPersistShoppingContext } from '@/lib/catalog/intelligence/shopping-context'
+import { mergeAndPersistShoppingContext, loadShoppingContext, emptyShoppingContext, formatSalesSnapshot } from '@/lib/catalog/intelligence/shopping-context'
+import { classifySalesTurn, unlocksCatalogBrowse } from '@/lib/shopify/sales-turn'
 import { recordCatalogProductEvents } from '@/lib/catalog/analytics/events'
 
 interface DispatchArgs {
@@ -434,6 +435,10 @@ export async function dispatchInboundToAiReply(
       messages,
       WACRM_CHAT_BUTTON_IDS.continueChat,
     )
+    const moreOptionsTap = lastMessageHasAction(
+      messages,
+      WACRM_CHAT_BUTTON_IDS.moreOptions,
+    )
     let productFocus = productsTap
       ? null
       : parseProductFocus(
@@ -464,6 +469,56 @@ export async function dispatchInboundToAiReply(
         stage: 'focused',
       }
       await saveProductFocus(db, conversationId, productFocus)
+    }
+    let shopping = emptyShoppingContext()
+    try {
+      shopping = await loadShoppingContext(db, accountId, contactId)
+    } catch (err) {
+      console.warn('[ai auto-reply] loadShoppingContext failed:', err)
+    }
+    const salesTurn = classifySalesTurn(queryText, {
+      hasFocus: Boolean(productFocus),
+      moreOptions: moreOptionsTap || productsTap,
+    })
+    const catalogSeed =
+      productFocus?.handle ?? shopping.selectedIds[0] ?? null
+    if (productFocus && unlocksCatalogBrowse(salesTurn.kind)) {
+      if (salesTurn.kind === 'product_switch') {
+        shopping = {
+          ...shopping,
+          rejectedIds: [
+            productFocus.handle,
+            ...shopping.selectedIds,
+            ...shopping.rejectedIds,
+          ],
+        }
+      }
+      await clearProductFocus(db, conversationId)
+      productFocus = null
+    }
+    if (salesTurn.kind !== 'stay') {
+      try {
+        shopping = await mergeAndPersistShoppingContext(db, {
+          accountId,
+          contactId,
+          conversationId,
+          previous: shopping,
+          text: queryText,
+          rejectedIds:
+            salesTurn.kind === 'product_switch' ? shopping.rejectedIds : undefined,
+          seedId:
+            salesTurn.kind === 'substitution' || salesTurn.kind === 'variant_change'
+              ? catalogSeed
+              : undefined,
+          nextAction: salesTurn.nextAction,
+          unresolvedQuestion:
+            salesTurn.kind === 'product_question'
+              ? queryText.trim().slice(0, 240)
+              : null,
+        })
+      } catch (err) {
+        console.warn('[ai auto-reply] shopping merge failed:', err)
+      }
     }
     if (productFocus) {
       const scoped = scopeMessagesToProductFocus(messages, productFocus)
@@ -530,6 +585,13 @@ export async function dispatchInboundToAiReply(
         customerText: queryText,
         focusedHandle: productFocus?.handle ?? null,
         nativeCommerce: nativeCommerce && !productFocus,
+        shopping: {
+          maxPrice: shopping.maxPrice,
+          minPrice: shopping.minPrice,
+          seedId: shopping.selectedIds[0] ?? catalogSeed,
+          optionValue: shopping.option?.value ?? shopping.colors[0] ?? null,
+          rejectedIds: shopping.rejectedIds,
+        },
       },
     )
 
@@ -558,6 +620,7 @@ export async function dispatchInboundToAiReply(
       }
     }
 
+    const salesSnapshot = formatSalesSnapshot(shopping, productFocus)
     const systemPrompt = buildSystemPrompt({
       userPrompt: config.systemPrompt,
       mode: 'auto_reply',
@@ -573,6 +636,7 @@ export async function dispatchInboundToAiReply(
       customerMemory,
       replyLanguage,
       productFocus,
+      salesSnapshot,
     })
 
     const channels = resolveReplyChannels(
@@ -608,6 +672,7 @@ export async function dispatchInboundToAiReply(
       customerMemory,
       replyLanguage,
       productFocus,
+      salesSnapshot,
       tools: shopifyTools.tools,
       executeTool: shopifyTools.executeTool,
     })
@@ -615,10 +680,6 @@ export async function dispatchInboundToAiReply(
     const confirmTap = lastMessageHasAction(
       messages,
       WACRM_CHAT_BUTTON_IDS.confirmOrder,
-    )
-    const moreOptionsTap = lastMessageHasAction(
-      messages,
-      WACRM_CHAT_BUTTON_IDS.moreOptions,
     )
 
     let cartOffer = nativeCommerce || productFocus
@@ -1218,6 +1279,7 @@ export async function generateCustomerFacingReply(args: {
   customerMemory?: string | null
   replyLanguage?: ChatLanguageLock | null
   productFocus?: ProductFocus | null
+  salesSnapshot?: string | null
   tools?: LlmToolDef[]
   executeTool?: ExecuteLlmTool
 }): Promise<{ text: string; handoff: boolean }> {
@@ -1267,6 +1329,7 @@ export async function generateCustomerFacingReply(args: {
         customerMemory: args.customerMemory,
         replyLanguage: args.replyLanguage,
         productFocus: args.productFocus,
+        salesSnapshot: args.salesSnapshot,
       }),
       messages: args.messages,
       customerName: args.customerName,
@@ -1320,6 +1383,13 @@ export function bindShopifyTools(
     customerInterest?: import('@/lib/shopify').CustomerProductInterest
     customerText?: string | null
     focusedHandle?: string | null
+    shopping?: {
+      maxPrice?: number
+      minPrice?: number
+      seedId?: string | null
+      optionValue?: string | null
+      rejectedIds?: string[]
+    } | null
   } = { imageTurn: false },
 ): { tools?: LlmToolDef[]; executeTool?: ExecuteLlmTool } {
   const accountId = opts.accountId ?? shopify?.accountId
@@ -1359,6 +1429,7 @@ export function bindShopifyTools(
           customerInterest: opts.customerInterest,
           customerText: opts.customerText,
           focusedHandle: opts.focusedHandle,
+          shopping: opts.shopping,
         },
         name,
         args,

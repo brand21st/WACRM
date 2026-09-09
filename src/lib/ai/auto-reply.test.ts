@@ -91,7 +91,16 @@ vi.mock('@/lib/shopify', () => ({
   buildCartOffer: h.buildCartOffer,
   resolveCartOfferItems: h.resolveCartOfferItems,
   cartOfferFallbackText: h.cartOfferFallbackText,
-  shopifyLlmTools: (opts?: { whatsappCatalog?: boolean }) => {
+  shopifyLlmTools: (opts?: { whatsappCatalog?: boolean; focused?: boolean }) => {
+    if (opts?.focused) {
+      return [
+        {
+          name: 'get_product',
+          description: 'get',
+          parameters: { type: 'object', properties: { id: { type: 'string' } } },
+        },
+      ]
+    }
     const tools = [
       {
         name: 'search_products',
@@ -258,6 +267,7 @@ vi.mock('./admin-client', () => ({
           }
           return { eq: () => Promise.resolve({ error: null }) }
         },
+        upsert: () => Promise.resolve({ error: null }),
       }
     },
     rpc: (name: string, args: unknown) => {
@@ -3500,6 +3510,53 @@ describe('dispatchInboundToAiReply — agent product focus', () => {
         stage: 'collecting_variants',
       }),
     })
+  })
+
+  it('clears product focus and unlocks catalog search on a product switch', async () => {
+    h.buildConversationContext.mockResolvedValue([
+      { role: 'user', content: 'വേറെ saree' },
+    ])
+    h.generateReply.mockResolvedValue({
+      text: 'Here are other sarees.',
+      handoff: false,
+    })
+
+    await dispatchInboundToAiReply(ARGS)
+
+    expect(h.state.updatePayload).toMatchObject({ ai_product_focus: null })
+    expect(h.generateReply).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tools: expect.arrayContaining([
+          expect.objectContaining({ name: 'search_products' }),
+        ]),
+      }),
+    )
+    expect(h.generateReply.mock.calls[0][0].systemPrompt).toMatch(
+      /latest customer message overrides/i,
+    )
+  })
+
+  it('keeps the focused product and picker on a variant change', async () => {
+    h.buildConversationContext.mockResolvedValue([
+      { role: 'user', content: 'same one in red, M' },
+    ])
+    h.generateReply.mockResolvedValue({
+      text: 'Pournami in red, size M.',
+      handoff: false,
+    })
+
+    await dispatchInboundToAiReply(ARGS)
+
+    expect(h.generateReply).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tools: expect.arrayContaining([
+          expect.objectContaining({ name: 'get_product' }),
+        ]),
+      }),
+    )
+    expect(h.generateReply.mock.calls[0][0].tools.some((t: { name: string }) => t.name === 'search_products')).toBe(
+      false,
+    )
   })
 })
 

@@ -17,9 +17,12 @@ import {
   buildFollowUpSystemPrompt,
   followUpMentionsUngroundedFacts,
   hasMeaningfulFollowUpContext,
+  isExplicitFollowUpDecline,
   parseFollowUpGeneration,
   transcriptText,
 } from './follow-up-prompt'
+import { loadShoppingContext, formatSalesSnapshot } from '@/lib/catalog/intelligence/shopping-context'
+import { parseProductFocus } from '@/lib/shopify/product-focus'
 import type { AiConfig } from './types'
 
 export type FollowUpSkipReason =
@@ -37,6 +40,8 @@ export type FollowUpSkipReason =
   | 'send_failure'
   | 'account_mismatch'
   | 'not_due'
+  | 'purchased'
+  | 'declined'
 
 type FollowUpRow = {
   id: string
@@ -218,21 +223,44 @@ export async function processConversationFollowUp(args: {
       return
     }
 
+    const lastCustomerText =
+      messages.filter((m) => m.role === 'user').at(-1)?.content ?? ''
+    if (isExplicitFollowUpDecline(lastCustomerText)) {
+      await finishSkip(db, claimed.id, 'declined')
+      return
+    }
+
+    if (
+      await contactAlreadyPurchased(db, args.accountId, eligible.contactId, args.conversationId)
+    ) {
+      await finishSkip(db, claimed.id, 'purchased')
+      return
+    }
+
     const memory = await loadContactMemory(
       db,
       args.accountId,
       eligible.contactId,
     ).catch(() => null)
+    const shopping = await loadShoppingContext(
+      db,
+      args.accountId,
+      eligible.contactId,
+    ).catch(() => null)
+    const productFocus = parseProductFocus(eligible.productFocus)
+    const salesSnapshot = shopping
+      ? formatSalesSnapshot(shopping, productFocus)
+      : ''
     const replyLanguage = resolveLanguageLock({
       stored: memory?.facts ?? null,
-      customerText: messages.filter((m) => m.role === 'user').at(-1)?.content ?? '',
+      customerText: lastCustomerText,
     }).lock
 
     let generated
     try {
       const result = await generateReply({
         config,
-        systemPrompt: buildFollowUpSystemPrompt({ replyLanguage }),
+        systemPrompt: buildFollowUpSystemPrompt({ replyLanguage, salesSnapshot }),
         messages,
         replyLanguage,
         skipSpokenRewrite: true,
@@ -249,7 +277,7 @@ export async function processConversationFollowUp(args: {
       return
     }
 
-    const context = transcriptText(messages)
+    const context = [transcriptText(messages), salesSnapshot].filter(Boolean).join('\n')
     if (followUpMentionsUngroundedFacts(generated.message, context)) {
       await finishSkip(db, claimed.id, 'ungrounded')
       return
@@ -366,13 +394,14 @@ async function loadEligibleConversation(
       ok: true
       contactId: string
       userId: string
+      productFocus?: unknown
     }
   | { ok: false; reason: FollowUpSkipReason }
 > {
   const { data, error } = await db
     .from('conversations')
     .select(
-      'id, account_id, contact_id, user_id, status, assigned_agent_id, ai_autoreply_disabled',
+      'id, account_id, contact_id, user_id, status, assigned_agent_id, ai_autoreply_disabled, ai_product_focus',
     )
     .eq('id', conversationId)
     .eq('account_id', accountId)
@@ -386,6 +415,7 @@ async function loadEligibleConversation(
     ok: true,
     contactId: String(data.contact_id),
     userId: String(data.user_id ?? ''),
+    productFocus: (data as { ai_product_focus?: unknown }).ai_product_focus,
   }
 }
 
@@ -469,4 +499,42 @@ async function customerStillSilent(
   if (!lastCustomer?.created_at) return { ok: false, reason: 'no_ai_reply' }
 
   return { ok: true, lastCustomerAt: String(lastCustomer.created_at) }
+}
+
+async function contactAlreadyPurchased(
+  db: SupabaseClient,
+  accountId: string,
+  contactId: string,
+  conversationId: string,
+): Promise<boolean> {
+  try {
+    const { data: contact } = await db
+      .from('contacts')
+      .select('wa_commerce_paid_at')
+      .eq('id', contactId)
+      .eq('account_id', accountId)
+      .maybeSingle()
+    if (contact && typeof contact === 'object') {
+      const paid = (contact as { wa_commerce_paid_at?: unknown }).wa_commerce_paid_at
+      if (typeof paid === 'string' && paid.trim()) return true
+    }
+  } catch {
+    // Column or table may be missing in tests / older schemas.
+  }
+
+  try {
+    const { data: orders } = await db
+      .from('whatsapp_commerce_orders')
+      .select('id, status')
+      .eq('account_id', accountId)
+      .eq('conversation_id', conversationId)
+      .limit(20)
+    const rows = Array.isArray(orders) ? orders : []
+    return rows.some((row) => {
+      const status = String((row as { status?: unknown }).status ?? '').toLowerCase()
+      return status === 'processing' || status === 'completed'
+    })
+  } catch {
+    return false
+  }
 }

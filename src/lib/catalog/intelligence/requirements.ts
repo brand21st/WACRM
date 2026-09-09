@@ -14,13 +14,14 @@ const DISLIKE_PHRASE =
   /\b(?:don'?t like|do not like|avoid)\s+([a-z][a-z0-9-]{1,20})\b/gi
 const NO_COLOR =
   /\bno\s+(black|navy|red|blue|white|green|pink|gold|beige|yellow|orange|purple|brown|grey|gray)\b/gi
-const REJECT_SHOWN = /\b(?:not (?:that|this|it)|don'?t want (?:that|this))\b/i
+const REJECT_SHOWN =
+  /\b(?:not (?:that|this|it)|don'?t want (?:that|this))\b|ഇത്\s*വേണ്ട|ഇതല്ല/i
 const SELECT_SHOWN =
-  /\b(?:this one|i(?:'ll| will) take (?:this|that)|that one)\b/i
+  /\b(?:this one|i(?:'ll| will) take (?:this|that)|that one)\b|ഇത്\s*വേണം/i
 const ORDINAL =
   /\b(?:the )?(first|1st|second|2nd|third|3rd)(?:\s+(?:one|option|product|item))?\b/i
 const CATEGORY =
-  /\b(saree|sari|bag|tote|clutch|blouse|kurta|dress|shoe|wallet|jewellery|jewelry)\b/i
+  /\b(saree|sari|bag|tote|clutch|blouse|kurta|kurti|dress|shoe|wallet|jewellery|jewelry)\b/i
 
 const ORDINAL_INDEX: Record<string, number> = {
   first: 0,
@@ -100,7 +101,10 @@ export function parseSelectsShown(text: string | null | undefined): boolean {
 export function parseCategoryHint(text: string | null | undefined): string | undefined {
   const match = text?.match(CATEGORY)?.[1]
   if (!match) return undefined
-  return match.toLowerCase() === 'sari' ? 'saree' : match.toLowerCase()
+  const hint = match.toLowerCase()
+  if (hint === 'sari') return 'saree'
+  if (hint === 'kurta') return 'kurti'
+  return hint
 }
 
 export function requirementsFromToolArgs(
