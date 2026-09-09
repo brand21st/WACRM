@@ -53,6 +53,7 @@ export {
 export {
   formatCurrentProductFacts,
   formatAvailabilityLine,
+  resolveStructuredMaterial,
 } from './product-facts'
 export {
   inStockColors,

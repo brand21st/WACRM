@@ -173,6 +173,10 @@ describe('buildSystemPrompt', () => {
     expect(prompt).toMatch(/Do not mention a WhatsApp cart/)
     expect(prompt).toMatch(/Answer from Current product facts first/)
     expect(prompt).toMatch(/do not recap title, price, and stock/)
+    expect(prompt).toMatch(
+      /When the customer asks for material\/fabric, answer from the MATERIAL\/FABRIC structured attribute only/,
+    )
+    expect(prompt).toMatch(/not a material answer/)
   })
 
   it('injects trusted current-product facts and forbids stock hedging', () => {

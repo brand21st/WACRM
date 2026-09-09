@@ -10,6 +10,23 @@ const DESCRIPTION_EXCERPT = 220
 const FACT_ATTR_KEYS =
   /^(material|fabric|fibre|fiber|composition|fit|occasion|care|wash)$/i
 
+const MATERIAL_ALIAS_RANK: { alias: string; rank: number }[] = [
+  { alias: 'material', rank: 0 },
+  { alias: 'fabric', rank: 1 },
+  { alias: 'fibre', rank: 2 },
+  { alias: 'fiber', rank: 3 },
+  { alias: 'composition', rank: 4 },
+  { alias: 'cloth', rank: 5 },
+  { alias: 'textile', rank: 6 },
+  { alias: 'fabric_type', rank: 7 },
+  { alias: 'material_type', rank: 8 },
+]
+
+export type StructuredMaterial = {
+  value: string
+  sourceKey: string
+}
+
 export type ProductFactFocus = {
   color?: string | null
   size?: string | null
@@ -54,6 +71,41 @@ export function compactAttributes(
     out.push({ key, label, value })
   }
   return out
+}
+
+function normalizeAttrName(raw: string): string {
+  return raw.trim().toLowerCase().replace(/[\s-]+/g, '_')
+}
+
+function materialAliasFor(raw: string): { alias: string; rank: number } | null {
+  const n = normalizeAttrName(raw)
+  if (!n) return null
+  for (const row of MATERIAL_ALIAS_RANK) {
+    if (n === row.alias) return row
+    if (n.endsWith(`.${row.alias}`) || n.endsWith(`_${row.alias}`)) return row
+  }
+  return null
+}
+
+/** Structured material/fabric only. Never reads title, handle, or description. */
+export function resolveStructuredMaterial(
+  hit: ShopifyProductHit | null | undefined,
+): StructuredMaterial | null {
+  if (!hit?.attributes?.length) return null
+  let best: { value: string; sourceKey: string; rank: number } | null = null
+  for (const row of compactAttributes(hit.attributes)) {
+    const match = materialAliasFor(row.key) ?? materialAliasFor(row.label)
+    if (!match) continue
+    if (!best || match.rank < best.rank) {
+      best = {
+        value: row.value,
+        sourceKey: row.key || match.alias,
+        rank: match.rank,
+      }
+    }
+  }
+  if (!best) return null
+  return { value: best.value, sourceKey: best.sourceKey }
 }
 
 export function hitAvailabilityKnown(hit: ShopifyProductHit): boolean {
@@ -180,6 +232,17 @@ export function formatCurrentProductFacts(
   )
   if (color) lines.push(`selected_color: ${color}`)
   if (size) lines.push(`selected_size: ${size}`)
+  const material = resolveStructuredMaterial(hit)
+  if (material) {
+    lines.push(`material: ${material.value}`)
+    lines.push('material_known: yes')
+    if (normalizeAttrName(material.sourceKey) !== 'material') {
+      lines.push(`material_source_attribute: ${material.sourceKey}`)
+    }
+  } else {
+    lines.push('material: unavailable')
+    lines.push('material_known: no')
+  }
   for (const attr of attrs) {
     if (!FACT_ATTR_KEYS.test(attr.key) && !FACT_ATTR_KEYS.test(attr.label)) {
       continue
@@ -188,7 +251,10 @@ export function formatCurrentProductFacts(
   }
   if (excerpt) lines.push(`description_excerpt: ${excerpt}`)
   lines.push(
-    'Material, fabric, fit, and care answers come from attribute_* lines only. Do not guess fiber from the title.',
+    'When the customer asks material, fabric, or “is it cotton?”, answer from the material line only. ' +
+      'If material_known is no, say material information is unavailable. ' +
+      'Do not guess fiber from title, handle, description, cut, type, style, or category. ' +
+      'Words like Linen, Silk, or Premium in the title are not material facts.',
   )
   return lines.join('\n')
 }

@@ -4,6 +4,7 @@ import { summarizeProduct } from './tools'
 import {
   formatAvailabilityLine,
   formatCurrentProductFacts,
+  resolveStructuredMaterial,
 } from './product-facts'
 
 function variant(
@@ -114,10 +115,73 @@ describe('formatCurrentProductFacts', () => {
       attributes: [{ key: 'material', label: 'Material', value: 'Rayon' }],
     })
     const facts = formatCurrentProductFacts(hit)
+    expect(facts).toMatch(/material: Rayon/)
+    expect(facts).toMatch(/material_known: yes/)
     expect(facts).toMatch(/attribute_material: Rayon/)
     expect(facts).toMatch(/description_excerpt: Soft rayon co-ord/)
     expect(facts).toMatch(/availability: some variants in stock/)
     expect(facts).not.toMatch(/unknown — no trustworthy stock/)
+  })
+
+  it('canonicalizes fabric as material for AG2660-style products', () => {
+    const hit = product(STOCKED.variants, {
+      attributes: [
+        { key: 'color', label: 'Color', value: 'Red' },
+        { key: 'fabric', label: 'Fabric', value: 'Rayon' },
+        { key: 'size', label: 'Size', value: 'M' },
+      ],
+    })
+    expect(resolveStructuredMaterial(hit)).toEqual({
+      value: 'Rayon',
+      sourceKey: 'fabric',
+    })
+    const facts = formatCurrentProductFacts(hit)
+    expect(facts).toMatch(/material: Rayon/)
+    expect(facts).toMatch(/material_known: yes/)
+    expect(facts).toMatch(/material_source_attribute: fabric/)
+  })
+
+  it('says material is unavailable when no fabric or material attribute exists', () => {
+    const hit = product(STOCKED.variants, {
+      title: 'Vatican Silk Coord set AG2668',
+      description: 'MATERIAL : Vatican silk with foil print TYPE : Aline',
+      attributes: [
+        { key: 'color', label: 'Color', value: 'Black' },
+        { key: 'size', label: 'Size', value: 'L' },
+      ],
+    })
+    expect(resolveStructuredMaterial(hit)).toBeNull()
+    const facts = formatCurrentProductFacts(hit)
+    expect(facts).toMatch(/material: unavailable/)
+    expect(facts).toMatch(/material_known: no/)
+    expect(facts).not.toMatch(/material: Vatican/)
+    expect(facts).toMatch(/If material_known is no, say material information is unavailable/)
+  })
+
+  it('prefers the structured material over a misleading Linen title', () => {
+    const hit = product(STOCKED.variants, {
+      title: 'Royal Crest Premium Linen',
+      handle: 'royal-crest-premium-linen',
+      description: 'Looks like linen. TYPE : Aline kurti.',
+      attributes: [
+        { key: 'material', label: 'Material', value: 'Premium Cotton Duck' },
+      ],
+    })
+    const facts = formatCurrentProductFacts(hit)
+    expect(facts).toMatch(/material: Premium Cotton Duck/)
+    expect(facts).toMatch(/material_known: yes/)
+    expect(facts).not.toMatch(/material: .*Linen/)
+    expect(facts).toMatch(/Words like Linen, Silk, or Premium in the title are not material facts/)
+  })
+
+  it('prefers material over fabric when both exist', () => {
+    const hit = product(STOCKED.variants, {
+      attributes: [
+        { key: 'fabric', label: 'Fabric', value: 'Rayon' },
+        { key: 'material', label: 'Material', value: 'Premium Cotton Duck' },
+      ],
+    })
+    expect(resolveStructuredMaterial(hit)?.value).toBe('Premium Cotton Duck')
   })
 })
 

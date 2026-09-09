@@ -97,6 +97,12 @@ describe('classifySalesTurn', () => {
     expect(classifySalesTurn('cotton ആണോ?', { hasFocus: true }).kind).toBe(
       'product_question',
     )
+    expect(classifySalesTurn('what fabric is this?', { hasFocus: true }).kind).toBe(
+      'product_question',
+    )
+    expect(classifySalesTurn('is this cotton?', { hasFocus: true }).kind).toBe(
+      'product_question',
+    )
     expect(unlocksCatalogBrowse('product_question')).toBe(false)
   })
 

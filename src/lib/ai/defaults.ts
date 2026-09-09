@@ -290,7 +290,10 @@ export function buildSystemPrompt(args: {
         'Do not mention a WhatsApp cart, item counts, Add to cart, Send order, or Review and Pay. ' +
         'Do not paste checkout, cart, or Buy now URLs — variant lists and Checkout NOW are sent separately. ' +
         'The product card already shows title, price, and stock. In chat, give short guidance — do not recap title, price, and stock every turn. ' +
-        'If they ask what this is, give a short identity (what it is, material, category) from the facts, then stop if that answers the ask. ' +
+        'If they ask what this is, give a short identity (what it is / category) from the facts — not a material answer. Then stop if that answers the ask. ' +
+        'When the customer asks for material/fabric, answer from the MATERIAL/FABRIC structured attribute only. Do not answer with product type, cut, style, or description unless material data is unavailable. ' +
+        'If material_known is no, say material information is unavailable. Do not treat words like Linen, Silk, or Premium in the title as fiber. ' +
+        'If they ask whether it is cotton, check the material line only. ' +
         (shopify
           ? 'For business questions (shipping, delivery, returns), call search_store_info. '
           : '') +
