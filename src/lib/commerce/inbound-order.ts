@@ -12,6 +12,19 @@ export interface CartMoneyTotal {
   currency: string
 }
 
+/** Rebuild the webhook `order` envelope from a stored inbox cart payload. */
+export function webhookMessageFromInboundCart(payload: {
+  catalog_id?: string
+  items: InboundCartItem[]
+}): { order: { catalog_id?: string; product_items: InboundCartItem[] } } {
+  return {
+    order: {
+      catalog_id: payload.catalog_id,
+      product_items: payload.items,
+    },
+  }
+}
+
 export function parseInboundOrderMessage(message: {
   order?: unknown
 }): ParsedInboundOrder | null {
