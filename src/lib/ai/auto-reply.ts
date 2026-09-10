@@ -838,6 +838,23 @@ export async function dispatchInboundToAiReply(
         console.warn('[ai auto-reply] catalog product cards failed:', err)
       }
     } else if (
+      unlocksCatalogBrowse(salesTurn.kind) &&
+      shopify &&
+      productCards.length === 0 &&
+      !cartOffer &&
+      !productFocus &&
+      shopifyTools.executeTool
+    ) {
+      try {
+        if (shopping.categoryHint) {
+          await shopifyTools.executeTool('search_products', { query: queryText })
+        } else {
+          await shopifyTools.executeTool('list_new_arrivals', {})
+        }
+      } catch (err) {
+        console.warn('[ai auto-reply] product switch catalog cards failed:', err)
+      }
+    } else if (
       inboundContentType === 'audio' &&
       shopify &&
       productCards.length === 0 &&

@@ -17,11 +17,11 @@ const NO_COLOR =
 const REJECT_SHOWN =
   /\b(?:not (?:that|this|it)|don'?t want (?:that|this))\b|ഇത്\s*വേണ്ട|ഇതല്ല/i
 const SELECT_SHOWN =
-  /\b(?:this one|i(?:'ll| will) take (?:this|that)|that one)\b|ഇത്\s*വേണം/i
+  /\b(?:this one|i(?:'ll| will) take (?:this|that)|that one)\b|ഇത്\s*വേണം|ഈ\s*one\s*നല്ലതാണ്/i
 const ORDINAL =
   /\b(?:the )?(first|1st|second|2nd|third|3rd)(?:\s+(?:one|option|product|item))?\b/i
 const CATEGORY =
-  /\b(saree|sari|bag|tote|clutch|blouse|kurta|kurti|dress|shoe|wallet|jewellery|jewelry)\b/i
+  /\b(saree|sari|bag|tote|clutch|blouse|kurta|kurti|dress|shirts?|shoe|wallet|jewellery|jewelry)\b/i
 
 const ORDINAL_INDEX: Record<string, number> = {
   first: 0,
@@ -102,8 +102,9 @@ export function parseCategoryHint(text: string | null | undefined): string | und
   const match = text?.match(CATEGORY)?.[1]
   if (!match) return undefined
   const hint = match.toLowerCase()
-  if (hint === 'sari') return 'saree'
-  if (hint === 'kurta') return 'kurti'
+  if (hint === 'sari' || hint === 'sarees') return 'saree'
+  if (hint === 'kurta' || hint === 'kurtas') return 'kurti'
+  if (hint === 'shirts') return 'shirt'
   return hint
 }
 

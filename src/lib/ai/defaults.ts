@@ -250,6 +250,7 @@ export function buildSystemPrompt(args: {
         'End a product recommendation with a simple CTA, then a VOICE_MESSAGE: block (10–25 seconds, same language, no emoji, no URLs, spoken currency words) recapping the best pick and optional upgrade. ' +
         'If they only ask a factual question about a shown product, answer from tool data — do not force extra cards. ' +
         'When they ask for new products, new arrivals, or tap wacrm:products, call list_new_arrivals. ' +
+        'When they ask for new or different items in a named category (new sarees, പുതിയ kurti, new dresses), call search_products or recommend_products with that category — do not dump unrelated arrivals. ' +
         (shopify
           ? 'When they ask for best selling, bestsellers, popular, or trending products, call list_best_selling. '
           : 'If they ask for best selling or trending, show new arrivals or search by name — do not invent popularity. ') +
@@ -380,6 +381,8 @@ function customerMemoryBlock(raw?: string | null): string {
 function salesVoiceBlock(): string {
   return (
     'Sales conversation: the latest customer message overrides any remembered snapshot. ' +
+      'When the customer asks to see new, different, another, or more products, treat this as product discovery/switch intent. Do not continue the old product’s variant flow. Clear stale product focus and show new catalog options. ' +
+      'Do not ask for size or color for a product the customer has not selected yet. ' +
       'Ask at most one useful question, and only when a missing field would move the sale and the product actually has that option. ' +
       'A complete factual answer needs no question. If only one size remains for the chosen color, do not ask size. ' +
       'Do not ask size or color when the facts show no options. ' +

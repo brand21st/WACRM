@@ -40,11 +40,47 @@ describe('classifySalesTurn', () => {
     expect(classifySalesTurn('another color', { hasFocus: true }).kind).toBe(
       'variant_change',
     )
+    expect(classifySalesTurn('another size', { hasFocus: true }).kind).toBe(
+      'variant_change',
+    )
+    expect(classifySalesTurn('same one in blue', { hasFocus: true }).kind).toBe(
+      'variant_change',
+    )
     expect(classifySalesTurn('same one in red, M', { hasFocus: true }).kind).toBe(
       'variant_change',
     )
     expect(classifySalesTurn('red M', { hasFocus: true }).kind).toBe('variant_change')
+    expect(classifySalesTurn('new color', { hasFocus: true }).kind).toBe(
+      'variant_change',
+    )
+    expect(classifySalesTurn('new size', { hasFocus: true }).kind).toBe(
+      'variant_change',
+    )
     expect(unlocksCatalogBrowse('variant_change')).toBe(false)
+  })
+
+  it('classifies new/different product browse as a switch, including Manglish', () => {
+    expect(classifySalesTurn('new products kanik', { hasFocus: true }).kind).toBe(
+      'product_switch',
+    )
+    expect(classifySalesTurn('new products കാണിക്കൂ', { hasFocus: true }).kind).toBe(
+      'product_switch',
+    )
+    expect(classifySalesTurn('പുതിയ products കാണിക്കൂ', { hasFocus: true }).kind).toBe(
+      'product_switch',
+    )
+    expect(classifySalesTurn('പുതിയ saree കാണിക്കൂ', { hasFocus: true }).kind).toBe(
+      'product_switch',
+    )
+    expect(classifySalesTurn('വേറെ product കാണിക്കൂ', { hasFocus: true }).kind).toBe(
+      'product_switch',
+    )
+    expect(classifySalesTurn('show me new ones').kind).toBe('product_switch')
+    expect(classifySalesTurn('show me something new').kind).toBe('product_switch')
+    expect(classifySalesTurn('another one', { hasFocus: true }).kind).toBe(
+      'product_switch',
+    )
+    expect(unlocksCatalogBrowse('product_switch')).toBe(true)
   })
 
   it('classifies cheaper / similar as substitution', () => {
@@ -144,6 +180,11 @@ describe('classifySalesTurn', () => {
   it('classifies budget plus another product as a switch that still carries the budget text', () => {
     expect(
       classifySalesTurn('3000 രൂപയ്ക്കുള്ളിൽ വേറെ saree', { hasFocus: true }).kind,
+    ).toBe('product_switch')
+    expect(
+      classifySalesTurn('3000 രൂപയ്ക്കുള്ളിൽ പുതിയ products കാണിക്കൂ', {
+        hasFocus: true,
+      }).kind,
     ).toBe('product_switch')
   })
 

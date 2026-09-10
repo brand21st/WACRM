@@ -35,7 +35,7 @@ const REJECT_CURRENT =
   /\b(?:not (?:this|that|it)|don'?t want (?:this|that|it)|not interested(?: in (?:this|that))?|show (?:me )?(?:another|something else)|something else|different (?:one|product|model|saree|sari|kurti|dress))\b|ഇത്\s*വേണ്ട|ഇതല്ല|വേറെ\s+(?:saree|sari|kurti|dress|model|one)|മറ്റൊരു/i
 
 const PRODUCT_NOUN =
-  /\b(saree|sari|kurti|kurta|dress|bag|blouse|shoe|model|product|item|one)\b|സാരി|കുര്‍ത്തി|കുര്ത്തി/i
+  /\b(sarees?|saris?|kurtis?|kurtas?|dresses?|shirts?|bags?|blouses?|shoes?|models?|products?|items?|arrivals?|collections?|options?|ones?)\b|സാരി|കുര്‍ത്തി|കുര്ത്തി/i
 
 const VARIANT_WORD =
   /\b(colou?r|size|shade|നിറം|വലുപ്പം|small|medium|large|xl|xxl|[sml]{1,3}|black|navy|red|blue|white|green|pink|gold|beige|yellow|orange|purple|brown|grey|gray)\b/i
@@ -43,8 +43,19 @@ const VARIANT_WORD =
 const ANOTHER_VARIANT =
   /\b(?:another|different|other)\s+(?:colou?r|size|shade)\b|വേറെ\s*(?:നിറം|വലുപ്പം|color|colour|size)|മറ്റൊരു\s*(?:നിറം|വലുപ്പം|color|colour|size)|(?:same (?:one|thing)|this (?:one|same)|ഇത്\s*തന്നെ).{0,24}\b(?:in\s+)?(?:colou?r|size|red|blue|navy|black|white|green|pink|gold|beige)\b/i
 
-const SWITCH_WITH_CATEGORY =
-  /\b(?:another|else|different|other|വേറെ|മറ്റൊരു)\b.{0,24}\b(saree|sari|kurti|kurta|dress|bag|blouse|shoe|model|product)\b|\b(saree|sari|kurti|kurta|dress|bag|blouse|shoe|model)\b.{0,16}\b(?:another|else|different|other|വേറെ)\b/i
+const SWITCH_NOUN =
+  'sarees?|saris?|kurtis?|kurtas?|dresses?|shirts?|bags?|blouses?|shoes?|models?|products?|items?|arrivals?|collections?|options?|ones?'
+const SWITCH_MOD = 'another|else|different|other|new|latest'
+const SWITCH_WITH_CATEGORY = new RegExp(
+  String.raw`(?:\b(?:${SWITCH_MOD})\b|വേറെ|മറ്റൊരു|പുതിയ).{0,24}\b(?:${SWITCH_NOUN})\b` +
+    `|` +
+    String.raw`\b(?:${SWITCH_NOUN})\b.{0,16}(?:\b(?:${SWITCH_MOD})\b|വേറെ|മറ്റൊരു|പുതിയ)` +
+    `|` +
+    String.raw`\b(?:something|anything)\s+(?:new|else)\b` +
+    `|` +
+    String.raw`\banother\s+one\b`,
+  'i',
+)
 
 const SUBSTITUTION =
   /\b(too expensive|cheaper|less expensive|lower price|more affordable|similar|better|alternative|substitute)\b|വില\s*കൂടി|കുറഞ്ഞ\s*വില/i
@@ -195,7 +206,10 @@ function isVariantWithoutProductNoun(
 ): boolean {
   if (!VARIANT_WORD.test(raw)) return false
   if (SWITCH_WITH_CATEGORY.test(raw)) return false
-  if (/\b(?:another|else|different|other|വേറെ)\b/i.test(raw) && PRODUCT_NOUN.test(raw)) {
+  if (
+    /(?:\b(?:another|else|different|other|new|latest)\b|വേറെ|മറ്റൊരു|പുതിയ)/i.test(raw) &&
+    PRODUCT_NOUN.test(raw)
+  ) {
     return false
   }
   if (/\b(?:another|else|different|other)\s+(?:colou?r|size|shade)\b/i.test(raw)) {

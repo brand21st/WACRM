@@ -52,8 +52,11 @@ describe('shopping phrase helpers', () => {
     expect(parseSelectsShown('I will take this')).toBe(true)
     expect(parseRejectsShown('ഇത് വേണ്ട')).toBe(true)
     expect(parseSelectsShown('ഇത് വേണം')).toBe(true)
+    expect(parseSelectsShown('ഈ one നല്ലതാണ്')).toBe(true)
+    expect(parseSelectsShown('നല്ലതാണ്')).toBe(false)
     expect(parseCategoryHint('another saree')).toBe('saree')
     expect(parseCategoryHint('blue kurti')).toBe('kurti')
+    expect(parseCategoryHint('new shirts')).toBe('shirt')
   })
 })
 

@@ -110,6 +110,11 @@ vi.mock('@/lib/shopify', () => ({
         parameters: { type: 'object', properties: { query: { type: 'string' } } },
       },
       {
+        name: 'list_new_arrivals',
+        description: 'arrivals',
+        parameters: { type: 'object', properties: {} },
+      },
+      {
         name: 'offer_cart',
         description: 'cart',
         parameters: { type: 'object', properties: {} },
@@ -3780,6 +3785,63 @@ describe('dispatchInboundToAiReply — agent product focus', () => {
     )
     expect(h.generateReply.mock.calls[0][0].systemPrompt).toMatch(
       /latest customer message overrides/i,
+    )
+  })
+
+  it('clears stale focus and skips the variant picker on new products kanik', async () => {
+    h.state.conv = {
+      assigned_agent_id: null,
+      ai_autoreply_disabled: false,
+      ai_reply_count: 0,
+      ai_product_focus: focusedConv({
+        handle: 'ag2664',
+        title: 'AG2664 Coord',
+        stage: 'collecting_variants',
+      }),
+    }
+    h.getProductLive.mockResolvedValue({
+      ...POURNAMI,
+      id: 'gid://shopify/Product/2664',
+      handle: 'ag2664',
+      title: 'AG2664 Coord',
+    })
+    h.getProductFromCatalog.mockResolvedValue({
+      ...POURNAMI,
+      id: 'gid://shopify/Product/2664',
+      handle: 'ag2664',
+      title: 'AG2664 Coord',
+    })
+    h.buildConversationContext.mockResolvedValue([
+      { role: 'user', content: 'new products kanik' },
+    ])
+    h.generateReply.mockResolvedValue({
+      text: 'Here are some other options.',
+      handoff: false,
+    })
+
+    await dispatchInboundToAiReply(ARGS)
+
+    expect(h.state.updatePayload).toMatchObject({ ai_product_focus: null })
+    expect(h.engineSendInteractiveList).not.toHaveBeenCalled()
+    expect(h.handleInboundWhatsAppOrder).not.toHaveBeenCalled()
+    expect(h.engineSendCtaUrl).not.toHaveBeenCalled()
+    expect(h.generateReply).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tools: expect.arrayContaining([
+          expect.objectContaining({ name: 'search_products' }),
+          expect.objectContaining({ name: 'list_new_arrivals' }),
+        ]),
+      }),
+    )
+    expect(h.generateReply.mock.calls[0][0].tools).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: 'get_product' }),
+      ]),
+    )
+    expect(h.executeShopifyTool).toHaveBeenCalledWith(
+      expect.anything(),
+      'list_new_arrivals',
+      {},
     )
   })
 

@@ -223,4 +223,68 @@ describe('15-turn focused sales conversation', () => {
     expect(shopping.colors).toEqual(['blue'])
     expect(focus?.handle).toBe('navy-bag')
   })
+
+  it('clears old product focus on new products kanik and variants the newly selected item', async () => {
+    const db = createCatalogMemoryDb(intelSeed())
+    let focus: { handle: string; title: string } | null = {
+      handle: 'red-bag',
+      title: 'Red Bag',
+    }
+    let shopping = emptyShoppingContext()
+    shopping.selectedIds = ['p-red']
+    shopping.shownIds = ['p-red']
+    shopping.maxPrice = 3000
+
+    async function play(text: string) {
+      const turn = classifySalesTurn(text, { hasFocus: Boolean(focus) })
+      if (focus && unlocksCatalogBrowse(turn.kind) && turn.kind === 'product_switch') {
+        shopping = {
+          ...shopping,
+          rejectedIds: [focus.handle === 'red-bag' ? 'p-red' : 'p-navy', ...shopping.rejectedIds],
+        }
+        focus = null
+      } else if (unlocksCatalogBrowse(turn.kind)) {
+        focus = null
+      }
+      if (shouldPersistSalesContext(turn.kind)) {
+        shopping = await mergeShoppingContext(db, {
+          accountId: 'acct-a',
+          previous: shopping,
+          text,
+          rejectedIds:
+            turn.kind === 'product_switch' ? shopping.rejectedIds : undefined,
+          seedId:
+            turn.kind === 'substitution' || turn.kind === 'variant_change'
+              ? shopping.selectedIds[0] ?? null
+              : undefined,
+          nextAction: turn.nextAction,
+        })
+      }
+      return turn
+    }
+
+    expect((await play('new products kanik')).kind).toBe('product_switch')
+    expect(focus).toBeNull()
+    expect(shopping.rejectedIds).toContain('p-red')
+    expect(shopping.maxPrice).toBe(3000)
+    expect(shopping.selectedIds).not.toContain('p-red')
+
+    expect((await play('പുതിയ saree കാണിക്കൂ')).kind).toBe('product_switch')
+    expect(shopping.categoryHint).toBe('saree')
+    expect(shopping.maxPrice).toBe(3000)
+
+    focus = { handle: 'navy-bag', title: 'Navy Bag' }
+    shopping = await mergeShoppingContext(db, {
+      accountId: 'acct-a',
+      previous: shopping,
+      selectedIds: ['p-navy'],
+      shownIds: ['p-navy'],
+      text: 'this Navy Bag',
+    })
+
+    expect((await play('size M')).kind).toBe('variant_change')
+    expect(focus?.handle).toBe('navy-bag')
+    expect(shopping.rejectedIds).toContain('p-red')
+    expect(wantsProductOrder('new products kanik')).toBe(false)
+  })
 })

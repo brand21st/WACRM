@@ -150,6 +150,8 @@ describe('buildSystemPrompt', () => {
       /Do not call list_new_arrivals, list_best_selling, or recommend_products for a specific product search/,
     )
     expect(prompt).toMatch(/Do not call search_products for those browse phrases/)
+    expect(prompt).toMatch(/named category/)
+    expect(prompt).toMatch(/search_products or recommend_products with that category/)
     expect(prompt).not.toMatch(/Do not mention Shopify/)
     expect(prompt).not.toMatch(/can’t find live products|can't find live products/)
     expect(prompt).not.toMatch(/This is their first message/)
@@ -218,6 +220,9 @@ describe('buildSystemPrompt', () => {
     expect(prompt).toMatch(/latest customer message overrides/)
     expect(prompt).toMatch(/Ask at most one useful question/)
     expect(prompt).toMatch(/how much” is not a buy request/)
+    expect(prompt).toMatch(/treat this as product discovery\/switch intent/)
+    expect(prompt).toMatch(/Do not continue the old product/)
+    expect(prompt).toMatch(/Do not ask for size or color for a product the customer has not selected yet/)
     expect(prompt).toMatch(/budget_max: 3000/)
     expect(prompt).toMatch(/rejected_products: p-red/)
     expect(prompt).toMatch(/Do not name Shopify, WACRM, Meta/)
