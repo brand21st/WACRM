@@ -37,6 +37,13 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
-    }
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "0930c05c-6300-42fa-ab3c-139822d7d0fb"
+      }
+    },
+    "owner": "vachats-team"
   }
 }
