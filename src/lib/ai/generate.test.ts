@@ -355,4 +355,62 @@ describe('generateReply — spoken rewrite', () => {
     expect(res.text).toBe(json)
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
+
+  it('runs one informal-address rewrite after a spoken draft that still uses നീ', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        okResponse({
+          choices: [{ message: { content: 'നീ പറഞ്ഞ color നോക്കാം.' } }],
+        }),
+      )
+      .mockResolvedValueOnce(
+        okResponse({
+          choices: [{ message: { content: 'നീ പറഞ്ഞ color നോക്കാം.' } }],
+        }),
+      )
+      .mockResolvedValueOnce(
+        okResponse({
+          choices: [
+            { message: { content: 'നിങ്ങൾ പറഞ്ഞ color-ൽ options കാണിക്കാം.' } },
+          ],
+        }),
+      )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const res = await generateReply({
+      config: config({ provider: 'openai' }),
+      systemPrompt: 'sys',
+      messages: [{ role: 'user', content: 'ethra und alle' }],
+    })
+
+    expect(res.text).toMatch(/നിങ്ങൾ പറഞ്ഞ/)
+    expect(res.text).not.toMatch(/നീ പറഞ്ഞ/)
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+  })
+
+  it('does not add a correction rewrite when the spoken draft is already respectful', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        okResponse({
+          choices: [{ message: { content: 'stiff formal draft' } }],
+        }),
+      )
+      .mockResolvedValueOnce(
+        okResponse({
+          choices: [{ message: { content: 'നിങ്ങൾ പറഞ്ഞ color-ൽ options കാണിക്കാം.' } }],
+        }),
+      )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const res = await generateReply({
+      config: config({ provider: 'openai' }),
+      systemPrompt: 'sys',
+      messages: [{ role: 'user', content: 'ethra und alle' }],
+    })
+
+    expect(res.text).toMatch(/നിങ്ങൾ പറഞ്ഞ/)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
 })

@@ -130,7 +130,11 @@ describe('spokenRewrite', () => {
       /Fix English word order and calques/,
     )
     expect(h.generateOpenAi.mock.calls[0][0].systemPrompt).toMatch(/ലഭ്യമാണ്/)
-    expect(h.generateOpenAi.mock.calls[0][0].systemPrompt).toMatch(/നോക്കിക്കോ/)
+    expect(h.generateOpenAi.mock.calls[0][0].systemPrompt).toMatch(/നോക്കാം/)
+    expect(h.generateOpenAi.mock.calls[0][0].systemPrompt).not.toMatch(/നോക്കിക്കോ/)
+    expect(h.generateOpenAi.mock.calls[0][0].systemPrompt).toMatch(
+      /CUSTOMER ADDRESSING/,
+    )
     expect(h.generateOpenAi.mock.calls[0][0].systemPrompt).not.toMatch(
       /native script, shop-counter tone/,
     )
@@ -153,6 +157,7 @@ describe('spokenRewrite', () => {
       /Fix English word order and calques/,
     )
     expect(h.generateOpenAi.mock.calls[0][0].systemPrompt).toMatch(/ലഭ്യമാണ്/)
+    expect(h.generateOpenAi.mock.calls[0][0].systemPrompt).toMatch(/നോക്കാം/)
     expect(h.generateOpenAi.mock.calls[0][0].systemPrompt).not.toMatch(/Manglish/)
   })
 
@@ -209,5 +214,22 @@ describe('spokenRewrite', () => {
     })
     expect(out).toMatch(/VOICE_MESSAGE:/)
     expect(out).toMatch(/ഇത് എടുക്കാം/)
+  })
+
+  it('asks a one-shot informal-address rewrite when requested', async () => {
+    h.generateOpenAi.mockResolvedValue({
+      text: 'നിങ്ങൾ പറഞ്ഞ color-ൽ options കാണിക്കാം.',
+      usage: null,
+    })
+    const out = await spokenRewrite({
+      config: config(),
+      draft: 'നീ പറഞ്ഞ color-ൽ options കാണിക്കാം.',
+      customerText: 'ethra und alle',
+      fixInformalAddress: true,
+    })
+    expect(out).toMatch(/നിങ്ങൾ പറഞ്ഞ/)
+    expect(h.generateOpenAi.mock.calls[0][0].systemPrompt).toMatch(
+      /informal or overly familiar second-person/,
+    )
   })
 })

@@ -33,7 +33,10 @@ describe('buildSystemPrompt', () => {
     expect(prompt).toMatch(/ਰੁਪਏ/)
     expect(prompt).toMatch(/ரூபாய்/)
     expect(prompt).toMatch(/రూపాయలు/)
-    expect(prompt).toMatch(/നോക്കിക്കോ/)
+    expect(prompt).toMatch(/നോക്കാം/)
+    expect(prompt).not.toMatch(/നോക്കിക്കോ/)
+    expect(prompt).toMatch(/CUSTOMER ADDRESSING/)
+    expect(prompt).toMatch(/നിങ്ങൾ/)
     expect(prompt).toMatch(/ये वाला है/)
     expect(prompt).toMatch(/இது இருக்கு/)
     expect(prompt).toMatch(/ఇది ఉంది/)
@@ -51,7 +54,8 @@ describe('buildSystemPrompt', () => {
     expect(prompt).toMatch(/verb-last/)
     expect(prompt).toMatch(/this is available for you/)
     expect(prompt).toMatch(/ലഭ്യമാണ്/)
-    expect(prompt).toMatch(/നോക്കിക്കോ/)
+    expect(prompt).toMatch(/നോക്കാം/)
+    expect(prompt).not.toMatch(/നോക്കിക്കോ/)
   })
 
   it('names the customer when a speakable first name is provided', () => {

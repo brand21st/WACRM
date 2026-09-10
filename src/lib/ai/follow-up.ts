@@ -6,6 +6,8 @@ import { buildConversationContext } from './context'
 import { loadContactMemory } from './chat-memory'
 import { resolveLanguageLock } from './language-lock'
 import { generateReply } from './generate'
+import { spokenRewrite } from './spoken-rewrite'
+import { hasInformalCustomerAddress } from './customer-address'
 import { engineSendText } from '@/lib/flows/meta-send'
 import { customerServiceExpiresAt } from '@/lib/inbox/session-window'
 import {
@@ -291,6 +293,19 @@ export async function processConversationFollowUp(args: {
     if (generated.action !== 'send' || !generated.message) {
       await finishSkip(db, claimed.id, 'ai_skip')
       return
+    }
+
+    if (hasInformalCustomerAddress(generated.message)) {
+      generated = {
+        ...generated,
+        message: await spokenRewrite({
+          config,
+          draft: generated.message,
+          customerText: lastCustomerText,
+          replyLanguage,
+          fixInformalAddress: true,
+        }),
+      }
     }
 
     const context = [transcriptText(messages), salesSnapshot].filter(Boolean).join('\n')

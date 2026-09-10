@@ -11,6 +11,7 @@ import { generateAnthropic } from './providers/anthropic'
 import type { ExecuteLlmTool, LlmToolDef } from './providers/shared'
 import type { ChatLanguageLock } from './language-lock'
 import { latestCustomerText, shouldRewriteSpoken, spokenRewrite } from './spoken-rewrite'
+import { hasInformalCustomerAddress } from './customer-address'
 
 export interface GenerateArgs {
   config: AiConfig
@@ -63,23 +64,36 @@ export async function generateReply(args: GenerateArgs): Promise<GenerateResult>
 
   const parsed = parseGeneration(result.text, result.usage)
   if (args.skipSpokenRewrite) return parsed
+  const customerText = latestCustomerText(messages)
   const language = shouldRewriteSpoken({
     draft: parsed.text,
     handoff: parsed.handoff,
-    customerText: latestCustomerText(messages),
+    customerText,
     replyLanguage: args.replyLanguage,
   })
-  if (!language) return parsed
-
-  const rewritten = await spokenRewrite({
-    config,
-    draft: parsed.text,
-    language,
-    replyLanguage: args.replyLanguage,
-    customerText: latestCustomerText(messages),
-    customerName: args.customerName,
-  })
-  return { ...parsed, text: rewritten }
+  let text = parsed.text
+  if (language) {
+    text = await spokenRewrite({
+      config,
+      draft: text,
+      language,
+      replyLanguage: args.replyLanguage,
+      customerText,
+      customerName: args.customerName,
+    })
+  }
+  if (!parsed.handoff && hasInformalCustomerAddress(text)) {
+    text = await spokenRewrite({
+      config,
+      draft: text,
+      language,
+      replyLanguage: args.replyLanguage,
+      customerText,
+      customerName: args.customerName,
+      fixInformalAddress: true,
+    })
+  }
+  return { ...parsed, text }
 }
 
 /**

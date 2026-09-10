@@ -1,6 +1,10 @@
 import type { AiConfig, ChatMessage } from './types'
 import { aiRequestTimeoutMs } from './defaults'
 import {
+  CUSTOMER_ADDRESSING_INSTRUCTION,
+  INFORMAL_ADDRESS_FIX_INSTRUCTION,
+} from './customer-address'
+import {
   INDIC_CURRENCY_WORDS,
   INDIC_LANGUAGE_NAMES,
   detectSpokenIndicTarget,
@@ -41,6 +45,7 @@ function rewriteSystemPrompt(
   lang: IndicLanguageCodes,
   customerName?: string | null,
   scriptStyle: 'native' | 'romanized' = 'native',
+  fixInformalAddress = false,
 ): string {
   const name = INDIC_LANGUAGE_NAMES[lang.elevenlabs] ?? 'the customer’s Indian language'
   const currency = INDIC_CURRENCY_WORDS[lang.elevenlabs] ?? 'the spoken rupee word'
@@ -50,16 +55,20 @@ function rewriteSystemPrompt(
       ? `spoken everyday ${mix} in Latin letters — do not force ${name} native script`
       : `spoken everyday ${name} in native script, shop-counter tone`
   const address = customerName?.trim()
-    ? ` If the draft already uses the customer’s name (${customerName.trim()}) or an honorific, keep it. Do not add ji, sir, madam, or similar if the draft did not use one. Do not switch to textbook «താങ്കൾ».`
-    : ' If the draft already uses a name or honorific, keep it. Do not add ji, sir, madam, or similar if the draft did not use one. Do not switch to textbook «താങ്കൾ».'
+    ? ` If the draft already uses the customer’s name (${customerName.trim()}) or an honorific, keep it. Do not add ji, sir, madam, or similar if the draft did not use one.`
+    : ' If the draft already uses a name or honorific, keep it. Do not add ji, sir, madam, or similar if the draft did not use one.'
   const malayalamPair =
     lang.elevenlabs === 'ml'
-      ? ' Malayalam stiff «ഇത് നിങ്ങൾക്ക് ലഭ്യമാണ്» / «താങ്കൾക്ക് ഈ ഉൽപ്പന്നം ലഭ്യമാണ്» → spoken «ഇതുണ്ട്, നോക്കിക്കോ» (formal: «ഇതുണ്ട്, നോക്കൂ»).'
+      ? ' Malayalam stiff «താങ്കൾക്ക് ഈ ഉൽപ്പന്നം ലഭ്യമാണ്» / call-center «ഇത് നിങ്ങൾക്ക് വേണ്ടി ലഭ്യമാണ്» → spoken «ഇതുണ്ട്, നോക്കാം» (or «ഇതുണ്ട്, നോക്കൂ»).'
       : ''
+  const extra = fixInformalAddress
+    ? ` ${INFORMAL_ADDRESS_FIX_INSTRUCTION}`
+    : ` ${CUSTOMER_ADDRESSING_INSTRUCTION}`
   return (
     `Rewrite the shop assistant’s WhatsApp draft into ${register}. ` +
     `Fix English word order and calques. Rewrite as a native speaker would say it — do not translate from English; do not polish into textbook grammar.` +
     malayalamPair +
+    extra +
     ` Keep a natural human tone — no “Certainly”, “Absolutely”, or scripted filler. ` +
     `Keep every fact, price, product name, SKU, order id, and URL. Do not add new claims.` +
     address +
@@ -102,11 +111,13 @@ export async function spokenRewrite(args: {
   language?: IndicLanguageCodes | null
   replyLanguage?: ChatLanguageLock | null
   customerName?: string | null
+  fixInformalAddress?: boolean
 }): Promise<string> {
   const language =
     args.language ??
     indicCodesForLock(args.replyLanguage) ??
-    detectSpokenIndicTarget(args.customerText)
+    detectSpokenIndicTarget(args.customerText) ??
+    (args.fixInformalAddress ? detectSpokenIndicTarget(args.draft) : null)
   const draft = args.draft.trim()
   if (!language || !draft) return args.draft
 
@@ -118,6 +129,7 @@ export async function spokenRewrite(args: {
       language,
       args.customerName,
       rewriteScriptStyle(args.customerText, args.replyLanguage),
+      args.fixInformalAddress,
     ),
     messages: [{ role: 'user' as const, content: draft }] satisfies ChatMessage[],
     timeoutMs,

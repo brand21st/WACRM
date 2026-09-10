@@ -162,7 +162,8 @@ describe('live AI Realtime session helpers', () => {
     expect(text).toContain(LIVE_AI_GREETING_USER)
     expect(text).toContain('This WhatsApp voice call is in Malayalam')
     expect(text).toContain('Kerala Malayalam')
-    expect(text).toContain('ഇതുണ്ട്, നോക്കിക്കോ')
+    expect(text).toContain('ഇതുണ്ട്, നോക്കാം')
+    expect(text).not.toContain('നോക്കിക്കോ')
     expect(text).not.toContain(DETECT_FIRST_SPOKEN_LANGUAGE)
   })
 

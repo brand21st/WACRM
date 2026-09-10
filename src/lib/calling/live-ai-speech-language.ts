@@ -1,4 +1,5 @@
 import { INDIC_LANGUAGE_NAMES } from '@/lib/ai/indic-language'
+import { CUSTOMER_ADDRESSING_INSTRUCTION } from '@/lib/ai/customer-address'
 import {
   DETECT_FIRST_SPOKEN_LANGUAGE,
   formatReplyLanguageInstruction,
@@ -49,8 +50,8 @@ function malayalamNativeVoiceBlock(handoff: string): string {
     `Speak conversational Kerala Malayalam (shop-counter), not textbook or news-reader Malayalam.\n` +
     `- Keep the accent stable from the first word. Do not exaggerate.\n` +
     `- Think in Malayalam. Do not draft English and translate.\n` +
-    `- Not «ഇത് നിങ്ങൾക്ക് ലഭ്യമാണ്» — say «ഇതുണ്ട്, നോക്കിക്കോ» (formal: «ഇതുണ്ട്, നോക്കൂ»).\n` +
-    `- Do not use textbook «താങ്കൾ» unless they are formal.\n` +
+    `- Not call-center «ഇത് നിങ്ങൾക്ക് വേണ്ടി ലഭ്യമാണ്» — say «ഇതുണ്ട്, നോക്കാം» (or «ഇതുണ്ട്, നോക്കൂ»).\n` +
+    `- ${CUSTOMER_ADDRESSING_INSTRUCTION}\n` +
     `- Prices: amount + രൂപ. Never say rupees, ₹, Rs, or INR.\n` +
     `- Do not change language based on their English accent or English product names.`
   )
@@ -68,6 +69,7 @@ function malayalamManglishVoiceBlock(handoff: string): string {
     `## Accent\n` +
     `Speak with a natural Kerala rhythm. Keep the accent stable. Do not exaggerate.\n` +
     `- Think in Malayalam. Do not draft English and translate.\n` +
+    `- ${CUSTOMER_ADDRESSING_INSTRUCTION}\n` +
     `- Prices: amount + rupee or രൂപ, never ₹, Rs, or INR.`
   )
 }
@@ -80,7 +82,8 @@ function malayalamHintVoiceBlock(): string {
     `- Switch to English only if they clearly speak a full English request or ask for English.\n` +
     `- Do not switch based on accent, filler, or English product names.\n` +
     `## Accent\n` +
-    `When speaking Malayalam, use shop-counter Kerala Malayalam — «ഇതുണ്ട്, നോക്കിക്കോ», prices in രൂപ.`
+    `When speaking Malayalam, use shop-counter Kerala Malayalam — «ഇതുണ്ട്, നോക്കാം», prices in രൂപ.\n` +
+    `${CUSTOMER_ADDRESSING_INSTRUCTION}`
   )
 }
 

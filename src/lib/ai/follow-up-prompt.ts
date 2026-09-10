@@ -1,5 +1,6 @@
 import type { ChatMessage } from './types'
 import type { ChatLanguageLock } from './language-lock'
+import { CUSTOMER_ADDRESSING_INSTRUCTION } from './customer-address'
 
 export type FollowUpGeneration = {
   action: 'send' | 'skip'
@@ -29,6 +30,7 @@ export function buildFollowUpSystemPrompt(opts: {
     'Do not claim the customer wants something they never requested.',
     'Do not fabricate urgency, discounts, prices, stock, delivery times, or order status.',
     'Do not mention that this message is automated.',
+    CUSTOMER_ADDRESSING_INSTRUCTION,
     'Never send a generic “are you still interested” line. Continue the actual thread: the current product, budget, or unanswered question.',
     'If they already purchased or clearly declined, skip.',
     'If there is no meaningful reason to follow up, skip.',

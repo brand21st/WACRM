@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { ChatLanguageLock } from '@/lib/ai/language-lock'
+import { hasInformalCustomerAddress } from '@/lib/ai/customer-address'
 import type { ShopifyProductHit, ShopifyVariantHit } from './types'
 import { buildFocusedFactReply, focusedReplyDirective } from './sales-reply'
 import { classifySalesTurn } from './sales-turn'
@@ -295,5 +296,48 @@ describe('focusedReplyDirective', () => {
     expect(focusedReplyDirective(turn)).toMatch(/material question only/)
     expect(focusedReplyDirective(turn)).toMatch(/Do not recap the product card/)
     expect(focusedReplyDirective({ kind: 'stay' })).toBeNull()
+  })
+})
+
+describe('Malayalam fact replies stay respectful', () => {
+  it('does not use informal second-person address', () => {
+    const samples = [
+      buildFocusedFactReply({
+        topic: 'identity',
+        kind: 'product_question',
+        ask: 'ഇത് എന്താണ്?',
+        hit: STOCKED,
+        language: ML,
+      })?.text,
+      buildFocusedFactReply({
+        topic: 'material',
+        kind: 'product_question',
+        ask: 'ഇത് ഏത് material ആണ്?',
+        hit: product(STOCKED.variants, {
+          attributes: [{ key: 'fabric', label: 'Fabric', value: 'Rayon' }],
+        }),
+        language: ML,
+      })?.text,
+      buildFocusedFactReply({
+        topic: 'availability',
+        kind: 'product_question',
+        ask: 'available?',
+        hit: STOCKED,
+        language: ML,
+      })?.text,
+      buildFocusedFactReply({
+        topic: 'price',
+        kind: 'product_question',
+        ask: 'എത്ര?',
+        hit: STOCKED,
+        language: ML,
+      })?.text,
+    ]
+    for (const text of samples) {
+      expect(text).toBeTruthy()
+      expect(hasInformalCustomerAddress(text)).toBe(false)
+      expect(text).not.toMatch(/നിനക്ക്|നിന്റെ/)
+      expect(text).not.toMatch(/നീ(?![\u0D00-\u0D7F])/)
+    }
   })
 })

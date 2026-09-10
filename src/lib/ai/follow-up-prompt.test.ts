@@ -47,6 +47,8 @@ describe('buildFollowUpSystemPrompt', () => {
     expect(prompt).toMatch(/current_product: Pournami Blue/)
     expect(prompt).toMatch(/Do not pitch rejected_products/)
     expect(prompt).toMatch(/Never send a generic “are you still interested”/)
+    expect(prompt).toMatch(/CUSTOMER ADDRESSING/)
+    expect(prompt).toMatch(/നിങ്ങൾ/)
   })
 
   it('includes current product facts when provided', () => {
