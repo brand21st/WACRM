@@ -31,6 +31,7 @@ import { mapGqlProduct } from './map-product'
 import {
   matchProductsToAsk,
   parseBudget,
+  parseRequestedPrice,
   productSearchQuery,
   rankProductsByDescription,
   rankShoppingProducts,
@@ -627,6 +628,16 @@ describe('matchProductsToAsk', () => {
   it('builds a search query from spoken filler words', () => {
     expect(productSearchQuery('send me the red bag')).toBe('red bag')
     expect(productSearchQuery('black shirt under 1500')).toBe('black shirt')
+  })
+
+  it('parses a bare requested price next to a product ask', () => {
+    expect(parseRequestedPrice('499 cord set വേണം')).toBe(499)
+    expect(parseRequestedPrice('₹499 cord set')).toBe(499)
+    expect(parseRequestedPrice('499 രൂപ cord set')).toBe(499)
+    expect(parseBudget('499 cord set വേണം')).toBeNull()
+    expect(parseRequestedPrice('under 499')).toBeNull()
+    expect(productSearchQuery('499 cord set വേണം')).toMatch(/cord set/)
+    expect(productSearchQuery('499 cord set വേണം')).not.toMatch(/499/)
   })
 
   it('parses a stated budget', () => {
@@ -1352,6 +1363,29 @@ describe('executeShopifyTool', () => {
       { query: 'black shirt' },
     )
     expect(result.cards.map((c) => c.title)).toEqual(['Navy Formal Shirt'])
+  })
+
+  it('offers a near-price alternative instead of new arrivals for a bare price miss', async () => {
+    catalogSearch.searchCatalog.mockImplementation(async (_db, query: { priceMax?: number }) => {
+      if (query.priceMax === 499) return []
+      return [catalogProduct('Aline Cord Set', 'aline-cord-set', 500)]
+    })
+    const result = await executeShopifyTool(
+      {
+        db: {} as SupabaseClient,
+        config: STORE,
+        contactPhone: null,
+        customerText: '499 cord set വേണം',
+      },
+      'search_products',
+      { query: 'cord set', max_price: 499 },
+    )
+    expect(result.exact).toBe(false)
+    expect(result.cards).toHaveLength(1)
+    expect(result.cards[0].title).toBe('Aline Cord Set')
+    expect(JSON.parse(result.json).note).toMatch(/No exact ₹499/)
+    expect(JSON.parse(result.json).note).toMatch(/₹500/)
+    expect(catalogSearch.listNewArrivalsCatalog).not.toHaveBeenCalled()
   })
 
   it('does not substitute new arrivals when a budget filter empties search', async () => {

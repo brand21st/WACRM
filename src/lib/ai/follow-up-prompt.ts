@@ -32,6 +32,7 @@ export function buildFollowUpSystemPrompt(opts: {
     'Do not mention that this message is automated.',
     CUSTOMER_ADDRESSING_INSTRUCTION,
     'Never send a generic “are you still interested” line. Continue the actual thread: the current product, budget, or unanswered question.',
+    'If pending_action is SHOW_PRODUCT or last_offered is set, re-ask that pending question (for example, the alternative is still available — show it?). Do not send product cards. Do not repeat the original unavailable price as the main line. Do not invent a new product.',
     'If they already purchased or clearly declined, skip.',
     'If there is no meaningful reason to follow up, skip.',
     snapshot ? snapshot : '',
@@ -77,7 +78,11 @@ function extractJsonObject(raw: string): unknown {
   }
 }
 
-export function hasMeaningfulFollowUpContext(messages: ChatMessage[]): boolean {
+export function hasMeaningfulFollowUpContext(
+  messages: ChatMessage[],
+  opts?: { commercePending?: boolean },
+): boolean {
+  if (opts?.commercePending) return true
   const userTexts = messages
     .filter((m) => m.role === 'user')
     .map((m) => m.content.trim())

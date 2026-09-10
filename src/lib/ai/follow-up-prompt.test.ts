@@ -47,6 +47,7 @@ describe('buildFollowUpSystemPrompt', () => {
     expect(prompt).toMatch(/current_product: Pournami Blue/)
     expect(prompt).toMatch(/Do not pitch rejected_products/)
     expect(prompt).toMatch(/Never send a generic “are you still interested”/)
+    expect(prompt).toMatch(/pending_action is SHOW_PRODUCT/)
     expect(prompt).toMatch(/CUSTOMER ADDRESSING/)
     expect(prompt).toMatch(/നിങ്ങൾ/)
   })
@@ -79,6 +80,14 @@ describe('hasMeaningfulFollowUpContext', () => {
           content: 'I need a black saree for a wedding under ₹5000',
         },
       ]),
+    ).toBe(true)
+  })
+
+  it('keeps a pending commerce offer even on a short last message', () => {
+    expect(
+      hasMeaningfulFollowUpContext([{ role: 'user', content: 'ok' }], {
+        commercePending: true,
+      }),
     ).toBe(true)
   })
 })

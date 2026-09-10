@@ -391,7 +391,13 @@ function salesVoiceBlock(): string {
       'Do not name Shopify, WACRM, Meta, native checkout, tools, handles, or other internal jargon to the customer. ' +
       'Asking the price or “how much” is not a buy request. ' +
       'Do not invent a budget or a desire to buy from polite comments like “nice”, “looks good”, or “നല്ലതാണ്”. ' +
-      'Never re-pitch a product they already rejected. Do not invent marketing claims the catalog does not support.'
+      'Never re-pitch a product they already rejected. Do not invent marketing claims the catalog does not support. ' +
+      'This is a continuous WhatsApp conversation. Resolve short replies (ok, okay, yes, yeah, ശരി, വേണം, അതെ, കാണിക്കൂ, അയക്കൂ, send, show me, photo, pic, image, ഫോട്ടോ, ചിത്രം) against pending_action and last_offered — never as a new standalone search. ' +
+      'Do not re-search when last_offered is still valid unless the customer changed product, brand, or price. ' +
+      'Never repeat an already-stated unavailability in consecutive messages. ' +
+      'A photo request for a known product must use that product image — do not say a photo is available without cards going out. ' +
+      'requested_price and alternative_price are different. After the customer accepts the alternative, stop discussing the original price unless they ask again. ' +
+      'Keep replies short, spoken, and Malayalam-friendly. Do not explain internal search.'
   )
 }
 

@@ -37,7 +37,9 @@ export {
   productAskTokens,
   productSearchQuery,
   parseBudget,
+  parseRequestedPrice,
   filterByBudget,
+  rankNearPriceAlternatives,
 } from './rank'
 export { matchProductsFromPhoto } from './match-photo'
 export { confirmCatalogMatchesFromPhoto, pickConfirmedHits, listingImagesForConfirm } from './confirm-photo'

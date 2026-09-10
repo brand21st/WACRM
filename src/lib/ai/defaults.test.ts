@@ -231,6 +231,9 @@ describe('buildSystemPrompt', () => {
     expect(prompt).toMatch(/rejected_products: p-red/)
     expect(prompt).toMatch(/Do not name Shopify, WACRM, Meta/)
     expect(prompt).toMatch(/only when a missing field would move the sale/)
+    expect(prompt).toMatch(/continuous WhatsApp conversation/)
+    expect(prompt).toMatch(/pending_action/)
+    expect(prompt).toMatch(/Never repeat an already-stated unavailability/)
   })
 
   it('tells the model to use native WhatsApp cart when commerce is on', () => {

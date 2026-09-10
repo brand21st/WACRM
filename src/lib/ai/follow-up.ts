@@ -14,7 +14,14 @@ import {
   enqueueAiConversationFollowUp,
   removeAiConversationFollowUp,
 } from '@/lib/queue/enqueue'
-import { followUpDelayMinutesOrDefault } from './follow-up-delay'
+import {
+  FOLLOW_UP_DELAY_DEFAULT_MINUTES,
+  followUpDelayMinutesOrDefault,
+} from './follow-up-delay'
+import {
+  hasOpenCommercePending,
+  loadCommerceTurn,
+} from './commerce-turn'
 import {
   buildFollowUpSystemPrompt,
   followUpMentionsUngroundedFacts,
@@ -23,7 +30,11 @@ import {
   parseFollowUpGeneration,
   transcriptText,
 } from './follow-up-prompt'
-import { loadShoppingContext, formatSalesSnapshot } from '@/lib/catalog/intelligence/shopping-context'
+import {
+  emptyShoppingContext,
+  formatSalesSnapshot,
+  loadShoppingContext,
+} from '@/lib/catalog/intelligence/shopping-context'
 import { parseProductFocus } from '@/lib/shopify/product-focus'
 import {
   catalogOnlyStoreConfig,
@@ -96,7 +107,7 @@ export async function scheduleConversationFollowUp(args: {
       console.warn('[follow-up] loadAiConfig failed:', err)
       return null
     }))
-  if (!config?.followUpEnabled || !config.autoReplyEnabled) {
+  if (!config?.autoReplyEnabled) {
     console.info('[follow-up] skip schedule', { reason: 'disabled' })
     return
   }
@@ -104,6 +115,18 @@ export async function scheduleConversationFollowUp(args: {
   const eligible = await loadEligibleConversation(db, args.accountId, args.conversationId)
   if (!eligible.ok) {
     console.info('[follow-up] skip schedule', { reason: eligible.reason })
+    return
+  }
+
+  const commerce = await loadCommerceTurn(
+    db,
+    args.accountId,
+    eligible.contactId,
+    args.conversationId,
+  ).catch(() => null)
+  const commercePending = hasOpenCommercePending(commerce)
+  if (!config.followUpEnabled && !commercePending) {
+    console.info('[follow-up] skip schedule', { reason: 'disabled' })
     return
   }
 
@@ -136,7 +159,10 @@ export async function scheduleConversationFollowUp(args: {
     conversationId: args.conversationId,
   })
 
-  const delayMinutes = followUpDelayMinutesOrDefault(config.followUpDelayMinutes)
+  const merchantDelay = followUpDelayMinutesOrDefault(config.followUpDelayMinutes)
+  const delayMinutes = commercePending
+    ? Math.max(FOLLOW_UP_DELAY_DEFAULT_MINUTES, merchantDelay)
+    : merchantDelay
   const runAt = new Date(Date.now() + delayMinutes * 60_000).toISOString()
   const { data: inserted, error } = await db
     .from('conversation_follow_ups')
@@ -194,7 +220,7 @@ export async function processConversationFollowUp(args: {
     }
 
     const config = await loadAiConfig(db, args.accountId)
-    if (!config?.followUpEnabled || !config.autoReplyEnabled) {
+    if (!config?.autoReplyEnabled) {
       await finishSkip(db, claimed.id, 'disabled')
       return
     }
@@ -206,6 +232,18 @@ export async function processConversationFollowUp(args: {
     )
     if (!eligible.ok) {
       await finishSkip(db, claimed.id, eligible.reason)
+      return
+    }
+
+    const commerce = await loadCommerceTurn(
+      db,
+      args.accountId,
+      eligible.contactId,
+      args.conversationId,
+    ).catch(() => null)
+    const commercePending = hasOpenCommercePending(commerce)
+    if (!config.followUpEnabled && !commercePending) {
+      await finishSkip(db, claimed.id, 'disabled')
       return
     }
 
@@ -227,7 +265,7 @@ export async function processConversationFollowUp(args: {
     }
 
     const messages = await buildConversationContext(db, args.conversationId)
-    if (!hasMeaningfulFollowUpContext(messages)) {
+    if (!hasMeaningfulFollowUpContext(messages, { commercePending })) {
       await finishSkip(db, claimed.id, 'no_context')
       return
     }
@@ -257,9 +295,11 @@ export async function processConversationFollowUp(args: {
       eligible.contactId,
     ).catch(() => null)
     const productFocus = parseProductFocus(eligible.productFocus)
-    const salesSnapshot = shopping
-      ? formatSalesSnapshot(shopping, productFocus)
-      : ''
+    const salesSnapshot = formatSalesSnapshot(
+      shopping ?? emptyShoppingContext(),
+      productFocus,
+      commerce,
+    )
     const replyLanguage = resolveLanguageLock({
       stored: memory?.facts ?? null,
       customerText: lastCustomerText,

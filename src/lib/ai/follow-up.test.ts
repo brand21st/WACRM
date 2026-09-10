@@ -329,6 +329,71 @@ describe('scheduleConversationFollowUp', () => {
     })
     expect(h.enqueueAiConversationFollowUp).not.toHaveBeenCalled()
   })
+
+  it('schedules a 30-minute commerce nudge even when follow-up is disabled', async () => {
+    h.loadAiConfig.mockResolvedValue(aiConfig({ followUpEnabled: false, followUpDelayMinutes: 15 }))
+    const state = {
+      conversation: {
+        id: CONV,
+        account_id: ACCOUNT,
+        contact_id: 'ct-1',
+        user_id: 'u-1',
+        status: 'open',
+        assigned_agent_id: null,
+        ai_autoreply_disabled: false,
+      },
+      messages: [
+        {
+          id: 'm-bot',
+          conversation_id: CONV,
+          sender_type: 'bot' as const,
+          created_at: tBot,
+          ai_generated: true,
+        },
+        {
+          id: 'm-cus',
+          conversation_id: CONV,
+          sender_type: 'customer' as const,
+          created_at: tCustomer,
+        },
+      ],
+      followUps: [] as FollowRow[],
+      memory: [
+        {
+          account_id: ACCOUNT,
+          contact_id: 'ct-1',
+          facts: {
+            commerceTurn: {
+              conversationId: CONV,
+              pendingAction: 'SHOW_PRODUCT',
+              lastOfferedCards: [
+                {
+                  title: 'Aline Cord Set',
+                  productUrl: 'https://shop.example/products/cord',
+                  caption: 'Aline Cord Set\n500',
+                },
+              ],
+              requestedPrice: 499,
+              alternativePrice: 500,
+            },
+          },
+        },
+      ],
+    }
+    await scheduleConversationFollowUp({
+      db: memoryDb(state),
+      accountId: ACCOUNT,
+      conversationId: CONV,
+    })
+    expect(h.enqueueAiConversationFollowUp).toHaveBeenCalledWith(
+      expect.objectContaining({
+        accountId: ACCOUNT,
+        conversationId: CONV,
+        triggeringMessageId: 'm-bot',
+      }),
+      30 * 60_000,
+    )
+  })
 })
 
 describe('cancelConversationFollowUp', () => {

@@ -131,6 +131,36 @@ describe('mergeShoppingContext', () => {
     expect(snap).not.toMatch(/wants to buy/i)
   })
 
+  it('includes requested vs alternative price and pending action', () => {
+    const shopping = emptyShoppingContext('consideration')
+    const snap = formatSalesSnapshot(
+      shopping,
+      { handle: 'cord-set', title: 'Cord Set' },
+      {
+        conversationId: 'c1',
+        requestedPrice: 499,
+        alternativePrice: 500,
+        lastOfferedCards: [
+          {
+            title: 'Cord Set',
+            imageUrl: null,
+            productUrl: 'https://shop.example/products/cord',
+            cartUrl: null,
+            checkoutUrl: null,
+            inStock: true,
+            caption: 'Cord Set\n500',
+          },
+        ],
+        pendingAction: 'SHOW_PRODUCT',
+        unavailabilityTold: true,
+      },
+    )
+    expect(snap).toMatch(/requested_price: 499/)
+    expect(snap).toMatch(/alternative_price: 500/)
+    expect(snap).toMatch(/pending_action: SHOW_PRODUCT/)
+    expect(snap).toMatch(/never treat them as the same/)
+  })
+
   it('drops another account’s ids and invented titles', async () => {
     const db = createCatalogMemoryDb(intelSeed())
     const merged = await mergeShoppingContext(db, {

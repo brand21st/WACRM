@@ -115,7 +115,11 @@ export function productAskTokens(text: string): string[] {
 }
 
 export function productSearchQuery(text: string): string {
-  return productAskTokens(stripBudgetPhrases(text)).join(' ')
+  let next = stripBudgetPhrases(text)
+  if (parseRequestedPrice(text) != null) {
+    next = stripRequestedPriceTokens(next)
+  }
+  return productAskTokens(next).join(' ')
 }
 
 export type PriceBudget = { min?: number; max?: number }
@@ -148,6 +152,38 @@ export function parseBudget(text: string | null | undefined): PriceBudget | null
     if (Number.isFinite(max)) return { max }
   }
   return null
+}
+
+/**
+ * Bare target price next to a product ask (“499 cord set”, “₹499”).
+ * Ceiling phrases (“under 499”, “499 രൂപയ്ക്കുള്ളിൽ”) stay on parseBudget.
+ */
+export function parseRequestedPrice(text: string | null | undefined): number | null {
+  const raw = expandKSuffix((text ?? '').replace(/,/g, ''))
+  if (!raw.trim()) return null
+  if (parseBudget(raw)) return null
+  const marked = raw.match(
+    /(?:rs\.?|₹|inr)\s*(\d{3,7})|(\d{3,7})\s*രൂപ(?!യ്ക്കുള്ളിൽ|ത്തിനുള്ളിൽ)/i,
+  )
+  if (marked) {
+    const n = Number(marked[1] || marked[2])
+    if (Number.isFinite(n) && n > 0) return n
+  }
+  const bare = raw.match(/\b(\d{3,7})\b/)
+  if (!bare) return null
+  const n = Number(bare[1])
+  if (!Number.isFinite(n) || n <= 0) return null
+  const withoutPrice = stripRequestedPriceTokens(raw)
+  if (productAskTokens(withoutPrice).length === 0) return null
+  return n
+}
+
+function stripRequestedPriceTokens(text: string): string {
+  return expandKSuffix(text)
+    .replace(/,/g, '')
+    .replace(/(?:rs\.?|₹|inr)\s*\d{3,7}/gi, ' ')
+    .replace(/\d{3,7}\s*രൂപ(?!യ്ക്കുള്ളിൽ|ത്തിനുള്ളിൽ)/gi, ' ')
+    .replace(/\b\d{3,7}\b/g, ' ')
 }
 
 export function parsePriceArg(value: unknown): number | undefined {
@@ -262,6 +298,31 @@ function scoreAskHits(query: string, products: ShopifyProductHit[]) {
     if (phraseHit) score += 10
     return { p, score, allHit, phraseHit }
   })
+}
+
+export function rankNearPriceAlternatives(
+  query: string,
+  products: ShopifyProductHit[],
+  requestedPrice: number,
+  limit: number,
+): ShoppingMatch {
+  const named = rankShoppingProducts(query, products, Math.max(limit * 3, 9))
+  const scored = named.hits
+    .map((p) => {
+      const price = productUnitPrice(p)
+      if (price == null) return null
+      return { p, dist: Math.abs(price - requestedPrice) }
+    })
+    .filter((row): row is { p: ShopifyProductHit; dist: number } => Boolean(row))
+    .sort((a, b) => a.dist - b.dist || a.p.title.localeCompare(b.p.title))
+  const exactPrice = scored.filter((row) => row.dist === 0)
+  if (exactPrice.length > 0) {
+    return { hits: exactPrice.slice(0, limit).map((row) => row.p), exact: true }
+  }
+  return {
+    hits: scored.slice(0, limit).map((row) => row.p),
+    exact: false,
+  }
 }
 
 export function rankShoppingProducts(

@@ -25,6 +25,9 @@ const h = vi.hoisted(() => ({
   generateReply: vi.fn(),
   loadCatalogCardQueue: vi.fn(),
   persistCatalogCardQueue: vi.fn(),
+  loadCommerceTurn: vi.fn(),
+  persistCommerceTurn: vi.fn(),
+  clearCommerceTurn: vi.fn(),
   engineSendText: vi.fn(),
   engineSendInteractiveButtons: vi.fn(),
   engineSendInteractiveList: vi.fn(),
@@ -53,6 +56,7 @@ const h = vi.hoisted(() => ({
     updatePayload: null as Record<string, unknown> | null,
     rpcCalls: [] as { name: string; args: unknown }[],
     catalogQueue: [] as Record<string, unknown>[],
+    commerceTurn: null as Record<string, unknown> | null,
     contactName: null as string | null,
     inboundMessage: null as {
       id: string
@@ -152,6 +156,15 @@ vi.mock('./catalog-card-queue', () => ({
   loadCatalogCardQueue: h.loadCatalogCardQueue,
   persistCatalogCardQueue: h.persistCatalogCardQueue,
 }))
+vi.mock('./commerce-turn', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./commerce-turn')>()
+  return {
+    ...actual,
+    loadCommerceTurn: h.loadCommerceTurn,
+    persistCommerceTurn: h.persistCommerceTurn,
+    clearCommerceTurn: h.clearCommerceTurn,
+  }
+})
 vi.mock('@/lib/flows/meta-send', () => ({
   engineSendText: h.engineSendText,
   engineSendInteractiveButtons: h.engineSendInteractiveButtons,
@@ -334,7 +347,23 @@ beforeEach(() => {
   h.state.updatePayload = null
   h.state.rpcCalls = []
   h.state.catalogQueue = []
+  h.state.commerceTurn = null
   h.loadCatalogCardQueue.mockReset().mockImplementation(async () => h.state.catalogQueue)
+  h.loadCommerceTurn.mockReset().mockImplementation(async () => h.state.commerceTurn)
+  h.persistCommerceTurn.mockReset().mockImplementation(
+    async (
+      _db: unknown,
+      _accountId: string,
+      _contactId: string,
+      _conversationId: string,
+      turn: Record<string, unknown> | null,
+    ) => {
+      h.state.commerceTurn = turn
+    },
+  )
+  h.clearCommerceTurn.mockReset().mockImplementation(async () => {
+    h.state.commerceTurn = null
+  })
   h.persistCatalogCardQueue.mockReset().mockImplementation(
     async (
       _db: unknown,
@@ -4151,6 +4180,141 @@ describe('dispatchInboundToAiReply — agent product focus', () => {
     expect(prompt).toMatch(/This-turn reply: Answer this other question only/)
     expect(prompt).toMatch(/Do not recap the product card/)
     expect(prompt).toMatch(/Current product facts/)
+  })
+})
+
+const CORD_SET_CARD = {
+  title: 'Aline Cord Set',
+  imageUrl: 'https://cdn.example/cord.jpg',
+  productUrl: 'https://shop.example/products/aline-cord-set',
+  cartUrl: null,
+  checkoutUrl: 'https://shop.example/cart/1:1?checkout',
+  inStock: true,
+  caption: 'Aline Cord Set\n500 INR\nStock in',
+  handle: 'aline-cord-set',
+}
+
+describe('dispatchInboundToAiReply — commerce pending offers', () => {
+  beforeEach(() => {
+    h.loadShopifyConfig.mockResolvedValue({
+      accountId: 'acct-1',
+      shopDomain: 'acme.myshopify.com',
+      accessToken: 'shpat_test',
+      isActive: true,
+      shopName: 'Acme',
+      primaryDomain: 'https://shop.example',
+      currency: 'INR',
+      metaCatalogId: null,
+      lastVerifiedAt: null,
+      lastCatalogSyncAt: null,
+      catalogProductCount: 2,
+    })
+  })
+
+  it('holds inexact alternative cards and asks before sending', async () => {
+    h.buildConversationContext.mockResolvedValue([
+      { role: 'user', content: '499 cord set വേണം' },
+    ])
+    h.executeShopifyTool.mockResolvedValue({
+      json: JSON.stringify({
+        products: [{ title: 'Aline Cord Set', price: '500' }],
+        note: 'No exact ₹499 match. Closest is ₹500. Offer once.',
+      }),
+      cards: [CORD_SET_CARD],
+      exact: false,
+    })
+    h.generateReply.mockImplementation(async (args: { executeTool?: Function }) => {
+      if (args.executeTool) {
+        await args.executeTool('search_products', { query: 'cord set', max_price: 499 })
+      }
+      return {
+        text: '₹499-ന് exact Cord Set ഇല്ല. ₹500 option ഉണ്ട്. കാണിക്കട്ടെ?',
+        handoff: false,
+      }
+    })
+
+    await dispatchInboundToAiReply(ARGS)
+
+    expect(h.engineSendCtaUrl).not.toHaveBeenCalled()
+    expect(h.engineSendMedia).not.toHaveBeenCalled()
+    expect(h.engineSendText).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: expect.stringMatching(/₹500|500/),
+      }),
+    )
+    expect(h.persistCommerceTurn).toHaveBeenCalled()
+    expect(h.state.commerceTurn).toMatchObject({
+      pendingAction: 'SHOW_PRODUCT',
+      requestedPrice: 499,
+    })
+  })
+
+  it('replays the held alternative on ok without searching again', async () => {
+    h.state.commerceTurn = {
+      conversationId: 'conv-1',
+      currentProduct: 'Aline Cord Set',
+      requestedPrice: 499,
+      alternativePrice: 500,
+      lastOfferedCards: [CORD_SET_CARD],
+      pendingAction: 'SHOW_PRODUCT',
+      pendingQuestion: 'show_alternative',
+      acceptedAlternative: false,
+      unavailabilityTold: true,
+    }
+    h.buildConversationContext.mockResolvedValue([
+      { role: 'assistant', content: '₹499 exact ഇല്ല. ₹500 option ഉണ്ട്. കാണിക്കട്ടെ?' },
+      { role: 'user', content: 'ok' },
+    ])
+    h.generateReply.mockImplementation(async (args: { executeTool?: Function }) => {
+      if (args.executeTool) {
+        await args.executeTool('search_products', { query: 'ok' })
+      }
+      return { text: 'Sure, ഇതാ ₹500 Cord Set', handoff: false }
+    })
+
+    await dispatchInboundToAiReply(ARGS)
+
+    expect(h.executeShopifyTool).not.toHaveBeenCalled()
+    expect(h.engineSendCtaUrl).toHaveBeenCalledWith(
+      expect.objectContaining({
+        headerImageUrl: 'https://cdn.example/cord.jpg',
+        url: 'https://shop.example/cart/1:1?checkout',
+      }),
+    )
+    expect(h.engineSendText).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: expect.not.stringMatching(/₹499-ന് exact|499 exact/),
+      }),
+    )
+  })
+
+  it('resends the known product photo without repeating unavailability', async () => {
+    h.state.commerceTurn = {
+      conversationId: 'conv-1',
+      currentProduct: 'Aline Cord Set',
+      requestedPrice: 499,
+      alternativePrice: 500,
+      lastOfferedCards: [CORD_SET_CARD],
+      pendingAction: null,
+      acceptedAlternative: true,
+      unavailabilityTold: true,
+    }
+    h.buildConversationContext.mockResolvedValue([
+      { role: 'user', content: 'photo please' },
+    ])
+    h.generateReply.mockResolvedValue({
+      text: 'Sure, ഇതാ product photo',
+      handoff: false,
+    })
+
+    await dispatchInboundToAiReply(ARGS)
+
+    expect(h.executeShopifyTool).not.toHaveBeenCalled()
+    expect(h.engineSendCtaUrl).toHaveBeenCalledWith(
+      expect.objectContaining({
+        headerImageUrl: 'https://cdn.example/cord.jpg',
+      }),
+    )
   })
 })
 

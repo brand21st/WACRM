@@ -34,8 +34,11 @@ import {
   matchProductsToAsk,
   parseBudget,
   parsePriceArg,
+  parseRequestedPrice,
   productAskTokens,
   productSearchQuery,
+  productUnitPrice,
+  rankNearPriceAlternatives,
 } from './rank'
 import {
   matchProductsFromPhoto,
@@ -336,6 +339,7 @@ export interface ShopifyToolResult {
   orderCards?: ShopifyOrderCard[]
   cartOffer?: CartOffer | null
   sendCatalog?: boolean
+  exact?: boolean
 }
 
 export async function executeShopifyTool(
@@ -370,9 +374,15 @@ export async function executeShopifyTool(
           max: parsePriceArg(args.max_price),
         }
         const parsed = parseBudget(ctx.customerText) ?? parseBudget(raw)
+        const requestedExactPrice =
+          parseRequestedPrice(ctx.customerText) ?? parseRequestedPrice(raw)
         const budget = {
           min: fromArgs.min ?? parsed?.min ?? ctx.shopping?.minPrice,
-          max: fromArgs.max ?? parsed?.max ?? ctx.shopping?.maxPrice,
+          max:
+            fromArgs.max ??
+            parsed?.max ??
+            requestedExactPrice ??
+            ctx.shopping?.maxPrice,
         }
         const ranked = await searchShoppingCatalog(
           ctx.db,
@@ -381,6 +391,51 @@ export async function executeShopifyTool(
           limit,
           { allowCloseAlternatives: true, budget },
         )
+        if (requestedExactPrice != null) {
+          const exactPrice = excludeRejected(ranked.hits, ctx.shopping?.rejectedIds)
+            .filter((hit) => productUnitPrice(hit) === requestedExactPrice)
+          if (exactPrice.length > 0) {
+            await recordSearchMatchEvents(ctx, exactPrice, 'search_products')
+            return productsResult(
+              exactPrice,
+              ctx.retailerIdSource,
+              limit,
+              undefined,
+              true,
+            )
+          }
+          const open = await searchShoppingCatalog(
+            ctx.db,
+            ctx.config,
+            query,
+            Math.max(limit, 9),
+            { allowCloseAlternatives: true },
+          )
+          const near = rankNearPriceAlternatives(
+            query,
+            excludeRejected(open.hits, ctx.shopping?.rejectedIds),
+            requestedExactPrice,
+            Math.min(limit, 3),
+          )
+          if (near.hits.length > 0) {
+            await recordSearchMatchEvents(ctx, near.hits, 'search_products')
+            const altPrice = productUnitPrice(near.hits[0])
+            return productsResult(
+              near.hits,
+              ctx.retailerIdSource,
+              Math.min(limit, 3),
+              `No exact ₹${requestedExactPrice} match. Closest is ₹${altPrice ?? 'nearby'}. Offer once. Explain what changed. Do not invent items. Do not say the alternative is ₹${requestedExactPrice}.`,
+              false,
+            )
+          }
+          return productsResult(
+            [],
+            ctx.retailerIdSource,
+            limit,
+            'No catalog products match that price. Do not invent cheaper items.',
+            false,
+          )
+        }
         if (ranked.hits.length > 0) {
           await recordSearchMatchEvents(ctx, ranked.hits, 'search_products')
           return productsResult(
@@ -390,6 +445,7 @@ export async function executeShopifyTool(
             ranked.exact
               ? undefined
               : 'No exact match. These are the closest catalog options. Explain what changed. Do not invent items.',
+            ranked.exact,
           )
         }
         const hardFilter =
@@ -705,6 +761,7 @@ function productsResult(
   source?: RetailerIdSource,
   maxCards = DEFAULT_SEARCH_CARDS,
   note?: string,
+  exact?: boolean,
 ): ShopifyToolResult {
   const recommendations = hits
     .filter((hit) => hit.recommendReasons?.length || hit.recommendMode)
@@ -723,6 +780,7 @@ function productsResult(
         note: note ?? 'No matching products in the catalog. Do not invent items.',
       }),
       cards: [],
+      exact,
     }
   }
   return {
@@ -732,6 +790,7 @@ function productsResult(
       ...(note ? { note } : {}),
     }),
     cards: hits.slice(0, maxCards).map((hit) => toCard(hit, source)),
+    exact,
   }
 }
 

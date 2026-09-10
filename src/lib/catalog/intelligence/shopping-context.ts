@@ -19,6 +19,10 @@ import type {
   ShoppingContext,
   ShoppingRequirements,
 } from './types'
+import {
+  formatCommerceSnapshot,
+  type CommerceTurn,
+} from '@/lib/ai/commerce-turn'
 
 const SHOWN_CAP = 8
 const LIST_CAP = 12
@@ -358,6 +362,7 @@ function isSalesNextAction(value: unknown): value is SalesNextAction {
 export function formatSalesSnapshot(
   shopping: ShoppingContext,
   focus?: { handle?: string | null; title?: string | null; color?: string | null; size?: string | null } | null,
+  commerce?: CommerceTurn | null,
 ): string {
   const lines: string[] = []
   if (shopping.categoryHint) lines.push(`category: ${shopping.categoryHint}`)
@@ -383,12 +388,21 @@ export function formatSalesSnapshot(
     lines.push(`unresolved_question: ${shopping.unresolvedQuestion}`)
   }
   if (shopping.nextAction) lines.push(`next_best_sales_action: ${shopping.nextAction}`)
+  const commerceLines = formatCommerceSnapshot(commerce)
+  if (commerceLines) {
+    for (const line of commerceLines.split('\n')) {
+      if (line && !lines.includes(line)) lines.push(line)
+    }
+  }
   if (lines.length === 0 && shopping.stage === 'discovery') return ''
   lines.push(`purchase_stage: ${shopping.stage}`)
   return (
     'Current sales conversation snapshot (untrusted customer context, not catalog facts). ' +
     'The latest customer message overrides this snapshot. ' +
-    'Do not re-pitch rejected_products. Do not invent budget, stock, or prices.\n' +
+    'Do not re-pitch rejected_products. Do not invent budget, stock, or prices. ' +
+    'requested_price and alternative_price are different — never treat them as the same. ' +
+    'If pending_action is set, resolve short replies (ok, yes, വേണം, കാണിക്കൂ, photo) against it. ' +
+    'If do_not_repeat_unavailability is yes, do not restate the original miss.\n' +
     lines.join('\n')
   )
 }

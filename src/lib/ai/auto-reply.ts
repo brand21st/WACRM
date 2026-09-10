@@ -130,6 +130,19 @@ import {
 } from '@/lib/catalog/intelligence/recommend'
 import { mergeAndPersistShoppingContext, loadShoppingContext, emptyShoppingContext, formatSalesSnapshot } from '@/lib/catalog/intelligence/shopping-context'
 import { classifySalesTurn, shouldPersistSalesContext, unlocksCatalogBrowse } from '@/lib/shopify/sales-turn'
+import { parseRequestedPrice } from '@/lib/shopify/rank'
+import {
+  acceptedOfferReplyDirective,
+  clearCommerceTurn,
+  commerceTurnFromHeldOffer,
+  isImmediateShowAsk,
+  loadCommerceTurn,
+  offeredCardsToReplay,
+  persistCommerceTurn,
+  photoReuseReplyDirective,
+  resolveCommerceFollowUp,
+  type CommerceTurn,
+} from './commerce-turn'
 import { formatCurrentProductFacts } from '@/lib/shopify/product-facts'
 import { buildFocusedFactReply, focusedReplyDirective } from '@/lib/shopify/sales-reply'
 import { recordCatalogProductEvents } from '@/lib/catalog/analytics/events'
@@ -551,10 +564,39 @@ export async function dispatchInboundToAiReply(
     } catch (err) {
       console.warn('[ai auto-reply] loadShoppingContext failed:', err)
     }
+    let commerceTurn: CommerceTurn | null = null
+    try {
+      commerceTurn = await loadCommerceTurn(db, accountId, contactId, conversationId)
+    } catch (err) {
+      console.warn('[ai auto-reply] loadCommerceTurn failed:', err)
+    }
     const salesTurn = classifySalesTurn(queryText, {
       hasFocus: Boolean(productFocus),
       moreOptions: moreOptionsTap || productsTap,
     })
+    if (
+      commerceTurn &&
+      (productsTap ||
+        moreOptionsTap ||
+        salesTurn.kind === 'product_switch' ||
+        salesTurn.kind === 'budget_change' ||
+        unlocksCatalogBrowse(salesTurn.kind))
+    ) {
+      try {
+        await clearCommerceTurn(db, accountId, contactId, conversationId)
+      } catch (err) {
+        console.warn('[ai auto-reply] clearCommerceTurn failed:', err)
+      }
+      commerceTurn = null
+    }
+    const commerceFollow = resolveCommerceFollowUp(queryText, commerceTurn)
+    const replayHeldCards =
+      commerceFollow === 'accept_show' || commerceFollow === 'request_image'
+    const immediateShow = isImmediateShowAsk(queryText)
+    if (replayHeldCards) {
+      productCards.push(...offeredCardsToReplay(commerceTurn))
+    }
+    const heldOffer: { cards: ShopifyProductCard[] } = { cards: [] }
     const catalogSeed =
       productFocus?.handle ?? shopping.selectedIds[0] ?? null
     if (productFocus && unlocksCatalogBrowse(salesTurn.kind)) {
@@ -685,6 +727,9 @@ export async function dispatchInboundToAiReply(
         customerText: queryText,
         focusedHandle: productFocus?.handle ?? null,
         nativeCommerce: nativeCommerce && !productFocus,
+        replayHeldCards,
+        immediateShow,
+        heldOffer,
         shopping: {
           maxPrice: shopping.maxPrice,
           minPrice: shopping.minPrice,
@@ -720,11 +765,17 @@ export async function dispatchInboundToAiReply(
       }
     }
 
-    const salesSnapshot = formatSalesSnapshot(shopping, productFocus)
+    const salesSnapshot = formatSalesSnapshot(shopping, productFocus, commerceTurn)
     const productFacts = focusedHit
       ? formatCurrentProductFacts(focusedHit, productFocus)
       : ''
-    const replyDirective = focusedReplyDirective(salesTurn)
+    const commerceDirective =
+      commerceFollow === 'accept_show'
+        ? acceptedOfferReplyDirective()
+        : commerceFollow === 'request_image'
+          ? photoReuseReplyDirective()
+          : null
+    const replyDirective = commerceDirective ?? focusedReplyDirective(salesTurn)
     const factReply =
       focusedHit && productFocus
         ? buildFocusedFactReply({
@@ -885,7 +936,50 @@ export async function dispatchInboundToAiReply(
       messages,
       toolRequested: catalogHolder.value,
     })
+    if (heldOffer.cards.length > 0 && contactId) {
+      const altPrice = priceFromCardCaption(heldOffer.cards[0]?.caption)
+      commerceTurn = commerceTurnFromHeldOffer({
+        conversationId,
+        query: queryText,
+        requestedPrice: parseRequestedPrice(queryText) ?? undefined,
+        alternativePrice: altPrice,
+        currentProduct: heldOffer.cards[0]?.title,
+        cards: heldOffer.cards,
+      })
+      try {
+        await persistCommerceTurn(
+          db,
+          accountId,
+          contactId,
+          conversationId,
+          commerceTurn,
+        )
+      } catch (err) {
+        console.warn('[ai auto-reply] persist held commerce turn failed:', err)
+      }
+    } else if (replayHeldCards && commerceTurn && contactId) {
+      commerceTurn = {
+        ...commerceTurn,
+        pendingAction: null,
+        pendingQuestion: null,
+        acceptedAlternative:
+          commerceFollow === 'accept_show' || commerceTurn.acceptedAlternative,
+      }
+      try {
+        await persistCommerceTurn(
+          db,
+          accountId,
+          contactId,
+          conversationId,
+          commerceTurn,
+        )
+      } catch (err) {
+        console.warn('[ai auto-reply] persist accepted commerce turn failed:', err)
+      }
+    }
     if (
+      !replayHeldCards &&
+      !heldOffer.cards.length &&
       catalogBrowseAsk &&
       shopify &&
       productCards.length === 0 &&
@@ -899,6 +993,8 @@ export async function dispatchInboundToAiReply(
         console.warn('[ai auto-reply] catalog product cards failed:', err)
       }
     } else if (
+      !replayHeldCards &&
+      !heldOffer.cards.length &&
       unlocksCatalogBrowse(salesTurn.kind) &&
       shopify &&
       productCards.length === 0 &&
@@ -916,6 +1012,8 @@ export async function dispatchInboundToAiReply(
         console.warn('[ai auto-reply] product switch catalog cards failed:', err)
       }
     } else if (
+      !replayHeldCards &&
+      !heldOffer.cards.length &&
       inboundContentType === 'audio' &&
       shopify &&
       productCards.length === 0 &&
@@ -1619,6 +1717,9 @@ export function bindShopifyTools(
       optionValue?: string | null
       rejectedIds?: string[]
     } | null
+    replayHeldCards?: boolean
+    immediateShow?: boolean
+    heldOffer?: { cards: ShopifyProductCard[] }
   } = { imageTurn: false },
 ): { tools?: LlmToolDef[]; executeTool?: ExecuteLlmTool } {
   const accountId = opts.accountId ?? shopify?.accountId
@@ -1639,6 +1740,15 @@ export function bindShopifyTools(
       shopifyConnected: isShopifyStoreConnected(shopify),
     }),
     executeTool: async (name, args) => {
+      if (opts.replayHeldCards && name === 'search_products') {
+        return JSON.stringify({
+          products: productCards.slice(0, 3).map((card) => ({
+            title: card.title,
+            url: card.productUrl,
+          })),
+          note: 'Reuse the already offered products. Do not search again.',
+        })
+      }
       const result = await executeShopifyTool(
         {
           db,
@@ -1674,7 +1784,20 @@ export function bindShopifyTools(
             cardMatchesProductFocus(card, { handle: opts.focusedHandle! }),
           )
         : result.cards
-      if (!skipCards && !result.sendCatalog) {
+      const holdInexact =
+        name === 'search_products' &&
+        result.exact === false &&
+        !opts.replayHeldCards &&
+        !opts.immediateShow &&
+        !opts.imageTurn &&
+        !opts.focusedHandle
+      if (holdInexact && opts.heldOffer) {
+        for (const card of incoming.slice(0, 3)) {
+          if (!opts.heldOffer.cards.some((existing) => existing.productUrl === card.productUrl)) {
+            opts.heldOffer.cards.push(card)
+          }
+        }
+      } else if (!skipCards && !result.sendCatalog && !(opts.replayHeldCards && name === 'search_products')) {
         if (opts.focusedHandle) {
           for (const card of incoming) {
             const already = productCards.some((existing) =>
@@ -2716,4 +2839,13 @@ async function sendCatalogImage(
     console.error('[ai auto-reply] catalog image rehost/send failed:', err)
     return false
   }
+}
+
+function priceFromCardCaption(caption?: string | null): number | undefined {
+  const raw = caption?.trim() ?? ''
+  if (!raw) return undefined
+  const match = raw.match(/(?:₹|rs\.?|inr)?\s*(\d{2,7}(?:\.\d+)?)/i)
+  if (!match) return undefined
+  const n = Number(match[1])
+  return Number.isFinite(n) ? n : undefined
 }
