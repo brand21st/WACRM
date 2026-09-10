@@ -14,10 +14,10 @@ import {
 } from "@/lib/inbox/session-window";
 
 const URGENCY_CLASS: Record<SessionWindowUrgency, string> = {
-  ok: "text-primary",
-  soon: "text-amber-500",
-  urgent: "text-orange-500",
-  expired: "text-red-400",
+  ok: "text-red-500",
+  soon: "text-red-500",
+  urgent: "text-red-600",
+  expired: "text-red-500",
 };
 
 interface SessionWindowBadgeProps {
