@@ -62,6 +62,12 @@ describe('detectLanguageSwitch', () => {
     expect(detectLanguageSwitch('हिंदी में')).toMatchObject({ code: 'hi' })
     expect(detectLanguageSwitch('தமிழில்')).toMatchObject({ code: 'ta' })
     expect(detectLanguageSwitch('English please')).toMatchObject({ code: 'en' })
+    expect(detectLanguageSwitch('Malayalam, English')).toMatchObject({
+      code: 'ml',
+    })
+    expect(detectLanguageSwitch('Hindi and English')).toMatchObject({
+      code: 'hi',
+    })
   })
 
   it('does not treat product English as a switch', () => {
@@ -155,6 +161,11 @@ describe('lockFromPickerId', () => {
     })
     expect(lockFromPickerId('wacrm:products')).toBeNull()
     expect(isLanguageChoiceOnly('Malayalam')).toBe(true)
+    expect(isLanguageChoiceOnly('Malayalam, English')).toBe(true)
+    expect(detectLanguageSwitch('Malayalam, English')).toMatchObject({
+      code: 'ml',
+      locked: true,
+    })
     expect(isLanguageChoiceOnly('talk in Hindi, I want the red saree')).toBe(
       false,
     )

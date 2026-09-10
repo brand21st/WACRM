@@ -17,7 +17,7 @@ export type LanguagePickerCode = keyof typeof LANGUAGE_PICKER_IDS
 const PICKER_ID_RE = /wacrm:lang:(en|hi|ml|ta)\b/
 
 const GREETING_RE =
-  /^(?:hi+|hello|hey+|hola|namaste|namaskar(?:am)?|vanakkam|ഹായ്|നമസ്കാരം|नमस्ते|नमस्कार|வணக்கம்)(?:[.!,\s]*)?$/iu
+  /^(?:h(?:ai|i+)|hello|hey+|hola|namaste|namaskar(?:am)?|vanakkam|ഹായ്|നമസ്കാരം|नमस्ते|नमस्कार|வணக்கம்)(?:[.!,\s]*)?$/iu
 
 const CONFIRM: Partial<Record<ChatLanguageCode, string>> = {
   en: 'Got it — I’ll reply in English.',
@@ -87,6 +87,18 @@ export function isCasualGreeting(text: string): boolean {
   if (!raw) return true
   if (languagePickerCode(raw)) return true
   return GREETING_RE.test(raw)
+}
+
+/** True when this thread already got the welcome language list. */
+export function alreadySentLanguagePicker(
+  messages: { role: string; content: string }[],
+): boolean {
+  const body = buildLanguagePickerList().bodyText
+  return messages.some(
+    (m) =>
+      m.role === 'assistant' &&
+      (m.content.includes(body) || m.content.includes(LANGUAGE_PICKER_PREFIX)),
+  )
 }
 
 /** Latest customer ask before the current language tap / name, if any. */

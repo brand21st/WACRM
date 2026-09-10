@@ -256,8 +256,13 @@ const NATIVE_SWITCHES: { re: RegExp; code: ChatLanguageCode }[] = [
   { re: /ഹിന്ദിയിൽ|हिंदी में|हिन्दी में/i, code: 'hi' },
   { re: /தமிழில்/i, code: 'ta' },
 ]
-const SHORT_STANDALONE =
-  /^(?:please\s+)?(?:speak|talk|reply|chat)?(?:\s+in)?\s*(english|hindi|malayalam|tamil|telugu|kannada|bengali|bangla|marathi|gujarati|punjabi|odia|urdu|manglish|hinglish)\s*(?:please)?[.!?]?$/i
+const LANG_NAME_TOKEN =
+  'english|hindi|malayalam|tamil|telugu|kannada|bengali|bangla|marathi|gujarati|punjabi|odia|oriya|assamese|urdu|manglish|hinglish|tanglish'
+/** “Malayalam” or “Malayalam, English” — first name wins. */
+const SHORT_STANDALONE = new RegExp(
+  `^(?:please\\s+)?(?:speak|talk|reply|chat)?(?:\\s+in)?\\s*(${LANG_NAME_TOKEN})(?:\\s*(?:,|/|&|and|or)\\s*(?:${LANG_NAME_TOKEN}))*\\s*(?:please)?[.!?]?$`,
+  'i',
+)
 
 function locativeCode(match: string): ChatLanguageCode | null {
   if (/ഇംഗ്ലീഷ്|english|अंग्रेजी|ஆங்கிலம்/i.test(match)) return 'en'

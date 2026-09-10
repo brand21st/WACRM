@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { INTERACTIVE_LIMITS } from '@/lib/whatsapp/meta-api'
 import {
+  alreadySentLanguagePicker,
   buildLanguagePickerList,
   isCasualGreeting,
   isLanguagePickerReply,
@@ -93,5 +94,21 @@ describe('priorCustomerQuestion', () => {
       ]),
     ).toBeNull()
     expect(isCasualGreeting('നമസ്കാരം')).toBe(true)
+    expect(isCasualGreeting('Hai')).toBe(true)
+  })
+})
+
+describe('alreadySentLanguagePicker', () => {
+  it('is true only after the welcome list body is in the thread', () => {
+    expect(
+      alreadySentLanguagePicker([{ role: 'user', content: 'Hai' }]),
+    ).toBe(false)
+    expect(
+      alreadySentLanguagePicker([
+        { role: 'user', content: 'Hai' },
+        { role: 'assistant', content: 'Hi, Simi' },
+        { role: 'assistant', content: 'What’s your language?' },
+      ]),
+    ).toBe(true)
   })
 })

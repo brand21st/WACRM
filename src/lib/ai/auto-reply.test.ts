@@ -982,6 +982,62 @@ describe('dispatchInboundToAiReply — welcome language picker', () => {
       expect.objectContaining({ text: 'How can I help you?' }),
     )
   })
+
+  it('does not ask language again after the first inbound', async () => {
+    h.loadContactMemory.mockResolvedValue(unlockedMemory())
+    h.buildConversationContext.mockResolvedValue([
+      { role: 'user', content: 'Hai' },
+      { role: 'assistant', content: 'Hi, Simi' },
+      { role: 'assistant', content: 'What’s your language?' },
+      { role: 'user', content: 'Malayalam, English' },
+    ])
+    await dispatchInboundToAiReply(ARGS)
+    expect(h.engineSendInteractiveList).not.toHaveBeenCalledWith(
+      expect.objectContaining({ buttonLabel: 'Language' }),
+    )
+    expect(h.persistLanguageLock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        lock: expect.objectContaining({ code: 'ml', locked: true }),
+      }),
+    )
+    expect(h.engineSendInteractiveList).not.toHaveBeenCalled()
+    expect(h.engineSendText).toHaveBeenCalledWith(
+      expect.objectContaining({ text: expect.stringMatching(/മലയാളത്തിൽ/) }),
+    )
+    expect(h.engineSendText).toHaveBeenCalledWith(
+      expect.objectContaining({ text: 'എന്ത് സഹായം വേണം?' }),
+    )
+    expect(h.generateReply).not.toHaveBeenCalled()
+  })
+
+  it('does not send the picker twice even on a duplicated first inbound', async () => {
+    h.loadContactMemory.mockResolvedValue(unlockedMemory())
+    h.buildConversationContext.mockResolvedValue([
+      { role: 'user', content: 'Hai' },
+      { role: 'assistant', content: 'What’s your language?' },
+    ])
+    await dispatchInboundToAiReply({ ...ARGS, isFirstInbound: true })
+    expect(h.engineSendInteractiveList).not.toHaveBeenCalled()
+    expect(h.generateReply).toHaveBeenCalled()
+  })
+
+  it('replies to a later question without asking language again', async () => {
+    h.loadContactMemory.mockResolvedValue(unlockedMemory())
+    h.buildConversationContext.mockResolvedValue([
+      { role: 'user', content: 'Hai' },
+      { role: 'assistant', content: 'What’s your language?' },
+      { role: 'user', content: 'I want the red saree' },
+    ])
+    h.generateReply.mockResolvedValue({ text: 'Here is the red saree.', handoff: false })
+    await dispatchInboundToAiReply(ARGS)
+    expect(h.engineSendInteractiveList).not.toHaveBeenCalledWith(
+      expect.objectContaining({ buttonLabel: 'Language' }),
+    )
+    expect(h.generateReply).toHaveBeenCalled()
+    expect(h.engineSendText).toHaveBeenCalledWith(
+      expect.objectContaining({ text: 'Here is the red saree.' }),
+    )
+  })
 })
 
 describe('dispatchInboundToAiReply — handoff', () => {

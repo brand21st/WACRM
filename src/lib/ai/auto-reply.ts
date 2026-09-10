@@ -20,6 +20,7 @@ import {
   type ChatLanguageLock,
 } from './language-lock'
 import {
+  alreadySentLanguagePicker,
   buildLanguagePickerList,
   languageHelpAsk,
   languageLockConfirmation,
@@ -326,7 +327,13 @@ export async function dispatchInboundToAiReply(
     const customerName = speakableFirstName(contactRow?.name)
     const languageChoiceOnly = isLanguageChoiceOnly(queryText)
 
-    if (!replyLanguage?.locked && !languageChoiceOnly && !pinnedFocus) {
+    if (
+      isFirstInbound &&
+      !replyLanguage?.locked &&
+      !languageChoiceOnly &&
+      !pinnedFocus &&
+      !alreadySentLanguagePicker(messages)
+    ) {
       await sendWelcomeLanguagePicker({
         sendArgs: sendArgsBase,
         firstName: customerName,
