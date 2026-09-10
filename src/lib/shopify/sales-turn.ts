@@ -28,6 +28,7 @@ export type SalesTurn = {
 }
 
 const MORE_OPTIONS = /(?:action:\s*)?wacrm:more_options\b/i
+const SHOW_MORE = /(?:action:\s*)?wacrm:show_more\b/i
 const GREETING_ONLY =
   /^(hi+|hii|hello|hey|ok|okay|thanks|thank you|hai|ഹായ്|നന്ദി)[.!?]*$/i
 
@@ -96,6 +97,7 @@ export function classifySalesTurn(
 ): SalesTurn {
   const raw = (text ?? '').trim()
   if (!raw) return turn('stay')
+  if (SHOW_MORE.test(raw)) return turn('stay')
   if (opts?.moreOptions || MORE_OPTIONS.test(raw)) return turn('product_switch')
   if (GREETING_ONLY.test(raw) || POSITIVE_FEEDBACK.test(raw)) return turn('stay')
 

@@ -4,6 +4,7 @@ import {
   buildAiChatButtons,
   buildCartOfferButtons,
   buildProductOrderButtons,
+  buildShowMoreButtons,
   formatButtonTapForModel,
   lastMessageHasAction,
   WACRM_CHAT_BUTTON_IDS,
@@ -48,6 +49,16 @@ describe('buildProductOrderButtons', () => {
   })
 })
 
+describe('buildShowMoreButtons', () => {
+  it('returns a single Show more button within Meta’s 20-char limit', () => {
+    const buttons = buildShowMoreButtons()
+    expect(buttons).toEqual([
+      { id: WACRM_CHAT_BUTTON_IDS.showMore, title: 'Show more' },
+    ])
+    expect(buttons.every((b) => b.title.length <= 20)).toBe(true)
+  })
+})
+
 describe('lastMessageHasAction', () => {
   it('detects a wacrm action id in the last message', () => {
     expect(
@@ -75,6 +86,9 @@ describe('formatButtonTapForModel', () => {
     expect(
       formatButtonTapForModel('New products', WACRM_CHAT_BUTTON_IDS.products),
     ).toContain('wacrm:products')
+    expect(
+      formatButtonTapForModel('Show more', WACRM_CHAT_BUTTON_IDS.showMore),
+    ).toContain('wacrm:show_more')
   })
 
   it('passes through plain text', () => {

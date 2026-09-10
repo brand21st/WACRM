@@ -114,9 +114,15 @@ import type { RetailerIdSource } from '@/lib/shopify/retailer-id'
 import {
   buildCartOfferButtons,
   buildProductOrderButtons,
+  buildShowMoreButtons,
   lastMessageHasAction,
   WACRM_CHAT_BUTTON_IDS,
 } from './chat-buttons'
+import {
+  loadCatalogCardQueue,
+  persistCatalogCardQueue,
+} from './catalog-card-queue'
+import { isShowMoreAsk, splitProductCardPage } from './product-card-page'
 import { wantsWhatsAppCatalog } from './catalog-intent'
 import {
   loadCatalogSalesMode,
@@ -365,6 +371,54 @@ export async function dispatchInboundToAiReply(
             replyToMessageId: swipeReply.inboundId ?? undefined,
           }
         : sendArgsBase
+
+    const showMoreTap = lastMessageHasAction(
+      messages,
+      WACRM_CHAT_BUTTON_IDS.showMore,
+    )
+    const showMoreAsk = showMoreTap || isShowMoreAsk(queryText)
+    if (showMoreAsk && shopify) {
+      let queued: ShopifyProductCard[] = []
+      try {
+        queued = await loadCatalogCardQueue(
+          db,
+          accountId,
+          contactId,
+          conversationId,
+        )
+      } catch (err) {
+        console.warn('[ai auto-reply] catalog card queue load failed:', err)
+      }
+      if (queued.length > 0) {
+        if (!(await claimReplySlot(db, conversationId, config))) return
+        await sendProductRecPage({
+          db,
+          config,
+          conv,
+          conversationId,
+          contactId,
+          accountId,
+          sendArgs,
+          cards: queued,
+          shopify,
+          text: SHOW_MORE_PAGE_TEXT,
+          messages,
+          wantsText: true,
+          wantsAudio: false,
+          audioSent: false,
+        })
+        return
+      }
+      if (showMoreTap) {
+        if (!(await claimReplySlot(db, conversationId, config))) return
+        await engineSendText({
+          ...sendArgs,
+          text: SHOW_MORE_EMPTY_TEXT,
+          aiGenerated: true,
+        })
+        return
+      }
+    }
 
     // Deterministic, user-configured responders win over the LLM for
     // typed messages — unless full-agent mode is on. Voice notes and
@@ -1089,30 +1143,26 @@ export async function dispatchInboundToAiReply(
       const speakWithCards =
         inboundContentType === 'audio' && compiledVoice && canSpeak
       const voicePending = speakWithCards ? sendShoppingAudio() : null
-      try {
-        await sendProductCards(sendArgs, productCards, shopify, { db })
-      } catch (err) {
-        console.error('[ai auto-reply] product cards failed:', err)
-      }
-      if (catalogBrowseAsk && metaCatalogId) {
-        await sendWhatsAppCatalogMessage(sendArgs, textForCustomer)
-      }
-      const handedOff = await sendCustomerFacingText({
+      const handedOff = await sendProductRecPage({
         db,
         config,
         conv,
         conversationId,
+        contactId,
+        accountId,
         sendArgs,
+        cards: productCards,
+        shopify,
         text: textForCustomer,
         messages,
-        shopify: Boolean(shopify),
         wantsText: true,
         wantsAudio: compiledVoice || wantsAudio,
         audioSent: Boolean(voicePending),
-        productCards,
         orderCards,
-        chatButtonMode: 'nav',
       })
+      if (catalogBrowseAsk && metaCatalogId) {
+        await sendWhatsAppCatalogMessage(sendArgs, textForCustomer)
+      }
       if (handedOff) {
         if (voicePending) await voicePending.catch(() => false)
         return
@@ -1237,6 +1287,62 @@ type ConvRow = {
   ai_reply_count: number | null
 }
 
+const SHOW_MORE_PAGE_TEXT = 'Here are more products.'
+const SHOW_MORE_EMPTY_TEXT = "That's all for now."
+const SHOW_MORE_FALLBACK_BODY = 'Tap to see more.'
+
+async function sendProductRecPage(args: {
+  db: SupabaseClient
+  config: AiConfig
+  conv: ConvRow
+  conversationId: string
+  contactId: string
+  accountId: string
+  sendArgs: SendArgs
+  cards: ShopifyProductCard[]
+  shopify: ShopifyStoreConfig | null
+  text: string
+  messages: ChatMessage[]
+  wantsText: boolean
+  wantsAudio: boolean
+  audioSent: boolean
+  orderCards?: ShopifyOrderCard[]
+}): Promise<boolean> {
+  const { page, remaining } = splitProductCardPage(args.cards)
+  try {
+    await sendProductCards(args.sendArgs, page, args.shopify, { db: args.db })
+  } catch (err) {
+    console.error('[ai auto-reply] product cards failed:', err)
+  }
+  try {
+    await persistCatalogCardQueue(
+      args.db,
+      args.accountId,
+      args.contactId,
+      args.conversationId,
+      remaining,
+    )
+  } catch (err) {
+    console.warn('[ai auto-reply] catalog card queue persist failed:', err)
+  }
+  return sendCustomerFacingText({
+    db: args.db,
+    config: args.config,
+    conv: args.conv,
+    conversationId: args.conversationId,
+    sendArgs: args.sendArgs,
+    text: args.text,
+    messages: args.messages,
+    shopify: Boolean(args.shopify),
+    wantsText: args.wantsText,
+    wantsAudio: args.wantsAudio,
+    audioSent: args.audioSent,
+    productCards: page,
+    orderCards: args.orderCards,
+    chatButtonMode: remaining.length > 0 ? 'show_more' : 'nav',
+  })
+}
+
 /** Send the text bubble (or full-agent buttons). Returns true when the
  *  last inbound tap asked for a human and the thread was handed off. */
 async function sendCustomerFacingText(args: {
@@ -1253,15 +1359,17 @@ async function sendCustomerFacingText(args: {
   audioSent: boolean
   productCards: ShopifyProductCard[]
   orderCards?: ShopifyOrderCard[]
-  chatButtonMode?: 'nav' | 'cart' | 'product_order' | 'none'
+  chatButtonMode?: 'nav' | 'cart' | 'product_order' | 'show_more' | 'none'
 }): Promise<boolean> {
   const mode = args.chatButtonMode ?? 'nav'
   const chatButtons =
-    mode === 'product_order'
-      ? buildProductOrderButtons()
-      : args.config.fullAgentEnabled && mode === 'cart'
-        ? buildCartOfferButtons()
-        : []
+    mode === 'show_more'
+      ? buildShowMoreButtons()
+      : mode === 'product_order'
+        ? buildProductOrderButtons()
+        : args.config.fullAgentEnabled && mode === 'cart'
+          ? buildCartOfferButtons()
+          : []
   const agentTap =
     args.messages.length > 0 &&
     args.messages[args.messages.length - 1]?.content?.includes(
@@ -1303,6 +1411,7 @@ async function sendCustomerFacingText(args: {
     (args.orderCards?.length ?? 0) > 0 ||
     mode === 'cart' ||
     mode === 'product_order' ||
+    mode === 'show_more' ||
     mode === 'none'
   ) {
     await engineSendText({
@@ -1311,10 +1420,17 @@ async function sendCustomerFacingText(args: {
       aiGenerated: true,
     })
   }
-  if (mode === 'product_order' && chatButtons.length > 0 && !canUseChatButtons) {
+  if (
+    (mode === 'product_order' || mode === 'show_more') &&
+    chatButtons.length > 0 &&
+    !canUseChatButtons
+  ) {
     await engineSendInteractiveButtons({
       ...args.sendArgs,
-      bodyText: 'Confirm this product or keep chatting.',
+      bodyText:
+        mode === 'show_more'
+          ? SHOW_MORE_FALLBACK_BODY
+          : 'Confirm this product or keep chatting.',
       buttons: chatButtons,
       aiGenerated: true,
     })

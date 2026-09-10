@@ -23,6 +23,8 @@ const h = vi.hoisted(() => ({
   retrieveKnowledge: vi.fn(),
   retrieveShopifyStoreContent: vi.fn(),
   generateReply: vi.fn(),
+  loadCatalogCardQueue: vi.fn(),
+  persistCatalogCardQueue: vi.fn(),
   engineSendText: vi.fn(),
   engineSendInteractiveButtons: vi.fn(),
   engineSendInteractiveList: vi.fn(),
@@ -50,6 +52,7 @@ const h = vi.hoisted(() => ({
     claim: true as boolean,
     updatePayload: null as Record<string, unknown> | null,
     rpcCalls: [] as { name: string; args: unknown }[],
+    catalogQueue: [] as Record<string, unknown>[],
     contactName: null as string | null,
     inboundMessage: null as {
       id: string
@@ -145,6 +148,10 @@ vi.mock('./chat-memory', () => ({
 }))
 vi.mock('./knowledge', () => ({ retrieveKnowledge: h.retrieveKnowledge }))
 vi.mock('./generate', () => ({ generateReply: h.generateReply }))
+vi.mock('./catalog-card-queue', () => ({
+  loadCatalogCardQueue: h.loadCatalogCardQueue,
+  persistCatalogCardQueue: h.persistCatalogCardQueue,
+}))
 vi.mock('@/lib/flows/meta-send', () => ({
   engineSendText: h.engineSendText,
   engineSendInteractiveButtons: h.engineSendInteractiveButtons,
@@ -326,6 +333,19 @@ beforeEach(() => {
   h.state.claim = true
   h.state.updatePayload = null
   h.state.rpcCalls = []
+  h.state.catalogQueue = []
+  h.loadCatalogCardQueue.mockReset().mockImplementation(async () => h.state.catalogQueue)
+  h.persistCatalogCardQueue.mockReset().mockImplementation(
+    async (
+      _db: unknown,
+      _accountId: string,
+      _contactId: string,
+      _conversationId: string,
+      cards: Record<string, unknown>[],
+    ) => {
+      h.state.catalogQueue = cards
+    },
+  )
   h.state.contactName = null
   h.state.inboundMessage = null
   h.state.quotedParent = null
@@ -1784,6 +1804,155 @@ describe('dispatchInboundToAiReply — OpenAI Realtime voice', () => {
     )
     expect(h.engineSendText.mock.calls[0][0].text).not.toMatch(/BAG-RED|SKU-|#1001/)
     expect(h.engineSendCtaUrl).not.toHaveBeenCalled()
+  })
+})
+
+describe('dispatchInboundToAiReply — product card Show more', () => {
+  const shopifyRow = {
+    accountId: 'acct-1',
+    shopDomain: 'acme.myshopify.com',
+    accessToken: 'shpat_test',
+    isActive: true,
+    shopName: 'Acme',
+    primaryDomain: 'https://shop.example',
+    currency: 'USD',
+    metaCatalogId: null,
+    lastVerifiedAt: null,
+    lastCatalogSyncAt: null,
+    catalogProductCount: 50,
+  }
+
+  function recCard(n: number) {
+    return {
+      title: `Item ${n}`,
+      imageUrl: `https://cdn.example/${n}.jpg`,
+      productUrl: `https://shop.example/products/item-${n}`,
+      cartUrl: null,
+      checkoutUrl: `https://shop.example/cart/${n}:1?checkout`,
+      inStock: true,
+      caption: `Item ${n}\nStock in\nView: https://shop.example/products/item-${n}`,
+      handle: `item-${n}`,
+    }
+  }
+
+  it('sends 10 cards and a Show more button when more than 10 remain', async () => {
+    h.loadShopifyConfig.mockResolvedValue(shopifyRow)
+    const cards = Array.from({ length: 25 }, (_, i) => recCard(i + 1))
+    h.executeShopifyTool.mockResolvedValue({
+      json: JSON.stringify({ products: [] }),
+      cards,
+    })
+    h.generateReply.mockImplementation(async (args: { executeTool?: Function }) => {
+      if (args.executeTool) await args.executeTool('search_products', { query: 'saree' })
+      return { text: 'Here are some sarees.', handoff: false }
+    })
+
+    await dispatchInboundToAiReply(ARGS)
+
+    expect(h.engineSendCtaUrl).toHaveBeenCalledTimes(10)
+    expect(h.engineSendCtaUrl.mock.calls[0][0].url).toContain('/1:1')
+    expect(h.engineSendCtaUrl.mock.calls[9][0].url).toContain('/10:1')
+    expect(h.persistCatalogCardQueue).toHaveBeenCalledWith(
+      expect.anything(),
+      ARGS.accountId,
+      ARGS.contactId,
+      ARGS.conversationId,
+      expect.arrayContaining([expect.objectContaining({ title: 'Item 11' })]),
+    )
+    expect(h.state.catalogQueue).toHaveLength(15)
+    expect(h.engineSendInteractiveButtons).toHaveBeenCalledWith(
+      expect.objectContaining({
+        bodyText: 'Here are some sarees.',
+        buttons: [{ id: 'wacrm:show_more', title: 'Show more' }],
+      }),
+    )
+    expect(h.state.updatePayload?.ai_product_focus).toBeUndefined()
+  })
+
+  it('sends the next 10 on Show more without generateReply or tools', async () => {
+    h.loadShopifyConfig.mockResolvedValue(shopifyRow)
+    h.state.catalogQueue = Array.from({ length: 15 }, (_, i) => recCard(i + 11))
+    h.buildConversationContext.mockResolvedValue([
+      {
+        role: 'user',
+        content: '[Customer tapped "Show more" (action: wacrm:show_more)]',
+      },
+    ])
+
+    await dispatchInboundToAiReply(ARGS)
+
+    expect(h.generateReply).not.toHaveBeenCalled()
+    expect(h.executeShopifyTool).not.toHaveBeenCalled()
+    expect(h.engineSendCtaUrl).toHaveBeenCalledTimes(10)
+    expect(h.engineSendCtaUrl.mock.calls[0][0].url).toContain('/11:1')
+    expect(h.state.catalogQueue).toHaveLength(5)
+    expect(h.engineSendInteractiveButtons).toHaveBeenCalledWith(
+      expect.objectContaining({
+        bodyText: 'Here are more products.',
+        buttons: [{ id: 'wacrm:show_more', title: 'Show more' }],
+      }),
+    )
+    expect(h.state.updatePayload).toBeNull()
+  })
+
+  it('omits Show more and clears the queue on the last page', async () => {
+    h.loadShopifyConfig.mockResolvedValue(shopifyRow)
+    h.state.catalogQueue = Array.from({ length: 5 }, (_, i) => recCard(i + 21))
+    h.buildConversationContext.mockResolvedValue([
+      {
+        role: 'user',
+        content: '[Customer tapped "Show more" (action: wacrm:show_more)]',
+      },
+    ])
+
+    await dispatchInboundToAiReply(ARGS)
+
+    expect(h.generateReply).not.toHaveBeenCalled()
+    expect(h.engineSendCtaUrl).toHaveBeenCalledTimes(5)
+    expect(h.state.catalogQueue).toEqual([])
+    expect(h.engineSendInteractiveButtons).not.toHaveBeenCalled()
+    expect(h.engineSendText).toHaveBeenCalledWith(
+      expect.objectContaining({ text: 'Here are more products.' }),
+    )
+  })
+
+  it('replaces a leftover queue when a new search returns cards', async () => {
+    h.loadShopifyConfig.mockResolvedValue(shopifyRow)
+    h.state.catalogQueue = Array.from({ length: 15 }, (_, i) => recCard(i + 11))
+    const cards = Array.from({ length: 12 }, (_, i) => recCard(i + 100))
+    h.executeShopifyTool.mockResolvedValue({
+      json: JSON.stringify({ products: [] }),
+      cards,
+    })
+    h.generateReply.mockImplementation(async (args: { executeTool?: Function }) => {
+      if (args.executeTool) await args.executeTool('search_products', { query: 'bags' })
+      return { text: 'Here are bags.', handoff: false }
+    })
+
+    await dispatchInboundToAiReply(ARGS)
+
+    expect(h.engineSendCtaUrl).toHaveBeenCalledTimes(10)
+    expect(h.state.catalogQueue).toHaveLength(2)
+    expect(h.state.catalogQueue[0]).toEqual(expect.objectContaining({ title: 'Item 110' }))
+  })
+
+  it('does not call generateReply when Show more is tapped with an empty queue', async () => {
+    h.loadShopifyConfig.mockResolvedValue(shopifyRow)
+    h.buildConversationContext.mockResolvedValue([
+      {
+        role: 'user',
+        content: '[Customer tapped "Show more" (action: wacrm:show_more)]',
+      },
+    ])
+
+    await dispatchInboundToAiReply(ARGS)
+
+    expect(h.generateReply).not.toHaveBeenCalled()
+    expect(h.engineSendCtaUrl).not.toHaveBeenCalled()
+    expect(h.engineSendText).toHaveBeenCalledWith(
+      expect.objectContaining({ text: "That's all for now." }),
+    )
+    expect(h.state.updatePayload).toBeNull()
   })
 })
 

@@ -8,6 +8,16 @@ describe('classifySalesTurn', () => {
     expect(classifySalesTurn('ഹായ്').kind).toBe('stay')
   })
 
+  it('treats Show more as stay, not a product switch', () => {
+    expect(
+      classifySalesTurn(
+        '[Customer tapped "Show more" (action: wacrm:show_more)]',
+        { hasFocus: true },
+      ).kind,
+    ).toBe('stay')
+    expect(classifySalesTurn('wacrm:show_more').kind).toBe('stay')
+  })
+
   it('classifies purchase lines including I’ll take this', () => {
     expect(classifySalesTurn("I'll take this").kind).toBe('purchase')
     expect(classifySalesTurn('I want to buy this').kind).toBe('purchase')

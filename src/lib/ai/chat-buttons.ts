@@ -9,6 +9,7 @@ export const WACRM_CHAT_BUTTON_IDS = {
   confirmOrder: 'wacrm:confirm_order',
   moreOptions: 'wacrm:more_options',
   continueChat: 'wacrm:continue_chat',
+  showMore: 'wacrm:show_more',
 } as const
 
 /**
@@ -42,6 +43,11 @@ export function buildProductOrderButtons(): InteractiveButton[] {
     { id: WACRM_CHAT_BUTTON_IDS.confirmOrder, title: 'Confirm order' },
     { id: WACRM_CHAT_BUTTON_IDS.continueChat, title: 'Continue chat' },
   ]
+}
+
+/** Paginate leftover product cards (max 20 chars). */
+export function buildShowMoreButtons(): InteractiveButton[] {
+  return [{ id: WACRM_CHAT_BUTTON_IDS.showMore, title: 'Show more' }]
 }
 
 export function lastMessageHasAction(
