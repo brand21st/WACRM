@@ -7,8 +7,7 @@
 import {
   ALLOWED_METADATA_KEYS,
   ANALYZER_VERSION,
-  LLM_EVENT_TYPES,
-  isSalesEventV1Type,
+  isLlmEventType,
   type LlmEventType,
   type SalesEventKind,
   type SalesEventMetadata,
@@ -102,8 +101,7 @@ function parseOneLlmEvent(raw: unknown): LlmSalesEventDraft | null {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
   const row = raw as Record<string, unknown>
   const type = row.type ?? row.event_type
-  if (!isSalesEventV1Type(type)) return null
-  if (!(LLM_EVENT_TYPES as readonly string[]).includes(type)) return null
+  if (!isLlmEventType(type)) return null
   const confidence = clampConfidence(row.confidence)
   if (confidence == null) return null
   if (confidence < LLM_MIN_CONFIDENCE) return null

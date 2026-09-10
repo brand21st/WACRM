@@ -24,6 +24,7 @@ describe('parseLlmSalesEvents', () => {
   it('keeps valid types and drops unknown / low-confidence items', () => {
     const parsed = parseLlmSalesEvents([
       { type: 'SHIPPING_INQUIRY', confidence: 0.9, metadata: { category: 'shipping' } },
+      { type: 'PRODUCT_SELECTED', confidence: 0.99, metadata: {} },
       { type: 'NOT_A_TYPE', confidence: 0.99, metadata: {} },
       { type: 'HESITATION', confidence: 0.2, metadata: {} },
       { type: 'TRUST_CONCERN', confidence: 0.6, metadata: {} },

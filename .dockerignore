@@ -5,6 +5,7 @@ node_modules
 docs
 mcp-server
 supabase
+vachat-app
 *.md
 !README.md
 .env*

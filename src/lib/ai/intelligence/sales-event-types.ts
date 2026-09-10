@@ -97,6 +97,13 @@ export function isSalesEventV1Type(value: unknown): value is SalesEventV1Type {
   )
 }
 
+export function isLlmEventType(value: unknown): value is LlmEventType {
+  return (
+    typeof value === 'string' &&
+    (LLM_EVENT_TYPES as readonly string[]).includes(value)
+  )
+}
+
 export function kindForEventType(
   type: SalesEventV1Type,
   source: 'commerce' | 'catalog' | 'nl' | 'llm' | 'shopping' | 'conversation',
