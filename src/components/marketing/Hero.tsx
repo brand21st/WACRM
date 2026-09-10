@@ -1,10 +1,17 @@
 "use client";
 
-import React from "react";
+import React, { useState, useEffect } from "react";
 import Image from "next/image";
-import { APP_ORIGIN } from "@/lib/hosts";
 
-const APP_SIGNUP = `${APP_ORIGIN}/signup`;
+
+const BUSINESS_TARGETS = [
+  "Local Businesses",
+  "Online Merchants",
+  "WhatsApp-Based Businesses",
+  "Shopify Stores",
+  "WordPress Sites",
+  "Local Sellers",
+];
 
 interface HeroProps {
   onOpenDemo?: () => void;
@@ -12,27 +19,82 @@ interface HeroProps {
 }
 
 export default function Hero({ onOpenDemo, onWatchVideo }: HeroProps) {
+  const [targetIndex, setTargetIndex] = useState(0);
+  const [animationState, setAnimationState] = useState<"entering" | "active" | "exiting">("active");
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      // Step 1: Start exit transition (slide up + fade out)
+      setAnimationState("exiting");
+
+      setTimeout(() => {
+        // Step 2: Update text and set to enter state
+        setTargetIndex((prev) => (prev + 1) % BUSINESS_TARGETS.length);
+        setAnimationState("entering");
+
+        // Step 3: Trigger active transition (slide into place)
+        requestAnimationFrame(() => {
+          setTimeout(() => {
+            setAnimationState("active");
+          }, 30);
+        });
+      }, 350);
+    }, 2800);
+
+    return () => clearInterval(interval);
+  }, []);
+
+  const handleDemoClick = () => {
+    if (onWatchVideo) {
+      onWatchVideo();
+    } else if (onOpenDemo) {
+      onOpenDemo();
+    }
+  };
+
   return (
     <section className="hero-section">
       <div className="wr hero-inner">
         <div className="hero-content">
+          {/* Top Badge Pill */}
           <span className="badge-pill">
-            <span>✨</span> — <span>AI-Powered WhatsApp Marketing Platform</span>
+            <span>✨</span> — <span>AI-Powered WhatsApp Automation</span>
           </span>
+
+          {/* Dynamic H1 Headline */}
           <h1 className="hero-title">
-            <span className="hero-title-accent">5X Your Shopify Sales</span>
-            with AI-Powered WhatsApp
+            <span className="hero-title-prefix">WhatsApp AI Chat for</span>{" "}
+            <span className="hero-rotator-container" aria-live="polite">
+              <span className={`hero-rotator-text ${animationState}`}>
+                {BUSINESS_TARGETS[targetIndex]}
+              </span>
+            </span>
           </h1>
-          <p className="hero-lead-highlight" style={{ fontSize: "20px", fontWeight: 600, color: "var(--color-primary-dark, #009e46)", marginBottom: "10px" }}>
-            VaChat turns WhatsApp conversations into Shopify sales.
-          </p>
-          <p className="hero-subtitle" style={{ marginTop: "4px" }}>
-            Engage customers with AI-powered WhatsApp conversations and calls, recommend the right products, and make payments easier — all while seamlessly connecting with your Shopify store.
+
+          {/* Subheadline */}
+          <p className="hero-subtitle">
+            Automate customer support, capture leads 24/7, and close sales on autopilot with human-like AI conversational agents built directly into WhatsApp.
           </p>
 
           {/* Feature Highlights Pills */}
-          <div className="hero-feature-pills" style={{ display: "flex", flexWrap: "wrap", gap: "8px 12px", justifyContent: "center", margin: "18px 0 28px 0" }}>
-            {["AI WhatsApp Calls", "Product Recommendations", "Call Recording", "WhatsApp Payments", "Shopify Integration"].map((item, idx) => (
+          <div
+            className="hero-feature-pills"
+            style={{
+              display: "flex",
+              flexWrap: "wrap",
+              gap: "8px 12px",
+              justifyContent: "center",
+              margin: "8px 0 24px 0",
+            }}
+          >
+            {[
+              "Instant AI Responses",
+              "24/7 Lead Capture",
+              "Automated FAQs & Catalogs",
+              "1-Click WhatsApp Checkout",
+              "🌐 Malayalam, English, Tamil, Hindi, Kannada",
+              "Zero-Code Setup",
+            ].map((item, idx) => (
               <span
                 key={idx}
                 style={{
@@ -52,97 +114,31 @@ export default function Hero({ onOpenDemo, onWatchVideo }: HeroProps) {
             ))}
           </div>
 
-          <div className="hero-actions">
-            <a
-              href={APP_SIGNUP}
-              className="btn btn-primary btn-large"
-            >
-              <span>Start Increasing Sales</span>
-              <svg viewBox="0 0 15 12" xmlns="http://www.w3.org/2000/svg">
-                <path d="M9.6 7H1a1 1 0 1 1 0-2h8.6L7 2.4A1 1 0 0 1 8.4 1l4.3 4.2c.2.3.3.5.3.8 0 .3-.1.5-.3.7L8.4 11A1 1 0 1 1 7 9.5L9.6 7z" fill="currentColor"></path>
-              </svg>
-            </a>
-            <button
-              type="button"
-              onClick={onWatchVideo || onOpenDemo}
-              className="btn btn-secondary btn-large"
-            >
-              <svg
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="currentColor"
-                style={{ marginRight: "2px", color: "var(--color-primary-dark, #009e46)" }}
-              >
-                <polygon points="5 3 19 12 5 21 5 3"></polygon>
-              </svg>
-              <span>See How VaChat Works</span>
-            </button>
-          </div>
         </div>
 
-        {/* Hero Visual Graphic */}
+        {/* Hero Visual Banner Image */}
         <div
           className="hero-visual-wrapper"
           style={{ position: "relative", cursor: (onWatchVideo || onOpenDemo) ? "pointer" : "default" }}
-          onClick={onWatchVideo || onOpenDemo}
+          onClick={handleDemoClick}
           role={(onWatchVideo || onOpenDemo) ? "button" : undefined}
           tabIndex={(onWatchVideo || onOpenDemo) ? 0 : undefined}
           aria-label="Play Product Video Demo"
           onKeyDown={(e) => {
             if ((e.key === "Enter" || e.key === " ") && (onWatchVideo || onOpenDemo)) {
-              (onWatchVideo || onOpenDemo)!();
+              handleDemoClick();
             }
           }}
         >
           <Image
-            src="https://umsousercontent.com/lib_EyxlwrMuBuWXHRhZ/psugh9h16vbov6xh.webp?w=1200&dpr=2"
-            alt="WhatsApp Marketing Platform Demo Graphic"
+            src="/images/hero-banner.png"
+            alt="AI-Powered WhatsApp Platform for Local Businesses & Online Merchants Demo"
             className="hero-visual-img"
-            width={1100}
-            height={640}
+            width={1024}
+            height={675}
             priority
             style={{ width: "100%", height: "auto" }}
           />
-          {/* Floating Watch Demo Badge */}
-          <div
-            style={{
-              position: "absolute",
-              bottom: "24px",
-              right: "24px",
-              display: "inline-flex",
-              alignItems: "center",
-              gap: "8px",
-              backgroundColor: "rgba(10, 15, 29, 0.85)",
-              color: "#ffffff",
-              backdropFilter: "blur(12px)",
-              padding: "8px 16px",
-              borderRadius: "9999px",
-              fontSize: "13px",
-              fontWeight: 600,
-              boxShadow: "0 8px 24px rgba(0,0,0,0.3)",
-              border: "1px solid rgba(255,255,255,0.15)",
-              transition: "transform 0.2s ease",
-            }}
-            className="hero-video-badge"
-          >
-            <span
-              style={{
-                width: "22px",
-                height: "22px",
-                borderRadius: "50%",
-                backgroundColor: "#03cf65",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-              }}
-            >
-              <svg width="10" height="10" viewBox="0 0 24 24" fill="#ffffff">
-                <polygon points="5 3 19 12 5 21 5 3"></polygon>
-              </svg>
-            </span>
-            <span>Watch 10s Product Walkthrough</span>
-          </div>
         </div>
       </div>
     </section>

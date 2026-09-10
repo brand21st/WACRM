@@ -219,7 +219,7 @@ export default function ShopifyConversionFeatures({ onPlayVideo }: ShopifyConver
     <section id="features" className="features-deep-section">
       <div className="wr">
         <div className="section-header">
-          <h2 className="section-title">Turn WhatsApp Conversations Into Shopify Customers</h2>
+          <h2 className="section-title">Turn WhatsApp Conversations Into Real Customers</h2>
           <p className="section-subtitle">
             Your customers are already talking on WhatsApp. VaChat helps you turn those conversations into <strong>real Shopify orders</strong>.
           </p>
