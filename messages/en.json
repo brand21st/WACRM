@@ -567,7 +567,11 @@
       "callCompletedUnknown": "Call",
       "callRejected": "Declined call",
       "callFailed": "Call failed",
-      "callInProgress": "On a call"
+      "callInProgress": "On a call",
+      "sendCheckout": "Send checkout",
+      "sendingCheckout": "Sending checkout…",
+      "checkoutSent": "Checkout sent",
+      "checkoutSendFailed": "Could not send checkout"
     },
     "mediaViewer": {
       "counter": "{index} of {total}",
@@ -645,7 +649,20 @@
       "aiMemoryEmpty": "No saved chat memory yet.",
       "aiMemoryLastSession": "Last session",
       "aiMemoryProfile": "Profile",
-      "aiMemoryLanguage": "Locked language"
+      "aiMemoryLanguage": "Locked language",
+      "changePhoto": "Change photo",
+      "uploadPhoto": "Upload photo",
+      "pasteUrl": "Paste image URL",
+      "pasteUrlPlaceholder": "https://...",
+      "applyUrl": "Apply",
+      "removePhoto": "Remove photo",
+      "uploadFailed": "Couldn't upload photo",
+      "saveFailed": "Couldn't save photo",
+      "invalidUrl": "Enter a valid https image URL",
+      "unsupportedImage": "That file type isn't supported",
+      "imageTooLarge": "Photo must be under 2 MB",
+      "photoUpdated": "Photo updated",
+      "photoRemoved": "Photo removed"
     },
     "aiBanner": {
       "pausedTitle": "AI assistant is paused here",
@@ -677,6 +694,25 @@
     }
   },
   "Contacts": {
+    "avatar": {
+      "changePhoto": "Change photo",
+      "dialogTitle": "Contact photo",
+      "uploadPhoto": "Upload photo",
+      "dropHint": "Drop a photo here, or click to browse",
+      "dropActive": "Drop to upload",
+      "photoHint": "PNG, JPG, WebP, or GIF. Up to 2 MB.",
+      "pasteUrl": "Or paste an image URL",
+      "pasteUrlPlaceholder": "https://...",
+      "applyUrl": "Apply",
+      "removePhoto": "Remove photo",
+      "uploadFailed": "Couldn't upload photo",
+      "saveFailed": "Couldn't save photo",
+      "invalidUrl": "Enter a valid https image URL",
+      "unsupportedImage": "That file type isn't supported",
+      "imageTooLarge": "Photo must be under 2 MB",
+      "photoUpdated": "Photo updated",
+      "photoRemoved": "Photo removed"
+    },
     "page": {
       "title": "Contacts",
       "subtitle": "Manage your contact list. {count} total contacts.",
@@ -813,7 +849,20 @@
       "toastCustomFieldsSaved": "Custom fields saved",
       "toastCustomFieldsFailed": "Failed to save custom fields",
       "toastTemplateSent": "Template \"{name}\" sent",
-      "toastTemplateFailed": "Failed to send template: {reason}"
+      "toastTemplateFailed": "Failed to send template: {reason}",
+      "changePhoto": "Change photo",
+      "uploadPhoto": "Upload photo",
+      "pasteUrl": "Paste image URL",
+      "pasteUrlPlaceholder": "https://...",
+      "applyUrl": "Apply",
+      "removePhoto": "Remove photo",
+      "uploadFailed": "Couldn't upload photo",
+      "saveFailed": "Couldn't save photo",
+      "invalidUrl": "Enter a valid https image URL",
+      "unsupportedImage": "That file type isn't supported",
+      "imageTooLarge": "Photo must be under 2 MB",
+      "photoUpdated": "Photo updated",
+      "photoRemoved": "Photo removed"
     },
     "importModal": {
       "title": "Import Contacts",

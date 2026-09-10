@@ -20,6 +20,9 @@ import {
   enqueueCatalogEmbed,
   enqueueCatalogMetaSync,
   enqueueAiConversationFollowUp,
+  enqueueAiConversationAnalyze,
+  enqueueAiSalesPatternDiscover,
+  enqueueAiSalesPatternEffectiveness,
   enqueueKnowledgeScrape,
   isDuplicateJobError,
   resetQueuesForTests,
@@ -53,6 +56,21 @@ describe('enqueue helpers', () => {
   it('returns false when Redis is not configured', async () => {
     mockGetBullmqConnection.mockReturnValue(null)
     await expect(enqueueAiChatReply(CHAT_JOB)).resolves.toBe(false)
+    await expect(
+      enqueueAiConversationAnalyze({
+        accountId: 'acc-1',
+        conversationId: 'conv-1',
+        contactId: 'c-1',
+        triggeringMessageId: 'msg-1',
+        idempotencyKey: 'acc-1:conv-1:msg-1',
+      }),
+    ).resolves.toBe(false)
+    await expect(
+      enqueueAiSalesPatternDiscover({
+        accountId: 'acc-1',
+        idempotencyKey: 'acc-1:patterns',
+      }),
+    ).resolves.toBe(false)
     expect(add).not.toHaveBeenCalled()
   })
 
@@ -145,6 +163,54 @@ describe('enqueue helpers', () => {
       'knowledge-scrape',
       { jobId: 'scrape-1', accountId: 'acc-1' },
       expect.objectContaining({ jobId: 'scrape-1' }),
+    )
+  })
+
+  it('adds a conversation-analyze job keyed by the idempotency key', async () => {
+    mockGetBullmqConnection.mockReturnValue({ host: '127.0.0.1', port: 6379 } as never)
+    await expect(
+      enqueueAiConversationAnalyze({
+        accountId: 'acc-1',
+        conversationId: 'conv-1',
+        contactId: 'c-1',
+        triggeringMessageId: 'msg-1',
+        idempotencyKey: 'acc-1:conv-1:msg-1',
+      }),
+    ).resolves.toBe(true)
+    expect(add).toHaveBeenCalledWith(
+      'ai-conversation-analyze',
+      expect.objectContaining({ accountId: 'acc-1', triggeringMessageId: 'msg-1' }),
+      expect.objectContaining({ jobId: 'acc-1:conv-1:msg-1', attempts: 5 }),
+    )
+  })
+
+  it('adds a sales-pattern-discover job keyed by accountId:patterns', async () => {
+    mockGetBullmqConnection.mockReturnValue({ host: '127.0.0.1', port: 6379 } as never)
+    await expect(
+      enqueueAiSalesPatternDiscover({
+        accountId: 'acc-1',
+        idempotencyKey: 'acc-1:patterns',
+      }),
+    ).resolves.toBe(true)
+    expect(add).toHaveBeenCalledWith(
+      'ai-sales-pattern-discover',
+      expect.objectContaining({ accountId: 'acc-1' }),
+      expect.objectContaining({ jobId: 'acc-1:patterns', attempts: 5 }),
+    )
+  })
+
+  it('adds a sales-pattern-effectiveness job keyed by accountId:effectiveness', async () => {
+    mockGetBullmqConnection.mockReturnValue({ host: '127.0.0.1', port: 6379 } as never)
+    await expect(
+      enqueueAiSalesPatternEffectiveness({
+        accountId: 'acc-1',
+        idempotencyKey: 'acc-1:effectiveness',
+      }),
+    ).resolves.toBe(true)
+    expect(add).toHaveBeenCalledWith(
+      'ai-sales-pattern-effectiveness',
+      expect.objectContaining({ accountId: 'acc-1' }),
+      expect.objectContaining({ jobId: 'acc-1:effectiveness', attempts: 5 }),
     )
   })
 

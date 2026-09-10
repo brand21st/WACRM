@@ -26,6 +26,7 @@ import { InboxAiAgentPanel } from "./ai-agent-panel";
 import { CustomerPaidBadges } from "./customer-paid-badges";
 import { useInboxAiAccountStatus } from "./use-inbox-ai-account-status";
 import { callListPreview } from "@/lib/calls/preview";
+import { ContactAvatar } from "@/components/contacts/contact-avatar";
 
 interface ConversationListProps {
   activeConversationId: string | null;
@@ -452,7 +453,6 @@ function ConversationItem({
 }: ConversationItemProps) {
   const contact = conversation.contact;
   const displayName = contact?.name || contact?.phone || t("unknown");
-  const initials = displayName.charAt(0).toUpperCase();
 
   const handleClick = useCallback(() => {
     onSelect(conversation);
@@ -472,18 +472,13 @@ function ConversationItem({
         isActive && "border-l-2 border-primary bg-muted/70"
       )}
     >
-      {/* Avatar */}
-      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-muted text-sm font-medium text-foreground">
-        {contact?.avatar_url ? (
-          <img
-            src={contact.avatar_url}
-            alt={displayName}
-            className="h-10 w-10 rounded-full object-cover"
-          />
-        ) : (
-          initials
-        )}
-      </div>
+      <ContactAvatar
+        contactId={contact?.id}
+        name={contact?.name}
+        phone={contact?.phone}
+        avatarUrl={contact?.avatar_url}
+        size="md"
+      />
 
       {/* Content */}
       <div className="min-w-0 flex-1">

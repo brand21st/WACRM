@@ -3,7 +3,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
-import { cn } from "@/lib/utils";
 import type { Contact, ContactAiMemory, Deal, ContactNote, Tag } from "@/types";
 import {
   Phone,
@@ -17,6 +16,7 @@ import {
   Plus,
 } from "lucide-react";
 import { CustomerPaidBadges } from "./customer-paid-badges";
+import { ContactAvatarEditor } from "@/components/contacts/contact-avatar";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { format } from "date-fns";
@@ -24,9 +24,13 @@ import { useTranslations } from "next-intl";
 
 interface ContactSidebarProps {
   contact: Contact | null;
+  onContactUpdated?: (patch: Partial<Contact>) => void;
 }
 
-export function ContactSidebar({ contact }: ContactSidebarProps) {
+export function ContactSidebar({
+  contact,
+  onContactUpdated,
+}: ContactSidebarProps) {
   const tSidebar = useTranslations("Inbox.sidebar");
   const tThread = useTranslations("Inbox.messageThread");
 
@@ -138,7 +142,6 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
   }
 
   const displayName = contact.name || contact.phone;
-  const initials = displayName.charAt(0).toUpperCase();
   const lockedLanguage =
     typeof aiMemory?.facts?.language === "string"
       ? aiMemory.facts.language.trim()
@@ -155,17 +158,20 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
         <div className="p-4">
           {/* Contact Info */}
           <div className="flex flex-col items-center text-center">
-            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-muted text-lg font-semibold text-foreground">
-              {contact.avatar_url ? (
-                <img
-                  src={contact.avatar_url}
-                  alt={displayName}
-                  className="h-16 w-16 rounded-full object-cover"
-                />
-              ) : (
-                initials
-              )}
-            </div>
+            <ContactAvatarEditor
+              contactId={contact.id}
+              name={contact.name}
+              phone={contact.phone}
+              avatarUrl={contact.avatar_url}
+              size="xl"
+              popoverSide="left"
+              onUpdated={(nextUrl) =>
+                onContactUpdated?.({
+                  id: contact.id,
+                  avatar_url: nextUrl ?? undefined,
+                })
+              }
+            />
             <h3 className="mt-3 text-sm font-semibold text-foreground">
               {displayName}
             </h3>

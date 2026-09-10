@@ -130,6 +130,11 @@ import {
 } from '@/lib/catalog/intelligence/recommend'
 import { mergeAndPersistShoppingContext, loadShoppingContext, emptyShoppingContext, formatSalesSnapshot } from '@/lib/catalog/intelligence/shopping-context'
 import { classifySalesTurn, shouldPersistSalesContext, unlocksCatalogBrowse } from '@/lib/shopify/sales-turn'
+import {
+  resolveSalesPatternGuidance,
+  type RetrievedSalesPattern,
+} from '@/lib/ai/intelligence/retrieve-sales-patterns'
+import { recordSalesPatternUsage } from '@/lib/ai/intelligence/record-sales-pattern-usage'
 import { parseRequestedPrice } from '@/lib/shopify/rank'
 import {
   acceptedOfferReplyDirective,
@@ -769,6 +774,22 @@ export async function dispatchInboundToAiReply(
     const productFacts = focusedHit
       ? formatCurrentProductFacts(focusedHit, productFocus)
       : ''
+    let salesGuidance: string | null = null
+    let salesPatternMatches: RetrievedSalesPattern[] = []
+    try {
+      const resolved = await resolveSalesPatternGuidance(db, {
+        accountId,
+        salesTurn,
+        queryText,
+        shopping,
+        productId: productFocus?.handle ?? shopping.selectedIds[0] ?? null,
+      })
+      salesGuidance = resolved.salesGuidance
+      salesPatternMatches = resolved.matches
+    } catch (err) {
+      console.warn('[ai auto-reply] sales pattern retrieval failed')
+      void err
+    }
     const commerceDirective =
       commerceFollow === 'accept_show'
         ? acceptedOfferReplyDirective()
@@ -820,6 +841,7 @@ export async function dispatchInboundToAiReply(
       replyLanguage,
       productFocus,
       salesSnapshot,
+      salesGuidance,
       productFacts,
       replyDirective,
     })
@@ -864,6 +886,7 @@ export async function dispatchInboundToAiReply(
         replyLanguage,
         productFocus,
         salesSnapshot,
+        salesGuidance,
         productFacts,
         replyDirective,
         tools: shopifyTools.tools,
@@ -871,6 +894,13 @@ export async function dispatchInboundToAiReply(
       })
       text = generated.text
       handoff = generated.handoff
+      if (salesGuidance && salesPatternMatches.length > 0) {
+        void recordSalesPatternUsage(db, {
+          accountId,
+          conversationId,
+          matches: salesPatternMatches,
+        })
+      }
     }
 
     let cartOffer = nativeCommerce || productFocus
@@ -1603,6 +1633,7 @@ export async function generateCustomerFacingReply(args: {
   replyLanguage?: ChatLanguageLock | null
   productFocus?: ProductFocus | null
   salesSnapshot?: string | null
+  salesGuidance?: string | null
   productFacts?: string | null
   replyDirective?: string | null
   tools?: LlmToolDef[]
@@ -1655,6 +1686,7 @@ export async function generateCustomerFacingReply(args: {
         replyLanguage: args.replyLanguage,
         productFocus: args.productFocus,
         salesSnapshot: args.salesSnapshot,
+        salesGuidance: args.salesGuidance,
         productFacts: args.productFacts,
         replyDirective: args.replyDirective,
       }),

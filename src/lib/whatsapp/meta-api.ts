@@ -84,6 +84,32 @@ export async function verifyPhoneNumber(
   return response.json()
 }
 
+export interface WhatsAppBusinessProfile {
+  profile_picture_url?: string
+}
+
+/**
+ * The business phone number's public profile — including the photo
+ * customers see on WhatsApp. Meta's customer webhooks never send a
+ * *contact* DP; this is only OUR number's picture.
+ */
+export async function getWhatsAppBusinessProfile(
+  args: VerifyPhoneNumberArgs,
+): Promise<WhatsAppBusinessProfile> {
+  const { phoneNumberId, accessToken } = args
+  const url = `${META_API_BASE}/${phoneNumberId}/whatsapp_business_profile?fields=profile_picture_url`
+  const response = await fetch(url, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  })
+  if (!response.ok) {
+    await throwMetaError(response, `Meta API error: ${response.status}`)
+  }
+  const body = (await response.json()) as {
+    data?: WhatsAppBusinessProfile[]
+  }
+  return body.data?.[0] ?? {}
+}
+
 // ============================================================
 // Cloud API registration (subscription for inbound webhooks)
 // ============================================================

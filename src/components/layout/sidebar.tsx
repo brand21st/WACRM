@@ -70,11 +70,7 @@ const ROLE_CHIP: Record<
       "border-border bg-card text-muted-foreground",
   },
 };
-import {
-  Avatar,
-  AvatarFallback,
-  AvatarImage,
-} from "@/components/ui/avatar";
+import { UserAvatar } from "@/components/layout/user-avatar";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -150,7 +146,7 @@ export function Sidebar({
 }: SidebarProps) {
   const t = useTranslations("Sidebar");
   const pathname = usePathname();
-  const { profile, profileLoading, account, accountRole, signOut } = useAuth();
+  const { user, profile, profileLoading, account, accountRole, signOut } = useAuth();
   const [agentsOpen, setAgentsOpen] = useState(() =>
     pathname.startsWith("/agents"),
   );
@@ -521,19 +517,15 @@ export function Sidebar({
                 collapsed && "lg:justify-center lg:gap-0 lg:px-0",
               )}
             >
-              <Avatar className="size-8 shrink-0">
-                {profile?.avatar_url ? (
-                  <AvatarImage
-                    src={profile.avatar_url}
-                    alt={profile.full_name ?? t("defaultAvatar")}
-                  />
-                ) : null}
-                <AvatarFallback className="bg-primary/10 text-sm font-medium text-primary">
-                  {profile?.full_name?.charAt(0)?.toUpperCase() ??
-                    profile?.email?.charAt(0)?.toUpperCase() ??
-                    "U"}
-                </AvatarFallback>
-              </Avatar>
+              <UserAvatar
+                profileId={profile?.id}
+                name={profile?.full_name}
+                email={profile?.email}
+                avatarUrl={profile?.avatar_url}
+                user={user}
+                size="xs"
+                className="shrink-0"
+              />
               <div
                 className={cn("min-w-0 flex-1", collapsed && "lg:hidden")}
               >

@@ -83,7 +83,36 @@ describe('catalog http helpers', () => {
       priceMax: 200,
       variantCount: 1,
       imageUrl: 'https://cdn.example/hero.jpg',
+      sets: [],
     })
+  })
+
+  it('uses compare-at on the list when the sale price is a ₹1 stub', () => {
+    const item = catalogProductToListItem(
+      product({
+        priceMin: 1,
+        priceMax: 1,
+        variants: [
+          {
+            id: 'var-1',
+            accountId: 'acct-1',
+            productId: 'prod-1',
+            title: '2XL',
+            sku: null,
+            price: 1,
+            compareAtPrice: 508,
+            currency: 'INR',
+            available: true,
+            inventoryQuantity: 2,
+            options: [],
+            sortOrder: 0,
+            retailerId: 'AG2657',
+          },
+        ],
+      }),
+    )
+    expect(item.priceMin).toBe(508)
+    expect(item.priceMax).toBe(508)
   })
 
   it('falls back to the first image when no hero exists', () => {

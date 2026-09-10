@@ -3,6 +3,7 @@ import { buildOrderDetailsInteractive, parseOrderDetailsParameters } from './ord
 import { newCommerceReferenceId, isValidReferenceId, assertAmountIdentity } from './money'
 import { canTransitionOrderStatus, isCancelAfterPay } from './order-status'
 import { parseInboundOrderMessage } from './inbound-order'
+import { shopifyCartItemsFromInboundOrder } from './checkout'
 import { parseBeneficiaryFromText } from './beneficiary'
 import { isEmailSkipText, parseOptionalEmail } from './checkout-email'
 import { isDiscountSkipText, isPlausibleDiscountCode } from './discount-code'
@@ -157,6 +158,46 @@ describe('shopify order mapping', () => {
         amountSet: { shopMoney: { amount: '100.00', currencyCode: 'INR' } },
       },
     })
+  })
+})
+
+describe('shopifyCartItemsFromInboundOrder', () => {
+  it('uses mapped Shopify variant ids for checkout permalinks', () => {
+    expect(
+      shopifyCartItemsFromInboundOrder({
+        lines: [
+          {
+            retailer_id: 'shopify_IN_8752741646494_47869262004382',
+            name: 'Rayon Aline kurti',
+            quantity: 1,
+            amountPaise: 50800,
+            variantId: 'gid://shopify/ProductVariant/47869262004382',
+            productId: 'gid://shopify/Product/8752741646494',
+            sku: null,
+          },
+        ],
+        items: [],
+      }),
+    ).toEqual([
+      expect.objectContaining({
+        variantId: '47869262004382',
+        quantity: 1,
+        title: 'Rayon Aline kurti',
+      }),
+    ])
+  })
+
+  it('falls back to the numeric WhatsApp retailer id', () => {
+    expect(
+      shopifyCartItemsFromInboundOrder({
+        lines: [],
+        items: [
+          { product_retailer_id: '47999459590302', quantity: 2, name: 'Coord' },
+        ],
+      }),
+    ).toEqual([
+      { variantId: '47999459590302', quantity: 2, title: 'Coord' },
+    ])
   })
 })
 

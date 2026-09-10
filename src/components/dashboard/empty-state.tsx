@@ -1,3 +1,5 @@
+'use client'
+
 import { BarChart3 } from 'lucide-react'
 import type { ComponentType } from 'react'
 import { cn } from '@/lib/utils'

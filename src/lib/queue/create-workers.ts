@@ -7,6 +7,9 @@ import { processCatalogEmbed } from '@/lib/queue/processors/catalog-embed'
 import { processCatalogMetaSync } from '@/lib/queue/processors/catalog-meta-sync'
 import { processKnowledgeScrape } from '@/lib/queue/processors/knowledge-scrape'
 import { processAiConversationFollowUp } from '@/lib/queue/processors/ai-conversation-follow-up'
+import { processAiConversationAnalyze } from '@/lib/queue/processors/ai-conversation-analyze'
+import { processAiSalesPatternDiscover } from '@/lib/queue/processors/ai-sales-pattern-discover'
+import { processAiSalesPatternEffectiveness } from '@/lib/queue/processors/ai-sales-pattern-effectiveness'
 import {
   QUEUE_NAMES,
   WORKER_CONCURRENCY,
@@ -90,6 +93,39 @@ export function createQueueWorkers(connection: ConnectionOptions): Worker[] {
         connection,
         concurrency: WORKER_CONCURRENCY.aiConversationFollowUp,
         lockDuration: WORKER_LOCK_MS.aiConversationFollowUp,
+      },
+    ),
+    new Worker(
+      QUEUE_NAMES.aiConversationAnalyze,
+      async (job) => {
+        await processAiConversationAnalyze(job.data)
+      },
+      {
+        connection,
+        concurrency: WORKER_CONCURRENCY.aiConversationAnalyze,
+        lockDuration: WORKER_LOCK_MS.aiConversationAnalyze,
+      },
+    ),
+    new Worker(
+      QUEUE_NAMES.aiSalesPatternDiscover,
+      async (job) => {
+        await processAiSalesPatternDiscover(job.data)
+      },
+      {
+        connection,
+        concurrency: WORKER_CONCURRENCY.aiSalesPatternDiscover,
+        lockDuration: WORKER_LOCK_MS.aiSalesPatternDiscover,
+      },
+    ),
+    new Worker(
+      QUEUE_NAMES.aiSalesPatternEffectiveness,
+      async (job) => {
+        await processAiSalesPatternEffectiveness(job.data)
+      },
+      {
+        connection,
+        concurrency: WORKER_CONCURRENCY.aiSalesPatternEffectiveness,
+        lockDuration: WORKER_LOCK_MS.aiSalesPatternEffectiveness,
       },
     ),
   ]

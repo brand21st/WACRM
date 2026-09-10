@@ -24,6 +24,7 @@ const PUBLIC_API_PREFIXES = [
   '/api/voice/cron',
   '/api/ai/memory/cron',
   '/api/ai/follow-up/cron',
+  '/api/ai/patterns/cron',
   '/api/billing/cron',
   '/api/billing/razorpay/webhook',
   '/api/commerce/razorpay/webhook',

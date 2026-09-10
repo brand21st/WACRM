@@ -4,6 +4,7 @@ import {
   parseRetailerIdSource,
   retailerIdForVariant,
 } from '@/lib/shopify/retailer-id'
+import { pickCartDisplayPrice } from './inbound-order'
 import { paiseFromMajor } from './money'
 import type { InboundCartItem, MappedCartLine } from './types'
 
@@ -54,8 +55,11 @@ export async function mapCartLinesToShopify(
       continue
     }
     const variant = match.variant
-    const pricePaise =
-      paiseFromMajor(variant.price) || paiseFromMajor(item.item_price)
+    const pricePaise = lineAmountPaise({
+      catalog: toMajor(variant.price),
+      compareAt: toMajor(variant.compareAtPrice),
+      whatsapp: item.item_price,
+    })
     const productTitle =
       products.find((p) => p.shopify_product_id === match.productId)?.title ||
       item.name ||
@@ -87,13 +91,8 @@ async function mapLineFromCatalogVariant(
 ): Promise<MappedCartLine | null> {
   const retailerId = item.product_retailer_id.trim()
   if (!retailerId) return null
-  const { data: variant, error } = await db
-    .from('catalog_variants')
-    .select('id, product_id, title, sku, price, retailer_id')
-    .eq('account_id', accountId)
-    .eq('retailer_id', retailerId)
-    .maybeSingle()
-  if (error || !variant?.id) return null
+  const variant = await findCatalogVariant(db, accountId, retailerId)
+  if (!variant?.id) return null
 
   const { data: product } = await db
     .from('catalog_products')
@@ -133,9 +132,72 @@ async function mapLineFromCatalogVariant(
     retailer_id: String(variant.retailer_id || retailerId),
     name: name.slice(0, 60),
     quantity: item.quantity,
-    amountPaise: paiseFromMajor(variant.price) || paiseFromMajor(item.item_price),
+    amountPaise: lineAmountPaise({
+      catalog: toMajor(variant.price),
+      compareAt: toMajor(variant.compare_at_price),
+      whatsapp: item.item_price,
+    }),
     variantId: String(shopifyVariant),
     productId: String(shopifyProduct),
     sku: variant.sku ? String(variant.sku) : null,
   }
+}
+
+type CatalogVariantRow = {
+  id?: unknown
+  product_id?: unknown
+  title?: unknown
+  sku?: unknown
+  price?: unknown
+  compare_at_price?: unknown
+  retailer_id?: unknown
+}
+
+async function findCatalogVariant(
+  db: SupabaseClient,
+  accountId: string,
+  retailerId: string,
+): Promise<CatalogVariantRow | null> {
+  const select = 'id, product_id, title, sku, price, compare_at_price, retailer_id'
+  const { data: exact, error } = await db
+    .from('catalog_variants')
+    .select(select)
+    .eq('account_id', accountId)
+    .eq('retailer_id', retailerId)
+    .maybeSingle()
+  if (!error && exact?.id) return exact
+
+  const { data: bySku, error: skuError } = await db
+    .from('catalog_variants')
+    .select(select)
+    .eq('account_id', accountId)
+    .eq('sku', retailerId)
+    .maybeSingle()
+  if (!skuError && bySku?.id) return bySku
+
+  if (!/^\d+$/.test(retailerId)) return null
+  const { data: bySuffix, error: suffixError } = await db
+    .from('catalog_variants')
+    .select(select)
+    .eq('account_id', accountId)
+    .or(`retailer_id.ilike.%_${retailerId}`)
+  if (suffixError || !bySuffix?.length) return null
+  return (
+    bySuffix.find((row) => String(row.retailer_id ?? '').endsWith(`_${retailerId}`)) ??
+    null
+  )
+}
+
+function lineAmountPaise(args: {
+  catalog?: number
+  compareAt?: number
+  whatsapp?: number
+}): number {
+  const display = pickCartDisplayPrice(args)
+  return paiseFromMajor(display.unit)
+}
+
+function toMajor(raw: unknown): number | undefined {
+  const n = typeof raw === 'number' ? raw : Number(String(raw ?? '').trim())
+  return Number.isFinite(n) && n >= 0 ? n : undefined
 }

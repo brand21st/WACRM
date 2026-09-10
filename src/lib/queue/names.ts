@@ -8,6 +8,9 @@ export const QUEUE_NAMES = {
   catalogMetaSync: 'catalog-meta-sync',
   catalogEmbed: 'catalog-embed',
   aiConversationFollowUp: 'ai-conversation-follow-up',
+  aiConversationAnalyze: 'ai-conversation-analyze',
+  aiSalesPatternDiscover: 'ai-sales-pattern-discover',
+  aiSalesPatternEffectiveness: 'ai-sales-pattern-effectiveness',
 } as const
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES]
@@ -27,6 +30,9 @@ export const WORKER_CONCURRENCY = {
   catalogMetaSync: 2,
   catalogEmbed: 2,
   aiConversationFollowUp: 4,
+  aiConversationAnalyze: 4,
+  aiSalesPatternDiscover: 2,
+  aiSalesPatternEffectiveness: 2,
 } as const
 
 export const WORKER_LOCK_MS = {
@@ -37,4 +43,7 @@ export const WORKER_LOCK_MS = {
   catalogMetaSync: 120_000,
   catalogEmbed: 180_000,
   aiConversationFollowUp: 120_000,
+  aiConversationAnalyze: 120_000,
+  aiSalesPatternDiscover: 180_000,
+  aiSalesPatternEffectiveness: 180_000,
 } as const

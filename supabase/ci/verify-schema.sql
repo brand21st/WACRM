@@ -92,6 +92,60 @@ BEGIN
     RAISE EXCEPTION 'public.platform_google_settings is missing — migration 090 did not apply';
   END IF;
 
+  IF to_regclass('public.sales_events') IS NULL THEN
+    RAISE EXCEPTION 'public.sales_events is missing — migration 092 did not apply';
+  END IF;
+
+  IF to_regclass('public.conversation_analysis_cursors') IS NULL THEN
+    RAISE EXCEPTION 'public.conversation_analysis_cursors is missing — migration 092 did not apply';
+  END IF;
+
+  IF to_regclass('public.sales_patterns') IS NULL THEN
+    RAISE EXCEPTION 'public.sales_patterns is missing — migration 093 did not apply';
+  END IF;
+
+  IF to_regclass('public.pattern_discovery_cursors') IS NULL THEN
+    RAISE EXCEPTION 'public.pattern_discovery_cursors is missing — migration 093 did not apply';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'ai_configs'
+      AND column_name = 'sales_pattern_retrieval'
+  ) THEN
+    RAISE EXCEPTION 'ai_configs.sales_pattern_retrieval is missing — migration 094 did not apply';
+  END IF;
+
+  IF to_regclass('public.sales_pattern_usages') IS NULL THEN
+    RAISE EXCEPTION 'public.sales_pattern_usages is missing — migration 095 did not apply';
+  END IF;
+
+  IF to_regclass('public.pattern_effectiveness_cursors') IS NULL THEN
+    RAISE EXCEPTION 'public.pattern_effectiveness_cursors is missing — migration 095 did not apply';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'sales_patterns'
+      AND column_name = 'retrieval_eligible'
+  ) THEN
+    RAISE EXCEPTION 'sales_patterns.retrieval_eligible is missing — migration 095 did not apply';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'ai_configs'
+      AND column_name = 'sales_pattern_effectiveness'
+  ) THEN
+    RAISE EXCEPTION 'ai_configs.sales_pattern_effectiveness is missing — migration 095 did not apply';
+  END IF;
+
   RAISE NOTICE 'schema verification passed';
 END
 $$;

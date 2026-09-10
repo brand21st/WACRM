@@ -7,6 +7,9 @@ import type {
   CallRecordingJob,
   CatalogEmbedJob,
   CatalogMetaSyncJob,
+  AiSalesPatternDiscoverJob,
+  AiSalesPatternEffectivenessJob,
+  ConversationAnalyzeJob,
   KnowledgeScrapeJob,
 } from '@/lib/queue/jobs'
 import { DEFAULT_JOB_OPTIONS, QUEUE_NAMES } from '@/lib/queue/names'
@@ -20,6 +23,9 @@ type QueueMap = {
   catalogMetaSync: Queue
   catalogEmbed: Queue
   aiConversationFollowUp: Queue
+  aiConversationAnalyze: Queue
+  aiSalesPatternDiscover: Queue
+  aiSalesPatternEffectiveness: Queue
 }
 
 let queues: QueueMap | null = null
@@ -50,6 +56,12 @@ function getQueues(): QueueMap | null {
     catalogMetaSync: new Queue(QUEUE_NAMES.catalogMetaSync, opts),
     catalogEmbed: new Queue(QUEUE_NAMES.catalogEmbed, opts),
     aiConversationFollowUp: new Queue(QUEUE_NAMES.aiConversationFollowUp, opts),
+    aiConversationAnalyze: new Queue(QUEUE_NAMES.aiConversationAnalyze, opts),
+    aiSalesPatternDiscover: new Queue(QUEUE_NAMES.aiSalesPatternDiscover, opts),
+    aiSalesPatternEffectiveness: new Queue(
+      QUEUE_NAMES.aiSalesPatternEffectiveness,
+      opts,
+    ),
   }
   return queues
 }
@@ -180,6 +192,51 @@ export async function enqueueAiConversationFollowUp(
     data,
     data.followUpId,
     delayMs,
+  )
+}
+
+/**
+ * Background conversation analyzer. Redis unset → false; callers must
+ * not inline-analyze on the customer path.
+ */
+export async function enqueueAiConversationAnalyze(
+  data: ConversationAnalyzeJob,
+): Promise<boolean> {
+  return addJob(
+    getQueues()?.aiConversationAnalyze,
+    QUEUE_NAMES.aiConversationAnalyze,
+    data,
+    data.idempotencyKey,
+  )
+}
+
+/**
+ * Background tenant pattern discovery. Redis unset → false; cron
+ * may run the aggregator inline (not on the customer path).
+ */
+export async function enqueueAiSalesPatternDiscover(
+  data: AiSalesPatternDiscoverJob,
+): Promise<boolean> {
+  return addJob(
+    getQueues()?.aiSalesPatternDiscover,
+    QUEUE_NAMES.aiSalesPatternDiscover,
+    data,
+    data.idempotencyKey,
+  )
+}
+
+/**
+ * Background pattern-effectiveness recompute. Redis unset → false;
+ * cron may run the evaluator inline (not on the customer path).
+ */
+export async function enqueueAiSalesPatternEffectiveness(
+  data: AiSalesPatternEffectivenessJob,
+): Promise<boolean> {
+  return addJob(
+    getQueues()?.aiSalesPatternEffectiveness,
+    QUEUE_NAMES.aiSalesPatternEffectiveness,
+    data,
+    data.idempotencyKey,
   )
 }
 

@@ -586,6 +586,26 @@ function InboxPageInner() {
     [activeConversation]
   );
 
+  const handleContactUpdated = useCallback((patch: Partial<Contact>) => {
+    const id = patch.id ?? activeContact?.id;
+    if (!id) return;
+    setActiveContact((prev) =>
+      prev?.id === id ? { ...prev, ...patch } : prev,
+    );
+    setActiveConversation((prev) =>
+      prev?.contact?.id === id && prev.contact
+        ? { ...prev, contact: { ...prev.contact, ...patch } }
+        : prev,
+    );
+    setConversations((prev) =>
+      prev.map((c) =>
+        c.contact?.id === id && c.contact
+          ? { ...c, contact: { ...c.contact, ...patch } }
+          : c,
+      ),
+    );
+  }, [activeContact?.id]);
+
   // When the inbox full-agent toggle turns on, every open thread is
   // resumed server-side — mirror that locally so the banner flips instantly.
   useEffect(() => {
@@ -713,7 +733,10 @@ function InboxPageInner() {
             toggle — which is itself desktop-only — never affects it. */}
         {contactPanelOpen && (
           <div className="hidden lg:block">
-            <ContactSidebar contact={activeContact} />
+            <ContactSidebar
+              contact={activeContact}
+              onContactUpdated={handleContactUpdated}
+            />
           </div>
         )}
       </div>

@@ -13,6 +13,7 @@ function makeConversation(
   return {
     id: "c1",
     user_id: "u1",
+    account_id: "a1",
     contact_id: "ct1",
     status: "open",
     unread_count: 0,
@@ -108,6 +109,7 @@ describe("normalizeConversation", () => {
     const raw = {
       id: "c1",
       user_id: "u1",
+      account_id: "a1",
       contact_id: "ct1",
       status: "open" as const,
       unread_count: 0,
@@ -135,6 +137,7 @@ describe("normalizeConversation", () => {
     const raw = {
       id: "c1",
       user_id: "u1",
+      account_id: "a1",
       contact_id: "ct1",
       status: "open" as const,
       unread_count: 0,

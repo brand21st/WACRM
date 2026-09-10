@@ -43,6 +43,15 @@ vi.mock('@/lib/queue/processors/catalog-embed', () => ({
 vi.mock('@/lib/queue/processors/ai-conversation-follow-up', () => ({
   processAiConversationFollowUp: vi.fn(),
 }))
+vi.mock('@/lib/queue/processors/ai-conversation-analyze', () => ({
+  processAiConversationAnalyze: vi.fn(),
+}))
+vi.mock('@/lib/queue/processors/ai-sales-pattern-discover', () => ({
+  processAiSalesPatternDiscover: vi.fn(),
+}))
+vi.mock('@/lib/queue/processors/ai-sales-pattern-effectiveness', () => ({
+  processAiSalesPatternEffectiveness: vi.fn(),
+}))
 
 import { createQueueWorkers } from './create-workers'
 import { QUEUE_NAMES, WORKER_CONCURRENCY, WORKER_LOCK_MS } from './names'
@@ -51,7 +60,7 @@ describe('createQueueWorkers', () => {
   it('starts one worker per queue with planned concurrency and lock', () => {
     constructed.length = 0
     const workers = createQueueWorkers({ host: '127.0.0.1', port: 6379 })
-    expect(workers).toHaveLength(7)
+    expect(workers).toHaveLength(10)
     expect(constructed.map((w) => w.name)).toEqual([
       QUEUE_NAMES.aiChatReply,
       QUEUE_NAMES.aiVoiceInbound,
@@ -60,6 +69,9 @@ describe('createQueueWorkers', () => {
       QUEUE_NAMES.catalogMetaSync,
       QUEUE_NAMES.catalogEmbed,
       QUEUE_NAMES.aiConversationFollowUp,
+      QUEUE_NAMES.aiConversationAnalyze,
+      QUEUE_NAMES.aiSalesPatternDiscover,
+      QUEUE_NAMES.aiSalesPatternEffectiveness,
     ])
     expect(constructed[0]).toMatchObject({
       concurrency: WORKER_CONCURRENCY.aiChatReply,

@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import { createCatalogMemoryDb } from '@/lib/catalog/search/memory-db'
+import { formatCurrency } from '@/lib/currency'
 import { enrichInboundCartItems } from './enrich-cart-items'
 import {
   formatCartMoney,
   formatInboundOrderPreview,
   parseInboundOrderMessage,
   pickCartDisplayPrice,
+  webhookMessageFromInboundCart,
 } from './inbound-order'
 
 describe('pickCartDisplayPrice', () => {
@@ -19,6 +21,36 @@ describe('pickCartDisplayPrice', () => {
     expect(
       pickCartDisplayPrice({ whatsapp: 408, catalog: 408, compareAt: 508 }),
     ).toEqual({ unit: 408, compareAt: 508 })
+  })
+
+  it('keeps the exact catalog variant sale (544.7) and MRP', () => {
+    expect(
+      pickCartDisplayPrice({ whatsapp: 1, catalog: 544.7, compareAt: 655 }),
+    ).toEqual({ unit: 544.7, compareAt: 655 })
+  })
+})
+
+describe('formatCartMoney', () => {
+  it('matches the Catalog list formatter', () => {
+    expect(formatCartMoney(508, 'INR')).toBe(formatCurrency(508, 'INR'))
+    expect(formatCartMoney(544.7, 'INR')).toBe(formatCurrency(544.7, 'INR'))
+    expect(formatCartMoney(499, 'INR')).toBe(formatCurrency(499, 'INR'))
+  })
+})
+
+describe('webhookMessageFromInboundCart', () => {
+  it('round-trips a stored cart into the webhook order shape', () => {
+    const message = webhookMessageFromInboundCart({
+      catalog_id: '153',
+      items: [{ product_retailer_id: '47999459590302', quantity: 1, item_price: 544.7 }],
+    })
+    expect(parseInboundOrderMessage(message)?.items[0]).toEqual(
+      expect.objectContaining({
+        product_retailer_id: '47999459590302',
+        quantity: 1,
+        item_price: 544.7,
+      }),
+    )
   })
 })
 
@@ -169,6 +201,37 @@ describe('enrichInboundCartItems', () => {
       },
     ])
     expect(items[0]?.item_price).toBe(508)
+    expect(items[0]?.compare_at_price).toBeUndefined()
+  })
+
+  it('keeps the catalog sale and MRP for a real discount', async () => {
+    const db = createCatalogMemoryDb({
+      catalog_products: [
+        { id: 'p1', account_id: 'acct-a', title: 'Rayon side slit Coord sets' },
+      ],
+      catalog_variants: [
+        {
+          id: 'v1',
+          account_id: 'acct-a',
+          product_id: 'p1',
+          title: 'Light Yellow / L / Rayon',
+          price: 544.7,
+          compare_at_price: 655,
+          currency: 'INR',
+          retailer_id: 'shopify_IN_8791731044510_47999459590302',
+        },
+      ],
+    })
+    const items = await enrichInboundCartItems(db, 'acct-a', [
+      {
+        product_retailer_id: '47999459590302',
+        quantity: 1,
+        item_price: 1,
+        currency: 'INR',
+      },
+    ])
+    expect(items[0]?.item_price).toBe(544.7)
+    expect(items[0]?.compare_at_price).toBe(655)
   })
 
   it('leaves an unknown retailer id unchanged', async () => {
@@ -235,6 +298,7 @@ describe('enrichInboundCartItems', () => {
     ])
     expect(items[0]?.name).toBe('Rayon Aline kurti — Reddish maroon / 2XL / Rayon')
     expect(items[0]?.item_price).toBe(508)
+    expect(items[0]?.compare_at_price).toBeUndefined()
     expect(items[0]?.image_url).toBe('https://cdn.example/aline.jpg')
   })
 

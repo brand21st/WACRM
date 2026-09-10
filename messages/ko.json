@@ -567,7 +567,11 @@
       "callCompletedUnknown": "통화",
       "callRejected": "거절된 전화",
       "callFailed": "통화 실패",
-      "callInProgress": "통화 중"
+      "callInProgress": "통화 중",
+      "sendCheckout": "결제 보내기",
+      "sendingCheckout": "결제 보내는 중…",
+      "checkoutSent": "결제를 보냈습니다",
+      "checkoutSendFailed": "결제를 보낼 수 없습니다"
     },
     "mediaViewer": {
       "counter": "{total}개 중 {index}번째",
@@ -645,7 +649,20 @@
       "aiMemoryEmpty": "저장된 채팅 기억이 아직 없습니다.",
       "aiMemoryLastSession": "최근 세션",
       "aiMemoryProfile": "프로필",
-      "aiMemoryLanguage": "고정 언어"
+      "aiMemoryLanguage": "고정 언어",
+      "changePhoto": "사진 변경",
+      "uploadPhoto": "사진 업로드",
+      "pasteUrl": "이미지 URL 붙여넣기",
+      "pasteUrlPlaceholder": "https://...",
+      "applyUrl": "적용",
+      "removePhoto": "사진 삭제",
+      "uploadFailed": "사진을 업로드하지 못했습니다",
+      "saveFailed": "사진을 저장하지 못했습니다",
+      "invalidUrl": "올바른 https 이미지 URL을 입력하세요",
+      "unsupportedImage": "지원하지 않는 파일 형식입니다",
+      "imageTooLarge": "사진은 2MB 이하여야 합니다",
+      "photoUpdated": "사진이 업데이트되었습니다",
+      "photoRemoved": "사진이 삭제되었습니다"
     },
     "aiBanner": {
       "pausedTitle": "이 대화에서 AI 어시스턴트가 일시 중지됨",
@@ -677,6 +694,25 @@
     }
   },
   "Contacts": {
+    "avatar": {
+      "changePhoto": "사진 변경",
+      "dialogTitle": "연락처 사진",
+      "uploadPhoto": "사진 업로드",
+      "dropHint": "사진을 여기에 놓거나 클릭해서 선택하세요",
+      "dropActive": "놓아서 업로드",
+      "photoHint": "PNG, JPG, WebP, GIF. 최대 2MB.",
+      "pasteUrl": "또는 이미지 URL 붙여넣기",
+      "pasteUrlPlaceholder": "https://...",
+      "applyUrl": "적용",
+      "removePhoto": "사진 삭제",
+      "uploadFailed": "사진을 업로드하지 못했습니다",
+      "saveFailed": "사진을 저장하지 못했습니다",
+      "invalidUrl": "올바른 https 이미지 URL을 입력하세요",
+      "unsupportedImage": "지원하지 않는 파일 형식입니다",
+      "imageTooLarge": "사진은 2MB 이하여야 합니다",
+      "photoUpdated": "사진이 업데이트되었습니다",
+      "photoRemoved": "사진이 삭제되었습니다"
+    },
     "page": {
       "title": "연락처",
       "subtitle": "연락처 목록을 관리하세요. 전체 연락처 {count}개.",
@@ -813,7 +849,20 @@
       "toastCustomFieldsSaved": "커스텀 필드가 저장되었습니다",
       "toastCustomFieldsFailed": "커스텀 필드를 저장하지 못했습니다",
       "toastTemplateSent": "\"{name}\" 템플릿을 보냈습니다",
-      "toastTemplateFailed": "템플릿을 보내지 못했습니다: {reason}"
+      "toastTemplateFailed": "템플릿을 보내지 못했습니다: {reason}",
+      "changePhoto": "사진 변경",
+      "uploadPhoto": "사진 업로드",
+      "pasteUrl": "이미지 URL 붙여넣기",
+      "pasteUrlPlaceholder": "https://...",
+      "applyUrl": "적용",
+      "removePhoto": "사진 삭제",
+      "uploadFailed": "사진을 업로드하지 못했습니다",
+      "saveFailed": "사진을 저장하지 못했습니다",
+      "invalidUrl": "올바른 https 이미지 URL을 입력하세요",
+      "unsupportedImage": "지원하지 않는 파일 형식입니다",
+      "imageTooLarge": "사진은 2MB 이하여야 합니다",
+      "photoUpdated": "사진이 업데이트되었습니다",
+      "photoRemoved": "사진이 삭제되었습니다"
     },
     "importModal": {
       "title": "연락처 가져오기",

@@ -34,6 +34,7 @@ import { useTranslations } from "next-intl";
 import { customerServiceExpiresAt } from "@/lib/inbox/session-window";
 import { SessionWindowBadge } from "./session-window-badge";
 import { CustomerPaidBadges } from "./customer-paid-badges";
+import { ContactAvatar } from "@/components/contacts/contact-avatar";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -157,7 +158,7 @@ const STATUS_OPTIONS: { label: string; value: ConversationStatus; color: string 
  * if we ever switch the asset, both spots update together.
  */
 const DOODLE_BG_CLASSES =
-  "bg-background bg-[url('/inbox-doodle.svg')] bg-repeat";
+  "bg-chat-bg bg-[url('/inbox-doodle.svg')] bg-repeat";
 
 export function MessageThread({
   conversation,
@@ -966,9 +967,14 @@ export function MessageThread({
               <ArrowLeft className="h-5 w-5" />
             </button>
           )}
-          <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-muted text-sm font-medium text-foreground">
-            {displayName.charAt(0).toUpperCase()}
-          </div>
+          <ContactAvatar
+            contactId={contact.id}
+            name={contact.name}
+            phone={contact.phone}
+            avatarUrl={contact.avatar_url}
+            size="sm"
+            className="flex-shrink-0"
+          />
           <div className="min-w-0">
             <h2 className="truncate text-sm font-semibold text-foreground">{displayName}</h2>
             <p className="hidden truncate text-xs text-muted-foreground lg:block">{contact.phone}</p>
@@ -1276,7 +1282,7 @@ export function MessageThread({
               <div key={group.date}>
                 {/* Date separator */}
                 <div className="mb-4 flex items-center justify-center">
-                  <span className="rounded-full bg-muted px-3 py-1 text-[10px] font-medium text-muted-foreground">
+                  <span className="rounded-full bg-chat-date-chip px-3 py-1 text-[10px] font-medium text-chat-date-fg">
                     {formatDateSeparator(group.date, t)}
                   </span>
                 </div>

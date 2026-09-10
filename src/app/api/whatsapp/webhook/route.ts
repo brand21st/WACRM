@@ -47,9 +47,10 @@ import { INBOUND_VOICE_PLACEHOLDER } from '@/lib/ai/voice'
 import { enqueueVoiceInboundJob } from '@/lib/ai/voice-inbound-jobs'
 import {
   enqueueAiChatReply,
+  enqueueAiConversationAnalyze,
   enqueueAiVoiceInbound,
 } from '@/lib/queue/enqueue'
-import { aiChatReplyJob } from '@/lib/queue/jobs'
+import { aiChatReplyJob, aiConversationAnalyzeJob } from '@/lib/queue/jobs'
 import { dispatchWebhookEvent } from '@/lib/webhooks/deliver'
 import { mapPool } from '@/lib/concurrency'
 import {
@@ -916,6 +917,25 @@ async function processMessage(
     return
   }
 
+  const persistedMessageId = String(insertedRows[0].id)
+  const shouldAnalyzeConversation =
+    Boolean(contentText?.trim()) ||
+    contentType === 'order' ||
+    contentType === 'interactive' ||
+    Boolean(interactiveReplyId)
+  if (shouldAnalyzeConversation) {
+    void enqueueAiConversationAnalyze(
+      aiConversationAnalyzeJob({
+        accountId,
+        conversationId: conversation.id,
+        contactId: contactRecord.id,
+        triggeringMessageId: persistedMessageId,
+      }),
+    ).catch((err) => {
+      console.warn('[webhook] conversation analyze enqueue failed:', err)
+    })
+  }
+
   // Update conversation. The unread bump is done DB-side (migration 037's
   // bump_conversation_on_inbound) rather than as a read-modify-write of the
   // snapshot loaded above: two inbound messages for the same conversation
@@ -949,16 +969,20 @@ async function processMessage(
   })
 
   if (message.type === 'order') {
-    await handleInboundWhatsAppOrder({
-      db: supabaseAdmin(),
-      accountId,
-      userId: configOwnerUserId,
-      conversationId: conversation.id,
-      contactId: contactRecord.id,
-      contactPhone: contactRecord.phone ?? senderPhone,
-      contactName: contactRecord.name ?? contactName,
-      message,
-    })
+    try {
+      await handleInboundWhatsAppOrder({
+        db: supabaseAdmin(),
+        accountId,
+        userId: configOwnerUserId,
+        conversationId: conversation.id,
+        contactId: contactRecord.id,
+        contactPhone: contactRecord.phone ?? senderPhone,
+        contactName: contactRecord.name ?? contactName,
+        message,
+      })
+    } catch (err) {
+      console.error('[webhook] inbound cart checkout failed:', err)
+    }
   }
 
   // Native address form submitted → store the address and ask the

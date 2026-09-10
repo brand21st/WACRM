@@ -207,6 +207,8 @@ export type ConversationStatus = 'open' | 'pending' | 'closed';
 export interface Conversation {
   id: string;
   user_id: string;
+  /** Tenancy key — NOT NULL since migration 017. */
+  account_id: string;
   contact_id: string;
   status: ConversationStatus;
   assigned_agent_id?: string;

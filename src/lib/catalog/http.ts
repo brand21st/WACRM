@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { pickCartDisplayPrice } from '@/lib/commerce/inbound-order'
 import { isMissingDbRelation } from '@/lib/shopify/config-db'
 import type { CatalogProduct, CatalogStatus } from './core/types'
 import { isCatalogStatus } from './core/status'
@@ -102,9 +103,32 @@ export function catalogProductToDetail(product: CatalogProduct) {
   }
 }
 
+function listDisplayPrices(product: CatalogProduct): {
+  priceMin: number | null
+  priceMax: number | null
+} {
+  if (product.priceMin == null || product.priceMin > 1) {
+    return { priceMin: product.priceMin, priceMax: product.priceMax }
+  }
+  const units = product.variants
+    .map(
+      (variant) =>
+        pickCartDisplayPrice({
+          catalog: variant.price ?? undefined,
+          compareAt: variant.compareAtPrice ?? undefined,
+        }).unit,
+    )
+    .filter((n): n is number => n != null)
+  if (units.length === 0) {
+    return { priceMin: product.priceMin, priceMax: product.priceMax }
+  }
+  return { priceMin: Math.min(...units), priceMax: Math.max(...units) }
+}
+
 export function catalogProductToListItem(product: CatalogProduct): CatalogListItem {
   const hero = product.media.find((media) => media.role === 'hero')
   const first = product.media[0]
+  const { priceMin, priceMax } = listDisplayPrices(product)
   return {
     id: product.id,
     title: product.title,
@@ -112,8 +136,8 @@ export function catalogProductToListItem(product: CatalogProduct): CatalogListIt
     status: product.status,
     origin: product.origin,
     currency: product.currency,
-    priceMin: product.priceMin,
-    priceMax: product.priceMax,
+    priceMin,
+    priceMax,
     variantCount: product.variants.length,
     imageUrl: hero?.url ?? first?.url ?? null,
     sets: (product.collections ?? []).map((item) => ({

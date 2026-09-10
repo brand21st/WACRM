@@ -7,6 +7,7 @@ const h = vi.hoisted(() => ({
   dispatchInboundToAiReply: vi.fn(),
   enqueueVoiceInboundJob: vi.fn(),
   enqueueAiChatReply: vi.fn(),
+  enqueueAiConversationAnalyze: vi.fn(),
   enqueueAiVoiceInbound: vi.fn(),
   describeInboundImage: vi.fn(),
   transcribeInboundVoiceNote: vi.fn(),
@@ -230,6 +231,7 @@ vi.mock('@/lib/ai/voice-inbound-jobs', () => ({
 }))
 vi.mock('@/lib/queue/enqueue', () => ({
   enqueueAiChatReply: h.enqueueAiChatReply,
+  enqueueAiConversationAnalyze: h.enqueueAiConversationAnalyze,
   enqueueAiVoiceInbound: h.enqueueAiVoiceInbound,
 }))
 vi.mock('@/lib/ai/transcribe-inbound', () => ({
@@ -323,6 +325,7 @@ beforeEach(() => {
   h.dispatchInboundToAiReply.mockResolvedValue(undefined)
   h.enqueueVoiceInboundJob.mockResolvedValue(true)
   h.enqueueAiChatReply.mockResolvedValue(true)
+  h.enqueueAiConversationAnalyze.mockResolvedValue(true)
   h.enqueueAiVoiceInbound.mockResolvedValue(true)
   h.describeInboundImage.mockResolvedValue(null)
   h.transcribeInboundVoiceNote.mockResolvedValue(null)
@@ -393,6 +396,13 @@ describe('inbound webhook: idempotent insert (#367)', () => {
         conversationId: 'conv-1',
       }),
     )
+    expect(h.enqueueAiConversationAnalyze).toHaveBeenCalledWith(
+      expect.objectContaining({
+        accountId: 'acc-1',
+        conversationId: 'conv-1',
+        triggeringMessageId: 'msg-1',
+      }),
+    )
   })
 
   it('a replayed delivery is a no-op: no unread bump, no fan-out', async () => {
@@ -409,6 +419,7 @@ describe('inbound webhook: idempotent insert (#367)', () => {
     expect(h.runAutomationsForTrigger).not.toHaveBeenCalled()
     expect(h.dispatchInboundToAiReply).not.toHaveBeenCalled()
     expect(h.enqueueAiChatReply).not.toHaveBeenCalled()
+    expect(h.enqueueAiConversationAnalyze).not.toHaveBeenCalled()
     expect(h.dispatchWebhookEvent).not.toHaveBeenCalled()
   })
 })

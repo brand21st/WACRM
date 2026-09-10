@@ -24,6 +24,8 @@ import {
 import { sanitizeReferenceId, sanitizeWebhookText } from './sanitize'
 import { insertInboxNote } from './checkout'
 import { markContactWhatsAppPaid } from './paid-labels'
+import { enqueueAiConversationAnalyze } from '@/lib/queue/enqueue'
+import { aiConversationAnalyzeJob } from '@/lib/queue/jobs'
 import type { CommerceBeneficiary, MappedCartLine } from './types'
 import type { AppliedCommerceDiscount } from './shopify-discount'
 
@@ -209,6 +211,19 @@ export async function handleWhatsAppPaymentStatus(args: {
     } catch (err) {
       console.error('[commerce] WhatsApp paid label failed:', err)
     }
+  }
+
+  if (wasPending && conversationId) {
+    void enqueueAiConversationAnalyze(
+      aiConversationAnalyzeJob({
+        accountId,
+        conversationId,
+        contactId: contactId ?? '',
+        triggeringMessageId: `payment:${order.id}`,
+      }),
+    ).catch((err) => {
+      console.warn('[commerce] conversation analyze enqueue failed:', err)
+    })
   }
 
   // Create (or finish marking paid) the Shopify order before telling

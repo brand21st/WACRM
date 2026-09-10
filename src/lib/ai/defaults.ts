@@ -126,6 +126,11 @@ export function buildSystemPrompt(args: {
    */
   salesSnapshot?: string | null
   /**
+   * Historical tenant sales-pattern hints. Already formatted.
+   * Empty / omitted = do not inject guidance. Never a business fact.
+   */
+  salesGuidance?: string | null
+  /**
    * Trusted catalog facts for the currently focused product.
    * Already formatted. Empty / omitted = no live product loaded.
    */
@@ -151,6 +156,7 @@ export function buildSystemPrompt(args: {
     replyLanguage,
     productFocus,
     salesSnapshot,
+    salesGuidance,
     productFacts,
     replyDirective,
   } = args
@@ -227,6 +233,7 @@ export function buildSystemPrompt(args: {
     customerMemoryBlock(customerMemory),
     catalog ? salesVoiceBlock() : '',
     salesSnapshotBlock(salesSnapshot),
+    salesGuidanceBlock(salesGuidance),
     productFactsBlock(productFacts),
     replyDirectiveBlock(replyDirective),
     formatReplyLanguageInstruction(replyLanguage),
@@ -405,6 +412,12 @@ function salesSnapshotBlock(raw?: string | null): string {
   const snapshot = raw?.trim() || ''
   if (!snapshot) return ''
   return snapshot
+}
+
+function salesGuidanceBlock(raw?: string | null): string {
+  const guidance = raw?.trim() || ''
+  if (!guidance) return ''
+  return guidance
 }
 
 function productFactsBlock(raw?: string | null): string {

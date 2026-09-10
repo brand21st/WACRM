@@ -62,6 +62,10 @@ vi.mock('./paid-labels', () => ({
   markContactWhatsAppPaid: (...args: unknown[]) => markWhatsAppPaid(...args),
 }))
 
+vi.mock('@/lib/queue/enqueue', () => ({
+  enqueueAiConversationAnalyze: vi.fn().mockResolvedValue(false),
+}))
+
 import { handleWhatsAppPaymentStatus } from './payment'
 import {
   ORDER_CONFIRMED_BODY,

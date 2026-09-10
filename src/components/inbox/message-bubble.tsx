@@ -1,5 +1,7 @@
 "use client";
 
+import { useRef, useState } from "react";
+import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import type { Message, MessageReaction } from "@/types";
 import {
@@ -46,13 +48,13 @@ interface MessageBubbleProps {
 function StatusIcon({ status }: { status: Message["status"] }) {
   switch (status) {
     case "sending":
-      return <Clock className="h-3 w-3 text-muted-foreground" />;
+      return <Clock className="h-3 w-3 text-chat-meta" />;
     case "sent":
-      return <Check className="h-3 w-3 text-muted-foreground" />;
+      return <Check className="h-3 w-3 text-chat-meta" />;
     case "delivered":
-      return <CheckCheck className="h-3 w-3 text-muted-foreground" />;
+      return <CheckCheck className="h-3 w-3 text-chat-meta" />;
     case "read":
-      return <CheckCheck className="h-3 w-3 text-blue-400" />;
+      return <CheckCheck className="h-3 w-3 text-chat-ticks" />;
     case "failed":
       return <XCircle className="h-3 w-3 text-red-400" />;
     default:
@@ -68,7 +70,7 @@ function MessageContent({
 }: {
   message: Message;
   t: ReturnType<typeof useTranslations>;
-  /** Outbound bubbles sit on the primary fill — badges must invert. */
+  /** Outbound bubbles sit on the WhatsApp mint/teal fill. */
   isAgent: boolean;
   onOpenMedia?: (messageId: string) => void;
 }) {
@@ -139,20 +141,16 @@ function MessageContent({
       return <MediaDocumentBubble message={message} t={t} />;
 
     case "template":
-      // Templates are almost always outbound, where the bubble fill IS
-      // `primary` — so the old `bg-primary/20 text-primary` chip was
-      // primary-on-primary and invisible. Paired with a null
-      // content_text (issue #483) that rendered a bubble with nothing
-      // in it at all. Invert on the primary fill, and fall back to the
-      // template's name when we have no stored body (legacy rows sent
-      // before the fix).
+      // Templates are almost always outbound. The chip uses chat-ai so
+      // it stays readable on mint / night teal (issue #483 also covered
+      // empty bodies — fall back to the template name).
       return (
         <div>
           <span
             className={cn(
               "mb-1 inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium",
               isAgent
-                ? "bg-primary-foreground/20 text-primary-foreground"
+                ? "bg-chat-ai/15 text-chat-ai"
                 : "bg-primary/20 text-primary",
             )}
           >
@@ -183,7 +181,12 @@ function MessageContent({
 
     case "order":
       if (message.interactive_payload) {
-        return <InteractivePreview payload={message.interactive_payload} />;
+        return (
+          <div className="flex flex-col gap-2">
+            <InteractivePreview payload={message.interactive_payload} />
+            <SendCartCheckoutButton message={message} t={t} />
+          </div>
+        );
       }
       return (
         <p className="whitespace-pre-wrap break-words text-sm">
@@ -265,6 +268,62 @@ function MessageContent({
   }
 }
 
+function SendCartCheckoutButton({
+  message,
+  t,
+}: {
+  message: Message;
+  t: ReturnType<typeof useTranslations>;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [sent, setSent] = useState(false);
+  const inflight = useRef(false);
+
+  if (message.interactive_payload?.kind !== "inbound_order") return null;
+
+  return (
+    <button
+      type="button"
+      disabled={busy || sent}
+      onClick={() => {
+        if (inflight.current || sent) return;
+        inflight.current = true;
+        void (async () => {
+          setBusy(true);
+          try {
+            const res = await fetch("/api/commerce/retry-inbound-checkout", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                conversation_id: message.conversation_id,
+                message_id: message.id,
+              }),
+            });
+            const data = (await res.json().catch(() => null)) as {
+              error?: string;
+            } | null;
+            if (!res.ok) {
+              inflight.current = false;
+              toast.error(data?.error || t("checkoutSendFailed"));
+              return;
+            }
+            setSent(true);
+            toast.success(t("checkoutSent"));
+          } catch {
+            inflight.current = false;
+            toast.error(t("checkoutSendFailed"));
+          } finally {
+            setBusy(false);
+          }
+        })();
+      }}
+      className="w-full rounded-md bg-background px-2 py-1.5 text-xs font-medium text-foreground ring-1 ring-border hover:bg-background/80 disabled:opacity-60"
+    >
+      {sent ? t("checkoutSent") : busy ? t("sendingCheckout") : t("sendCheckout")}
+    </button>
+  );
+}
+
 export function MessageBubble({
   message,
   reply,
@@ -291,8 +350,8 @@ export function MessageBubble({
         className={cn(
           "relative rounded-2xl px-3 py-2",
           isAgent
-            ? "rounded-br-md bg-primary text-primary-foreground"
-            : "rounded-bl-md bg-muted text-foreground",
+            ? "rounded-br-md bg-chat-bubble-out text-chat-bubble-fg"
+            : "rounded-bl-md bg-chat-bubble-in text-chat-bubble-fg",
         )}
       >
         {reply && (
@@ -315,12 +374,10 @@ export function MessageBubble({
           )}
         >
           {/* AI badge — only on replies the auto-reply bot generated
-              (always outbound, so it sits on the primary fill). Lets
-              agents tell an AI reply from their own / a Flow's at a
-              glance. */}
+              (always outbound). Teal label matches WhatsApp's AI tag. */}
           {message.ai_generated && (
             <span
-              className="inline-flex items-center gap-0.5 rounded-full bg-primary-foreground/20 px-1.5 py-px text-[9px] font-semibold uppercase leading-none tracking-wide text-primary-foreground"
+              className="inline-flex items-center gap-0.5 rounded-full bg-chat-ai/15 px-1.5 py-px text-[9px] font-semibold uppercase leading-none tracking-wide text-chat-ai"
               title={t("aiBadgeTitle")}
             >
               <Sparkles className="h-2.5 w-2.5" />
@@ -332,23 +389,14 @@ export function MessageBubble({
               className={cn(
                 "inline-flex items-center rounded-full px-1.5 py-px text-[9px] font-semibold uppercase leading-none tracking-wide",
                 isAgent
-                  ? "bg-primary-foreground/20 text-primary-foreground"
-                  : "bg-background/60 text-muted-foreground",
+                  ? "bg-chat-ai/15 text-chat-ai"
+                  : "bg-chat-bg/60 text-chat-meta",
               )}
             >
               {t("onCallBadge")}
             </span>
           )}
-          <span
-            className={cn(
-              "text-[10px]",
-              // Outbound bubbles sit on the primary fill, so the
-              // timestamp must read against that (not the neutral
-              // foreground) — otherwise it goes low-contrast in light
-              // mode. Inbound bubbles use the muted surface.
-              isAgent ? "text-primary-foreground/70" : "text-muted-foreground",
-            )}
-          >
+          <span className="text-[10px] text-chat-meta">
             {time}
           </span>
           {isAgent && <StatusIcon status={message.status} />}

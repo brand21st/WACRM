@@ -3,6 +3,7 @@ import {
   FULL_AGENT_FALLBACK_REPLY,
   buildSystemPrompt,
 } from './defaults'
+import { formatSalesPatternGuidance } from './intelligence/sales-pattern-prompt'
 
 describe('buildSystemPrompt', () => {
   it('teaches spoken Indian-language matching including Manglish', () => {
@@ -397,6 +398,48 @@ describe('buildSystemPrompt', () => {
     expect(prompt).toMatch(/Checkout NOW is sent separately/)
     expect(prompt).not.toMatch(/Include the View\/Buy/)
     expect(prompt).not.toMatch(/Buy: https/)
+  })
+
+  it('injects sales guidance after the snapshot and before product facts', () => {
+    const salesGuidance = formatSalesPatternGuidance([
+      {
+        recommendedBehavior: 'OFFER_RELEVANT_ALTERNATIVE',
+        patternType: 'PRICE_OBJECTION',
+        context: { category: 'saree' },
+        confidence: 0.7,
+        sampleCount: 12,
+        eligibleOutcomeCount: 10,
+      },
+    ])
+    const prompt = buildSystemPrompt({
+      userPrompt: null,
+      mode: 'auto_reply',
+      shopify: true,
+      salesSnapshot: 'Current sales conversation snapshot\ncategory: saree',
+      salesGuidance,
+      productFacts: 'Current product facts\nprice: 1499',
+    })
+    const snapshotAt = prompt.indexOf('Current sales conversation snapshot')
+    const guidanceAt = prompt.indexOf('Business Sales Guidance')
+    const factsAt = prompt.indexOf('Current product facts')
+    expect(snapshotAt).toBeGreaterThan(-1)
+    expect(guidanceAt).toBeGreaterThan(snapshotAt)
+    expect(factsAt).toBeGreaterThan(guidanceAt)
+    expect(prompt).toMatch(/not a business policy/)
+    expect(prompt).toMatch(/not permission to discount/)
+    expect(prompt).toMatch(/must not override the current customer request/)
+    expect(prompt).toMatch(/must not override current catalog facts/)
+    expect(prompt).toMatch(/Do not mention past customers/)
+    expect(prompt).toMatch(/Do not say/)
+  })
+
+  it('omits sales guidance when the optional block is empty', () => {
+    const prompt = buildSystemPrompt({
+      userPrompt: null,
+      mode: 'auto_reply',
+      shopify: true,
+    })
+    expect(prompt).not.toMatch(/Business Sales Guidance/)
   })
 
   it('does not add a shop welcome when Shopify is off', () => {

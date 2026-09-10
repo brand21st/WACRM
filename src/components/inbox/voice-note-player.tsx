@@ -13,6 +13,20 @@ function formatVoiceClock(seconds: number): string {
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
+/** Only one inbox voice note (or composer preview) plays at a time. */
+let activeVoice: HTMLAudioElement | null = null;
+
+function claimVoicePlayback(el: HTMLAudioElement) {
+  if (activeVoice && activeVoice !== el) {
+    activeVoice.pause();
+  }
+  activeVoice = el;
+}
+
+function releaseVoicePlayback(el: HTMLAudioElement) {
+  if (activeVoice === el) activeVoice = null;
+}
+
 /**
  * WhatsApp-native voice-note player: play button, real envelope bars,
  * playhead, duration, mic glyph. Shared by the thread bubble and the
@@ -28,7 +42,7 @@ export function VoiceNotePlayer({
   src: string;
   playLabel: string;
   pauseLabel: string;
-  /** `preview` is the light composer card; outbound is the green bubble. */
+  /** `preview` is the light composer card; outbound sits on the WhatsApp bubble. */
   variant?: "outbound" | "inbound" | "preview";
   className?: string;
 }) {
@@ -62,11 +76,18 @@ export function VoiceNotePlayer({
       if (el.paused && el.currentTime === 0) writeClock(el.duration || 0);
     };
     const onEnded = () => {
+      releaseVoicePlayback(el);
       setPlaying(false);
       writeClock(el.duration || 0);
     };
-    const onPause = () => setPlaying(false);
-    const onPlay = () => setPlaying(true);
+    const onPause = () => {
+      releaseVoicePlayback(el);
+      setPlaying(false);
+    };
+    const onPlay = () => {
+      claimVoicePlayback(el);
+      setPlaying(true);
+    };
     el.addEventListener("loadedmetadata", onMeta);
     el.addEventListener("ended", onEnded);
     el.addEventListener("pause", onPause);
@@ -76,6 +97,8 @@ export function VoiceNotePlayer({
       el.removeEventListener("ended", onEnded);
       el.removeEventListener("pause", onPause);
       el.removeEventListener("play", onPlay);
+      el.pause();
+      releaseVoicePlayback(el);
     };
   }, [src]);
 
@@ -96,8 +119,12 @@ export function VoiceNotePlayer({
   const toggle = useCallback(() => {
     const el = audioRef.current;
     if (!el) return;
-    if (el.paused) void el.play();
-    else el.pause();
+    if (el.paused) {
+      claimVoicePlayback(el);
+      void el.play();
+    } else {
+      el.pause();
+    }
   }, []);
 
   const seek = useCallback(
@@ -130,7 +157,7 @@ export function VoiceNotePlayer({
         className={cn(
           "flex h-9 w-9 shrink-0 items-center justify-center rounded-full",
           variant === "outbound"
-            ? "bg-black/20 text-primary-foreground"
+            ? "bg-[#111b21] text-white"
             : variant === "preview"
               ? "bg-rose-400 text-white"
               : "bg-primary text-primary-foreground",
@@ -156,14 +183,14 @@ export function VoiceNotePlayer({
             revision={scrub}
             className={
               variant === "inbound"
-                ? "[--wave-bar:rgba(0,0,0,0.35)] [--wave-bar-played:#f87171]"
+                ? "[--wave-bar:color-mix(in_srgb,var(--chat-bubble-fg)_35%,transparent)] [--wave-bar-played:#f87171]"
                 : variant === "preview"
                   ? "[--wave-bar:rgba(0,0,0,0.4)] [--wave-bar-played:#f87171]"
-                  : "[--wave-bar:rgba(0,0,0,0.42)] [--wave-bar-played:#f87171]"
+                  : "[--wave-bar:color-mix(in_srgb,var(--chat-bubble-fg)_42%,transparent)] [--wave-bar-played:#f87171]"
             }
           />
         </button>
-        <div className="mt-0.5 text-[10px] tabular-nums text-muted-foreground">
+        <div className="mt-0.5 text-[10px] tabular-nums text-chat-meta">
           <span ref={clockRef}>{formatVoiceClock(duration)}</span>
         </div>
       </div>

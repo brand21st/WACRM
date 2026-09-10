@@ -48,6 +48,16 @@
   --color-primary-hover: var(--primary-hover);
   --color-primary-soft: var(--primary-soft);
   --color-primary-soft-2: var(--primary-soft-2);
+  /* Inbox message canvas — WhatsApp chat colors, orthogonal to accent. */
+  --color-chat-bg: var(--chat-bg);
+  --color-chat-bubble-out: var(--chat-bubble-out);
+  --color-chat-bubble-in: var(--chat-bubble-in);
+  --color-chat-bubble-fg: var(--chat-bubble-fg);
+  --color-chat-meta: var(--chat-meta);
+  --color-chat-ai: var(--chat-ai);
+  --color-chat-ticks: var(--chat-ticks);
+  --color-chat-date-chip: var(--chat-date-chip);
+  --color-chat-date-fg: var(--chat-date-fg);
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
@@ -82,6 +92,10 @@
  *
  * Token shapes come straight from the design handoff at
  * project/Color Themes.html — change one, change the other.
+ *
+ * Inbox `--chat-*` tokens are a third, canvas-only layer: classic
+ * WhatsApp Web (light) / WhatsApp night (dark). They do not change
+ * --primary or the Settings accent picker.
  * ============================================================ */
 
 /* ---- MODE: neutral surfaces ---- */
@@ -114,6 +128,16 @@ html[data-mode="dark"] {
   --sidebar-accent: oklch(0.22 0.01 260);
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(0.28 0.01 260);
+  /* Inbox thread only — WhatsApp night chat. Accent themes stay untouched. */
+  --chat-bg: #0b141a;
+  --chat-bubble-out: #005c4b;
+  --chat-bubble-in: #202c33;
+  --chat-bubble-fg: #e9edef;
+  --chat-meta: #8696a0;
+  --chat-ai: #00a884;
+  --chat-ticks: #53bdeb;
+  --chat-date-chip: #182229;
+  --chat-date-fg: #8696a0;
 }
 
 html[data-mode="light"] {
@@ -143,6 +167,16 @@ html[data-mode="light"] {
   --sidebar-accent: oklch(0.96 0.004 260);
   --sidebar-accent-foreground: oklch(0.25 0.01 260);
   --sidebar-border: oklch(0.922 0.004 260);
+  /* Inbox thread only — classic WhatsApp Web light. */
+  --chat-bg: #efeae2;
+  --chat-bubble-out: #d9fdd3;
+  --chat-bubble-in: #ffffff;
+  --chat-bubble-fg: #111b21;
+  --chat-meta: #667781;
+  --chat-ai: #008069;
+  --chat-ticks: #53bdeb;
+  --chat-date-chip: rgba(255, 255, 255, 0.85);
+  --chat-date-fg: #54656f;
 }
 
 /* ---- ACCENT: primary color ---- */

@@ -1,4 +1,11 @@
+import {
+  analyzeJobIdempotencyKey,
+  type ConversationAnalyzeJob,
+} from '@/lib/ai/intelligence/contracts'
 import type { InboundModality } from '@/lib/ai/voice'
+
+export type { ConversationAnalyzeJob }
+export { analyzeJobIdempotencyKey }
 
 export interface AiChatReplyJob {
   accountId: string
@@ -81,4 +88,49 @@ export interface AiConversationFollowUpJob {
   conversationId: string
   followUpId: string
   triggeringMessageId: string
+}
+
+export interface AiSalesPatternDiscoverJob {
+  accountId: string
+  /** `${accountId}:patterns` */
+  idempotencyKey: string
+}
+
+export function aiSalesPatternDiscoverJob(accountId: string): AiSalesPatternDiscoverJob {
+  const id = accountId.trim()
+  return {
+    accountId: id,
+    idempotencyKey: `${id}:patterns`,
+  }
+}
+
+export interface AiSalesPatternEffectivenessJob {
+  accountId: string
+  /** `${accountId}:effectiveness` */
+  idempotencyKey: string
+}
+
+export function aiSalesPatternEffectivenessJob(
+  accountId: string,
+): AiSalesPatternEffectivenessJob {
+  const id = accountId.trim()
+  return {
+    accountId: id,
+    idempotencyKey: `${id}:effectiveness`,
+  }
+}
+
+export function aiConversationAnalyzeJob(args: {
+  accountId: string
+  conversationId: string
+  contactId: string
+  triggeringMessageId: string
+}): ConversationAnalyzeJob {
+  return {
+    accountId: args.accountId,
+    conversationId: args.conversationId,
+    contactId: args.contactId,
+    triggeringMessageId: args.triggeringMessageId,
+    idempotencyKey: analyzeJobIdempotencyKey(args),
+  }
 }
