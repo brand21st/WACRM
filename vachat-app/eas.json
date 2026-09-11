@@ -1,0 +1,34 @@
+{
+  "cli": {
+    "version": ">= 16.0.1",
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal"
+    },
+    "preview": {
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_SUPABASE_URL": "https://ijfgwiewyniwrqbbqmbz.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlqZmd3aWV3eW5pd3JxYmJxbWJ6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODgxOTMzMDIsImV4cCI6MjEwMzc2OTMwMn0.p9piF5iZBJIEucnNMKAzeZXDJHLP4obTJZ-8HrxcP2w",
+        "EXPO_PUBLIC_API_URL": "https://cloud.vachat.in"
+      }
+    },
+    "production": {
+      "autoIncrement": true,
+      "android": {
+        "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_SUPABASE_URL": "https://ijfgwiewyniwrqbbqmbz.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlqZmd3aWV3eW5pd3JxYmJxbWJ6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODgxOTMzMDIsImV4cCI6MjEwMzc2OTMwMn0.p9piF5iZBJIEucnNMKAzeZXDJHLP4obTJZ-8HrxcP2w",
+        "EXPO_PUBLIC_API_URL": "https://cloud.vachat.in"
+      }
+    }
+  }
+}
