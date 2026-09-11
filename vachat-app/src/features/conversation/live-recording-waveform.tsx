@@ -93,9 +93,6 @@ const styles = StyleSheet.create({
     borderRadius: 1,
     height: MAX_BAR,
     transform: [{ scaleY: MIN_BAR / MAX_BAR }],
-    transitionDuration: '90ms',
-    transitionProperty: 'transform',
-    transitionTimingFunction: 'linear',
     width: BAR_WIDTH,
   },
 });

@@ -185,9 +185,14 @@ export function MessageComposer({
   async function onVoicePress() {
     if (locked || windowExpired) return;
     setAttachOpen(false);
-    const started = await startVoice();
-    if (!started) {
-      Alert.alert('Microphone', 'Allow microphone access to send voice notes.');
+    try {
+      const started = await startVoice();
+      if (!started) {
+        Alert.alert('Microphone', 'Allow microphone access to send voice notes.');
+      }
+    } catch (err) {
+      console.error('[message-composer] onVoicePress error:', err);
+      Alert.alert('Microphone', 'Could not access microphone.');
     }
   }
 

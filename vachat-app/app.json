@@ -22,6 +22,7 @@
       "versionCode": 2,
       "permissions": [
         "RECORD_AUDIO",
+        "MODIFY_AUDIO_SETTINGS",
         "POST_NOTIFICATIONS",
         "RECEIVE_BOOT_COMPLETED"
       ],

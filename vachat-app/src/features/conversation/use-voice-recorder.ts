@@ -282,11 +282,36 @@ function useWebVoiceRecorder() {
   return { isRecording, durationMs, meterLevel, draft, start, stop, pause, cancel };
 }
 
+const NATIVE_VOICE_OPTIONS = {
+  extension: '.m4a',
+  sampleRate: 44100,
+  numberOfChannels: 1, // Mono: essential for compatibility with Android built-in microphones
+  bitRate: 64000,
+  isMeteringEnabled: true,
+  android: {
+    extension: '.m4a',
+    outputFormat: 'mpeg4' as const,
+    audioEncoder: 'aac' as const,
+    sampleRate: 44100,
+    numberOfChannels: 1,
+    bitRate: 64000,
+  },
+  ios: {
+    extension: '.m4a',
+    outputFormat: 'mpeg4aac' as const,
+    audioQuality: 127,
+    sampleRate: 44100,
+    numberOfChannels: 1,
+    bitRate: 64000,
+  },
+  web: {
+    mimeType: 'audio/webm',
+    bitsPerSecond: 64000,
+  },
+};
+
 function useNativeVoiceRecorder() {
-  const recorder = useAudioRecorder({
-    ...RecordingPresets.HIGH_QUALITY,
-    isMeteringEnabled: true,
-  });
+  const recorder = useAudioRecorder(NATIVE_VOICE_OPTIONS);
   const state = useAudioRecorderState(recorder, 200);
   const [draft, setDraft] = useState<VoiceRecording | null>(null);
   const stoppingRef = useRef(false);
@@ -295,18 +320,36 @@ function useNativeVoiceRecorder() {
   const start = useCallback(async (): Promise<boolean> => {
     if (state.isRecording || stoppingRef.current || draft) return false;
 
-    const { granted } = await requestRecordingPermissionsAsync();
-    if (!granted) return false;
+    try {
+      const { granted } = await requestRecordingPermissionsAsync();
+      if (!granted) return false;
 
-    await setAudioModeAsync({
-      allowsRecording: true,
-      playsInSilentMode: true,
-    });
-    await recorder.prepareToRecordAsync();
-    recorder.record({ forDuration: MAX_RECORDING_SECONDS });
-    startedAtRef.current = Date.now();
-    setDraft(null);
-    return true;
+      try {
+        await setAudioModeAsync({
+          allowsRecording: true,
+          playsInSilentMode: true,
+        });
+      } catch (audioModeErr) {
+        console.warn('[voice-recorder] setAudioModeAsync notice:', audioModeErr);
+      }
+
+      // Safely prepare the recorder; if already prepared, ignore the exception
+      try {
+        await recorder.prepareToRecordAsync();
+      } catch (prepErr) {
+        console.warn('[voice-recorder] prepareToRecordAsync notice:', prepErr);
+      }
+
+      recorder.record({ forDuration: MAX_RECORDING_SECONDS });
+      startedAtRef.current = Date.now();
+      setDraft(null);
+      return true;
+    } catch (error) {
+      console.error('[voice-recorder] start recording failed:', error);
+      stoppingRef.current = false;
+      startedAtRef.current = 0;
+      return false;
+    }
   }, [draft, recorder, state.isRecording]);
 
   const finishCapture = useCallback(async (): Promise<VoiceRecording | null> => {
@@ -314,21 +357,29 @@ function useNativeVoiceRecorder() {
 
     stoppingRef.current = true;
     try {
-      await recorder.stop();
+      try {
+        await recorder.stop();
+      } catch (stopErr) {
+        console.warn('[voice-recorder] stop notice:', stopErr);
+      }
+
+      const uri = recorder.uri;
+      const durationMs = Math.max(
+        state.durationMillis,
+        startedAtRef.current > 0 ? Date.now() - startedAtRef.current : 0,
+      );
+      startedAtRef.current = 0;
+      if (!uri || durationMs < MIN_RECORDING_MS) return null;
+
+      const { mimeType, fileName } = fileMetaForUri(uri);
+      return { uri, fileName, mimeType, durationMs };
+    } catch (err) {
+      console.error('[voice-recorder] finishCapture failed:', err);
+      return null;
     } finally {
       stoppingRef.current = false;
+      startedAtRef.current = 0;
     }
-
-    const uri = recorder.uri;
-    const durationMs = Math.max(
-      state.durationMillis,
-      startedAtRef.current > 0 ? Date.now() - startedAtRef.current : 0,
-    );
-    startedAtRef.current = 0;
-    if (!uri || durationMs < MIN_RECORDING_MS) return null;
-
-    const { mimeType, fileName } = fileMetaForUri(uri);
-    return { uri, fileName, mimeType, durationMs };
   }, [recorder, state.durationMillis, state.isRecording]);
 
   const cancel = useCallback(async () => {
@@ -340,6 +391,8 @@ function useNativeVoiceRecorder() {
     stoppingRef.current = true;
     try {
       await recorder.stop();
+    } catch (err) {
+      console.warn('[voice-recorder] cancel stop notice:', err);
     } finally {
       stoppingRef.current = false;
       startedAtRef.current = 0;
