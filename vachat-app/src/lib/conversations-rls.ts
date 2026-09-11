@@ -144,7 +144,8 @@ export async function loadConversationsViaRls(): Promise<MobileConversation[]> {
   const withContact = await supabase
     .from('conversations')
     .select(CONVERSATION_SELECT)
-    .order('last_message_at', { ascending: false })
+    .order('last_message_at', { ascending: false, nullsFirst: false })
+    .order('created_at', { ascending: false })
     .limit(100);
 
   if (!withContact.error) {
@@ -154,7 +155,8 @@ export async function loadConversationsViaRls(): Promise<MobileConversation[]> {
   const plain = await supabase
     .from('conversations')
     .select('*')
-    .order('last_message_at', { ascending: false })
+    .order('last_message_at', { ascending: false, nullsFirst: false })
+    .order('created_at', { ascending: false })
     .limit(100);
   if (plain.error) throw new Error(plain.error.message);
 

@@ -11,8 +11,11 @@ export async function fetchConversations(signal?: AbortSignal): Promise<MobileCo
     });
     return data.conversations;
   } catch (error) {
-    if (!isOfflineApiError(error)) throw error;
-    return loadConversationsViaRls();
+    try {
+      return await loadConversationsViaRls();
+    } catch {
+      throw error;
+    }
   }
 }
 
@@ -24,7 +27,10 @@ export async function fetchConversation(id: string, signal?: AbortSignal): Promi
     });
     return data.conversation;
   } catch (error) {
-    if (!isOfflineApiError(error)) throw error;
-    return loadConversationViaRls(id);
+    try {
+      return await loadConversationViaRls(id);
+    } catch {
+      throw error;
+    }
   }
 }

@@ -7,7 +7,10 @@ export async function fetchAccount(signal?: AbortSignal): Promise<MobileAuthResp
   try {
     return await apiGet<MobileAuthResponse>('/api/account', { signal, quiet: true });
   } catch (error) {
-    if (!isOfflineApiError(error)) throw error;
-    return loadAccountViaRls();
+    try {
+      return await loadAccountViaRls();
+    } catch {
+      throw error;
+    }
   }
 }
