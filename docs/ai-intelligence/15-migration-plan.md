@@ -30,12 +30,20 @@ Applied in [`supabase/migrations/095_sales_pattern_effectiveness.sql`](../../sup
 `ai_configs.sales_pattern_effectiveness`. Does **not** extend
 `ai_usage_log`.
 
+## Phase 7
+
+Applied in [`supabase/migrations/096_ai_behavior_optimization.sql`](../../supabase/migrations/096_ai_behavior_optimization.sql):
+`ai_behavior_versions`, `ai_behavior_experiments`,
+`ai_behavior_assignments`, `ai_behavior_optimization_cursors`,
+`ai_configs.ai_behavior_optimization` (default **off**). Does **not**
+extend `ai_usage_log`.
+
 ## Later (do not apply now)
 
-### Phase 7 — reply metadata (sketch)
+### Phase 8 — autonomous / statistical optimization (out of scope)
 
-Additive columns on `ai_usage_log` or a small traces table:
-`prompt_hash`, `knowledge_chunk_ids`, `pattern_version`.
+Automatic promotion, LLM-generated prompts, multi-variant overlap,
+Bayesian tests, live shadow, or model/provider experiments.
 
 ## Compatibility
 

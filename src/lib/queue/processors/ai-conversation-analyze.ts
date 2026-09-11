@@ -1,5 +1,8 @@
 import { supabaseAdmin } from '@/lib/ai/admin-client'
-import { analyzeConversation } from '@/lib/ai/intelligence/analyze-conversation'
+import {
+  analyzeConversation,
+  markAnalysisFailed,
+} from '@/lib/ai/intelligence/analyze-conversation'
 import type { ConversationAnalyzeJob } from '@/lib/queue/jobs'
 
 /**
@@ -9,5 +12,11 @@ import type { ConversationAnalyzeJob } from '@/lib/queue/jobs'
 export async function processAiConversationAnalyze(
   job: ConversationAnalyzeJob,
 ): Promise<void> {
-  await analyzeConversation(supabaseAdmin(), job)
+  const db = supabaseAdmin()
+  try {
+    await analyzeConversation(db, job)
+  } catch (error) {
+    await markAnalysisFailed(db, job, error)
+    throw error
+  }
 }

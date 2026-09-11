@@ -1,66 +1,72 @@
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest';
 
 const constructed: Array<{
-  name: string
-  concurrency: number
-  lockDuration: number
-}> = []
+  name: string;
+  concurrency: number;
+  lockDuration: number;
+}> = [];
 
 vi.mock('bullmq', () => ({
   Worker: class {
     constructor(
       name: string,
       _processor: unknown,
-      opts: { concurrency: number; lockDuration: number },
+      opts: { concurrency: number; lockDuration: number }
     ) {
       constructed.push({
         name,
         concurrency: opts.concurrency,
         lockDuration: opts.lockDuration,
-      })
+      });
     }
   },
-}))
+}));
 
 vi.mock('@/lib/queue/processors/ai-chat-reply', () => ({
   processAiChatReply: vi.fn(),
-}))
+}));
 vi.mock('@/lib/queue/processors/ai-voice-inbound', () => ({
   processAiVoiceInbound: vi.fn(),
-}))
+}));
 vi.mock('@/lib/queue/processors/call-recording', () => ({
   processCallRecordingJob: vi.fn(),
-}))
+}));
 vi.mock('@/lib/queue/processors/knowledge-scrape', () => ({
   processKnowledgeScrape: vi.fn(),
-}))
+}));
 vi.mock('@/lib/queue/processors/catalog-meta-sync', () => ({
   processCatalogMetaSync: vi.fn(),
-}))
+}));
 vi.mock('@/lib/queue/processors/catalog-embed', () => ({
   processCatalogEmbed: vi.fn(),
-}))
+}));
 vi.mock('@/lib/queue/processors/ai-conversation-follow-up', () => ({
   processAiConversationFollowUp: vi.fn(),
-}))
+}));
 vi.mock('@/lib/queue/processors/ai-conversation-analyze', () => ({
   processAiConversationAnalyze: vi.fn(),
-}))
+}));
 vi.mock('@/lib/queue/processors/ai-sales-pattern-discover', () => ({
   processAiSalesPatternDiscover: vi.fn(),
-}))
+}));
 vi.mock('@/lib/queue/processors/ai-sales-pattern-effectiveness', () => ({
   processAiSalesPatternEffectiveness: vi.fn(),
-}))
+}));
+vi.mock('@/lib/queue/processors/ai-behavior-optimization', () => ({
+  processAiBehaviorOptimization: vi.fn(),
+}));
+vi.mock('@/lib/queue/processors/ai-recommendation-intelligence', () => ({
+  processAiRecommendationIntelligence: vi.fn(),
+}));
 
-import { createQueueWorkers } from './create-workers'
-import { QUEUE_NAMES, WORKER_CONCURRENCY, WORKER_LOCK_MS } from './names'
+import { createQueueWorkers } from './create-workers';
+import { QUEUE_NAMES, WORKER_CONCURRENCY, WORKER_LOCK_MS } from './names';
 
 describe('createQueueWorkers', () => {
   it('starts one worker per queue with planned concurrency and lock', () => {
-    constructed.length = 0
-    const workers = createQueueWorkers({ host: '127.0.0.1', port: 6379 })
-    expect(workers).toHaveLength(10)
+    constructed.length = 0;
+    const workers = createQueueWorkers({ host: '127.0.0.1', port: 6379 });
+    expect(workers).toHaveLength(12);
     expect(constructed.map((w) => w.name)).toEqual([
       QUEUE_NAMES.aiChatReply,
       QUEUE_NAMES.aiVoiceInbound,
@@ -71,31 +77,57 @@ describe('createQueueWorkers', () => {
       QUEUE_NAMES.aiConversationFollowUp,
       QUEUE_NAMES.aiConversationAnalyze,
       QUEUE_NAMES.aiSalesPatternDiscover,
+      QUEUE_NAMES.aiRecommendationIntelligence,
       QUEUE_NAMES.aiSalesPatternEffectiveness,
-    ])
+      QUEUE_NAMES.aiBehaviorOptimization,
+    ]);
     expect(constructed[0]).toMatchObject({
       concurrency: WORKER_CONCURRENCY.aiChatReply,
       lockDuration: WORKER_LOCK_MS.aiChatReply,
-    })
+    });
     expect(constructed[1]).toMatchObject({
       concurrency: WORKER_CONCURRENCY.aiVoiceInbound,
       lockDuration: WORKER_LOCK_MS.aiVoiceInbound,
-    })
+    });
     expect(constructed[2]).toMatchObject({
       concurrency: WORKER_CONCURRENCY.callRecording,
       lockDuration: WORKER_LOCK_MS.callRecording,
-    })
+    });
     expect(constructed[3]).toMatchObject({
       concurrency: WORKER_CONCURRENCY.knowledgeScrape,
       lockDuration: WORKER_LOCK_MS.knowledgeScrape,
-    })
+    });
     expect(constructed[4]).toMatchObject({
       concurrency: WORKER_CONCURRENCY.catalogMetaSync,
       lockDuration: WORKER_LOCK_MS.catalogMetaSync,
-    })
+    });
     expect(constructed[5]).toMatchObject({
       concurrency: WORKER_CONCURRENCY.catalogEmbed,
       lockDuration: WORKER_LOCK_MS.catalogEmbed,
-    })
-  })
-})
+    });
+  });
+
+  it('can isolate customer-facing and learning workers', () => {
+    constructed.length = 0;
+    createQueueWorkers({ host: '127.0.0.1', port: 6379 }, 'customer');
+    expect(constructed.map((worker) => worker.name)).toEqual([
+      QUEUE_NAMES.aiChatReply,
+      QUEUE_NAMES.aiVoiceInbound,
+      QUEUE_NAMES.callRecording,
+      QUEUE_NAMES.knowledgeScrape,
+      QUEUE_NAMES.catalogMetaSync,
+      QUEUE_NAMES.catalogEmbed,
+      QUEUE_NAMES.aiConversationFollowUp,
+    ]);
+
+    constructed.length = 0;
+    createQueueWorkers({ host: '127.0.0.1', port: 6379 }, 'learning');
+    expect(constructed.map((worker) => worker.name)).toEqual([
+      QUEUE_NAMES.aiConversationAnalyze,
+      QUEUE_NAMES.aiSalesPatternDiscover,
+      QUEUE_NAMES.aiRecommendationIntelligence,
+      QUEUE_NAMES.aiSalesPatternEffectiveness,
+      QUEUE_NAMES.aiBehaviorOptimization,
+    ]);
+  });
+});

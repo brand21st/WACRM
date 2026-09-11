@@ -1,4 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { enqueueAiConversationAnalyze } from '@/lib/queue/enqueue'
+import { aiConversationAnalyzeJob } from '@/lib/queue/jobs'
 
 import { isUniqueViolation } from '@/lib/contacts/dedupe'
 import { mapPool } from '@/lib/concurrency'
@@ -162,6 +164,7 @@ export async function executeVoiceInboundWork(
 
   let transcript =
     typeof message.content_text === 'string' ? message.content_text.trim() : ''
+  let enrichmentPersisted = Boolean(transcript)
   if (!transcript) {
     const text = await transcribeInboundVoiceNote({
       accountId: row.account_id,
@@ -181,6 +184,7 @@ export async function executeVoiceInboundWork(
       if (trErr) {
         console.error('[voice-jobs] persist transcript failed:', trErr.message)
       } else {
+        enrichmentPersisted = true
         await db
           .from('conversations')
           .update({ last_message_text: transcript })
@@ -198,12 +202,24 @@ export async function executeVoiceInboundWork(
     if (phErr) {
       console.error('[voice-jobs] persist voice placeholder failed:', phErr.message)
     } else {
+      enrichmentPersisted = true
       await db
         .from('conversations')
         .update({ last_message_text: transcript })
         .eq('id', row.conversation_id)
     }
   }
+
+  if (enrichmentPersisted) void enqueueAiConversationAnalyze(
+    aiConversationAnalyzeJob({
+      accountId: row.account_id,
+      conversationId: row.conversation_id,
+      contactId: row.contact_id,
+      trigger: { type: 'message', messageId: row.message_id },
+    }),
+  ).catch((error) => {
+    console.warn('[voice-jobs] learning enqueue failed:', error)
+  })
 
   await dispatchInboundToAiReply({
     accountId: row.account_id,

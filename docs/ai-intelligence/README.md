@@ -16,8 +16,10 @@ tenant-scoped `sales_patterns`. Phase 5 can retrieve **active**
 patterns into live auto-reply as behavioral hints, behind
 `sales_pattern_retrieval` (default **off**). Phase 6 records injected
 usage and may flip `retrieval_eligible` behind
-`sales_pattern_effectiveness` (default **off**). It does **not** train
-models.
+`sales_pattern_effectiveness` (default **off**). Phase 7 adds
+tenant-scoped **controlled behavior experiments** behind
+`ai_behavior_optimization` (default **off**). It does **not** train
+models or rewrite production prompts.
 
 ## Layers (do not mix)
 
@@ -61,3 +63,4 @@ Runtime code: [`src/lib/ai/intelligence/`](../../src/lib/ai/intelligence/).
 18. [Tenant Sales Patterns (Phase 4)](./18-sales-patterns.md)
 19. [Tenant Sales Pattern Retrieval (Phase 5)](./19-sales-pattern-retrieval.md)
 20. [Sales Pattern Effectiveness (Phase 6)](./20-pattern-effectiveness.md)
+21. [Controlled AI Optimization (Phase 7)](./21-controlled-ai-optimization.md)

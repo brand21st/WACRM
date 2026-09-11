@@ -66,6 +66,10 @@ vi.mock('@/lib/queue/enqueue', () => ({
   enqueueAiConversationAnalyze: vi.fn().mockResolvedValue(false),
 }))
 
+vi.mock('@/lib/ai/intelligence/trigger-learning', () => ({
+  markConversationLearningPending: vi.fn().mockResolvedValue(true),
+}))
+
 import { handleWhatsAppPaymentStatus } from './payment'
 import {
   ORDER_CONFIRMED_BODY,

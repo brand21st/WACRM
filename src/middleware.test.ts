@@ -4,11 +4,14 @@ import { NextRequest } from "next/server";
 // --- Scenario knobs the mock reads -----------------------------------------
 // `mockUser`         — what getUser() resolves to (a refreshed session ⇒ user,
 //                      or null for the logged-out path).
+// `mockBearerUser`   — what getUser(jwt) resolves to when a Bearer token is
+//                      presented and cookie getUser() found no session.
 // `refreshedCookies` — cookies Supabase writes via setAll() during getUser(),
 //                      i.e. the freshly *rotated* auth token. The whole point
 //                      of the test is that these must survive onto whatever
 //                      response the middleware returns — including redirects.
 let mockUser: { id: string } | null = null;
+let mockBearerUser: { id: string } | null = null;
 let refreshedCookies: Array<{
   name: string;
   value: string;
@@ -27,8 +30,10 @@ vi.mock("@supabase/ssr", () => ({
       // Mirrors real auth-js: an expired access token is transparently
       // refreshed inside getUser(), which rotates the refresh token and
       // pushes the new cookies through setAll() before resolving.
-      getUser: async () => {
+      // getUser(jwt) is the mobile Bearer path.
+      getUser: async (jwt?: string) => {
         if (refreshedCookies.length) opts.cookies.setAll(refreshedCookies);
+        if (jwt) return { data: { user: mockBearerUser } };
         return { data: { user: mockUser } };
       },
     },
@@ -42,6 +47,7 @@ beforeEach(() => {
   process.env.NEXT_PUBLIC_SUPABASE_URL = "https://test.supabase.co";
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = "anon-key";
   mockUser = null;
+  mockBearerUser = null;
   refreshedCookies = [];
 });
 
@@ -214,6 +220,62 @@ describe("middleware — refreshed auth cookies survive redirects", () => {
     // No redirect — the normal NextResponse.next() already carries cookies.
     expect(res.headers.get("location")).toBeNull();
     expect(res.cookies.get(ROTATED.name)?.value).toBe(ROTATED.value);
+  });
+});
+
+describe("middleware — Bearer user JWT on /api/whatsapp", () => {
+  it("401s /api/whatsapp/send with no cookie and no Bearer", async () => {
+    mockUser = null;
+
+    const res = await middleware(
+      new NextRequest("https://app.test/api/whatsapp/send", { method: "POST" }),
+    );
+
+    expect(res.status).toBe(401);
+    expect(await res.json()).toEqual({ error: "Unauthorized" });
+  });
+
+  it("lets a valid Bearer user JWT through the /api/whatsapp gate", async () => {
+    mockUser = null;
+    mockBearerUser = { id: "mobile-user" };
+
+    const res = await middleware(
+      new NextRequest("https://app.test/api/whatsapp/send", {
+        method: "POST",
+        headers: { Authorization: "Bearer valid-user-jwt" },
+      }),
+    );
+
+    expect(res.status).not.toBe(401);
+    expect(res.headers.get("location")).toBeNull();
+  });
+
+  it("does not treat an API key as a user JWT", async () => {
+    mockUser = null;
+    mockBearerUser = { id: "should-not-be-used" };
+
+    const res = await middleware(
+      new NextRequest("https://app.test/api/whatsapp/send", {
+        method: "POST",
+        headers: { Authorization: "Bearer wacrm_live_not_a_user_jwt" },
+      }),
+    );
+
+    expect(res.status).toBe(401);
+  });
+
+  it("401s when the Bearer JWT is invalid", async () => {
+    mockUser = null;
+    mockBearerUser = null;
+
+    const res = await middleware(
+      new NextRequest("https://app.test/api/whatsapp/send", {
+        method: "POST",
+        headers: { Authorization: "Bearer not-a-valid-jwt" },
+      }),
+    );
+
+    expect(res.status).toBe(401);
   });
 });
 

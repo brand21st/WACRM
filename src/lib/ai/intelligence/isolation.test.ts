@@ -80,15 +80,16 @@ describe('ConversationAnalyzeJob', () => {
       accountId: 'acct-a',
       conversationId: 'conv-1',
       contactId: 'contact-1',
-      triggeringMessageId: 'msg-9',
+      trigger: { type: 'message', messageId: 'msg-9' },
+      runId: 'run-9',
       idempotencyKey: analyzeJobIdempotencyKey({
         accountId: 'acct-a',
         conversationId: 'conv-1',
-        triggeringMessageId: 'msg-9',
+        trigger: { type: 'message', messageId: 'msg-9' },
       }),
     };
     expect(job.accountId).toBe('acct-a');
-    expect(job.idempotencyKey).toBe('acct-a:conv-1:msg-9');
+    expect(job.idempotencyKey).toBe('acct-a:conv-1:message:msg-9');
   });
 
   it('refuses an analyze job without accountId', () => {
@@ -96,7 +97,7 @@ describe('ConversationAnalyzeJob', () => {
       analyzeJobIdempotencyKey({
         accountId: '',
         conversationId: 'conv-1',
-        triggeringMessageId: 'msg-9',
+        trigger: { type: 'message', messageId: 'msg-9' },
       })
     ).toThrow(MissingAccountIdError);
   });

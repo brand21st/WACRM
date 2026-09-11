@@ -21,8 +21,9 @@
 
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 
-/** Secret prefix on every key. Part of the plaintext, not a secret. */
-export const API_KEY_PREFIX = 'wacrm_live_';
+import { API_KEY_PREFIX } from './prefix';
+
+export { API_KEY_PREFIX, looksLikeApiKey } from './prefix';
 
 /**
  * Length of the non-secret display prefix stored in `key_prefix` and
@@ -65,17 +66,6 @@ export function generateApiKey(): GeneratedApiKey {
  */
 export function hashApiKey(plaintext: string): string {
   return createHash('sha256').update(plaintext).digest('hex');
-}
-
-/**
- * Structural check that a string looks like one of our keys before
- * we bother hashing + hitting the DB. Cheap reject for obviously
- * malformed `Authorization` headers (e.g. a stale invite token).
- */
-export function looksLikeApiKey(value: string): boolean {
-  return (
-    value.startsWith(API_KEY_PREFIX) && value.length > API_KEY_PREFIX.length
-  );
 }
 
 /**

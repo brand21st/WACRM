@@ -130,6 +130,11 @@ let supabaseMock = makeSupabaseMock()
 
 vi.mock('@/lib/supabase/server', () => ({
   createClient: vi.fn(async () => supabaseMock),
+  createRequestClient: vi.fn(async () => supabaseMock),
+}))
+
+vi.mock('@/lib/billing/entitlements', () => ({
+  assertWhatsAppSend: vi.fn(async () => undefined),
 }))
 
 vi.mock('@/lib/flows/admin-client', () => ({

@@ -71,7 +71,7 @@ function makeDb(state: {
 
   function matches(row: JobRow, filters: Array<[string, string, unknown]>) {
     return filters.every(([op, col, val]) => {
-      const current = (row as Record<string, unknown>)[col]
+      const current = (row as unknown as Record<string, unknown>)[col]
       if (op === 'eq') return current === val
       if (op === 'lt') return String(current) < String(val)
       if (op === 'lte') return String(current) <= String(val)

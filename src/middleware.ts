@@ -9,6 +9,12 @@ import {
   normalizeHost,
 } from '@/lib/hosts'
 import { isSupabaseSiteUrlAuthLanding } from '@/lib/auth/callback'
+import { parseBearerAccessToken } from '@/lib/auth/bearer'
+import {
+  mobileCorsHeaders,
+  isMobileCorsPreflight,
+  withMobileCors,
+} from '@/lib/http/mobile-cors'
 
 // Routes Meta/Shopify/cron hit without a browser session. Skip the
 // Supabase getUser() round-trip — it can hang or slow webhook acks.
@@ -52,8 +58,16 @@ function redirectToAppHost(request: NextRequest): NextResponse {
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
+
+  if (pathname.startsWith('/api/')) {
+    const cors = mobileCorsHeaders(request)
+    if (cors && isMobileCorsPreflight(request)) {
+      return new NextResponse(null, { status: 204, headers: cors })
+    }
+  }
+
   if (PUBLIC_API_PREFIXES.some((prefix) => pathname.startsWith(prefix))) {
-    return NextResponse.next({ request })
+    return withMobileCors(request, NextResponse.next({ request }))
   }
 
   const hostname = requestHostname(request)
@@ -130,7 +144,18 @@ export async function middleware(request: NextRequest) {
     }
   )
 
-  const { data: { user } } = await supabase.auth.getUser()
+  let { data: { user } } = await supabase.auth.getUser()
+
+  // Expo / mobile sends a Supabase user JWT. Cookie getUser() misses
+  // that; validate the Bearer token before the /api/whatsapp 401 gate.
+  // Account API keys are rejected by parseBearerAccessToken.
+  if (!user) {
+    const bearer = parseBearerAccessToken(request.headers.get('authorization'))
+    if (bearer) {
+      const { data } = await supabase.auth.getUser(bearer)
+      user = data.user
+    }
+  }
 
   // getUser() transparently refreshes an expired access token, which
   // ROTATES the refresh token and writes the new cookies onto
@@ -208,6 +233,7 @@ export async function middleware(request: NextRequest) {
     '/calling',
     '/flows',
     '/agents',
+    '/admin',
     '/notifications',
   ]
   if (isPlatformAdmin && merchantPaths.some((path) => pathname === path || pathname.startsWith(`${path}/`))) {
@@ -239,12 +265,15 @@ export async function middleware(request: NextRequest) {
     !request.nextUrl.pathname.includes('/webhook') &&
     request.nextUrl.pathname !== '/api/whatsapp/broadcast/cron'
   ) {
-    return withRefreshedCookies(
-      NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    return withMobileCors(
+      request,
+      withRefreshedCookies(
+        NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+      )
     )
   }
 
-  return supabaseResponse
+  return withMobileCors(request, supabaseResponse)
 }
 
 export const config = {

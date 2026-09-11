@@ -29,6 +29,7 @@ import {
 } from './sales-pattern-identity'
 
 export interface AggregateSalesEvent {
+  id?: string
   account_id: string
   conversation_id: string
   event_type: string
@@ -226,7 +227,8 @@ function applyProductSpecialization(samples: PatternSample[]): PatternSample[] {
     if (!productId) return sample
     const n = counts.get(specializeCountKey(sample)) ?? 0
     if (n >= PRODUCT_SPECIALIZE_MIN) return sample
-    const { productId: _drop, ...rest } = sample.context
+    const rest = { ...sample.context }
+    delete rest.productId
     return { ...sample, context: rest }
   })
 }

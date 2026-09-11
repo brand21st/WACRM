@@ -45,6 +45,7 @@ import {
 import { transcribeInboundVoiceNote } from '@/lib/ai/transcribe-inbound'
 import { INBOUND_VOICE_PLACEHOLDER } from '@/lib/ai/voice'
 import { enqueueVoiceInboundJob } from '@/lib/ai/voice-inbound-jobs'
+import { markConversationLearningPending } from '@/lib/ai/intelligence/trigger-learning'
 import {
   enqueueAiChatReply,
   enqueueAiConversationAnalyze,
@@ -58,6 +59,7 @@ import {
   isTemplateWebhookField,
 } from '@/lib/whatsapp/template-webhook'
 import { handleCallsWebhook } from '@/lib/whatsapp/call-webhook'
+import { notifyAccountDevicesOfIncomingMessage } from '@/lib/notifications/expo-push'
 
 // The `after()` callback in POST runs within this route's max duration.
 // Inbound processing can fan out to per-media Meta verification calls, so
@@ -918,20 +920,44 @@ async function processMessage(
   }
 
   const persistedMessageId = String(insertedRows[0].id)
+
+  if (contentType !== 'call') {
+    void notifyAccountDevicesOfIncomingMessage({
+      accountId,
+      conversationId: conversation.id,
+      contactName: contactRecord.name ?? contactName,
+      contactPhone: contactRecord.phone ?? senderPhone,
+      contentType,
+      contentText,
+    }).catch((err) => {
+      console.warn('[webhook] expo push failed:', err)
+    })
+  }
+
   const shouldAnalyzeConversation =
-    Boolean(contentText?.trim()) ||
+    (contentType !== 'audio' &&
+      contentType !== 'image' &&
+      Boolean(contentText?.trim())) ||
     contentType === 'order' ||
     contentType === 'interactive' ||
     Boolean(interactiveReplyId)
   if (shouldAnalyzeConversation) {
-    void enqueueAiConversationAnalyze(
-      aiConversationAnalyzeJob({
+    const trigger = { type: 'message' as const, messageId: persistedMessageId }
+    void (async () => {
+      await markConversationLearningPending(supabaseAdmin(), {
         accountId,
         conversationId: conversation.id,
-        contactId: contactRecord.id,
-        triggeringMessageId: persistedMessageId,
-      }),
-    ).catch((err) => {
+        trigger,
+      })
+      await enqueueAiConversationAnalyze(
+        aiConversationAnalyzeJob({
+          accountId,
+          conversationId: conversation.id,
+          contactId: contactRecord.id,
+          trigger,
+        }),
+      )
+    })().catch((err) => {
       console.warn('[webhook] conversation analyze enqueue failed:', err)
     })
   }

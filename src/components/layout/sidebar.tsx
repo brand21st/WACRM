@@ -11,6 +11,7 @@ import { useUnreadNotifications } from "@/hooks/use-unread-notifications";
 import {
   Bell,
   Bot,
+  Brain,
   ChevronDown,
   Crown,
   GitBranch,
@@ -115,6 +116,12 @@ const navItems: NavItem[] = [
       { href: "/agents", labelKey: "chatAgent" },
       { href: "/agents/voice", labelKey: "voiceAgent" },
     ],
+  },
+  {
+    href: "/admin/ai-intelligence",
+    labelKey: "aiIntelligence",
+    icon: Brain,
+    beta: true,
   },
 ];
 

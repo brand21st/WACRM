@@ -48,51 +48,66 @@ describe('parseLlmSalesEvents', () => {
 
 describe('extractLlmEvents', () => {
   it('inserts rows from valid JSON', async () => {
-    const generateReply = vi.fn().mockResolvedValue({
+    const generateStructured = vi.fn().mockResolvedValue({
       text: '```json\n[{"type":"RETURN_INQUIRY","confidence":0.8,"metadata":{}}]\n```',
-      handoff: false,
       usage: null,
     })
     const events = await extractLlmEvents({
       turns,
       config,
-      generateReplyFn: generateReply,
+      generateStructured,
     })
-    expect(generateReply).toHaveBeenCalledWith(
-      expect.objectContaining({ skipSpokenRewrite: true }),
+    expect(generateStructured).toHaveBeenCalledWith(
+      expect.objectContaining({ systemPrompt: expect.any(String) }),
     )
-    expect(events).toEqual([
+    expect(events.events).toEqual([
       expect.objectContaining({
         eventType: 'RETURN_INQUIRY',
         kind: 'signal',
         sourceMessageId: 'msg-1',
       }),
     ])
+    expect(events.status).toBe('success')
   })
 
   it('writes zero events when JSON is invalid', async () => {
     const events = await extractLlmEvents({
       turns,
       config,
-      generateReplyFn: async () => ({
+      generateStructured: async () => ({
         text: 'sorry I cannot help',
-        handoff: false,
         usage: null,
       }),
     })
-    expect(events).toEqual([])
+    expect(events.events).toEqual([])
+    expect(events.status).toBe('invalid_output')
   })
 
   it('writes zero events when required fields are missing', async () => {
     const events = await extractLlmEvents({
       turns,
       config,
-      generateReplyFn: async () => ({
+      generateStructured: async () => ({
         text: '[{"confidence":0.9}]',
-        handoff: false,
         usage: null,
       }),
     })
-    expect(events).toEqual([])
+    expect(events.events).toEqual([])
+    expect(events.status).toBe('invalid_output')
+  })
+
+  it('marks provider failures as recoverable instead of valid-empty', async () => {
+    const result = await extractLlmEvents({
+      turns,
+      config,
+      generateStructured: async () => {
+        throw new Error('provider unavailable')
+      },
+    })
+    expect(result).toEqual({
+      events: [],
+      usage: null,
+      status: 'provider_error',
+    })
   })
 })

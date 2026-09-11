@@ -18,6 +18,7 @@ import {
   getCurrentAccount,
   toErrorResponse,
 } from "@/lib/auth/account";
+import type { MobileAuthResponse } from "@/types";
 import {
   checkRateLimit,
   rateLimitResponse,
@@ -27,10 +28,11 @@ import {
 export async function GET() {
   try {
     const ctx = await getCurrentAccount();
-    return NextResponse.json({
+    const body: MobileAuthResponse = {
       account: ctx.account,
       role: ctx.role,
-    });
+    };
+    return NextResponse.json(body);
   } catch (err) {
     return toErrorResponse(err);
   }

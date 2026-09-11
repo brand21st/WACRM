@@ -13,6 +13,11 @@ import { validateCatalogIds } from './shopping-context'
 import { listRelatedProducts, relatedIdsFor } from './relations'
 import { parseShoppingRequirements } from './requirements'
 import {
+  BASELINE_RECOMMENDATION_ALGORITHM,
+  recordRecommendationEvidence,
+  stableRecommendationSetId,
+} from './recommendation-evidence'
+import {
   findAlternativeProducts,
   findSimilarProducts,
   hasAvailableOption,
@@ -55,6 +60,8 @@ export type GetRecommendationsInput = {
   accountId: string
   contactId?: string | null
   conversationId?: string | null
+  sourceMessageId?: string | null
+  sourceTurnId?: string | null
   mode: RecommendIntent
   seedId?: string | null
   selectedIds?: string[]
@@ -68,7 +75,7 @@ export type GetRecommendationsInput = {
 
 export async function loadCatalogSalesMode(
   db: SupabaseClient,
-  accountId: string,
+  accountId: string
 ): Promise<CatalogSalesMode> {
   try {
     const { data, error } = await db
@@ -88,7 +95,7 @@ export async function loadCatalogSalesMode(
 
 export function resolveRecommendLimit(
   mode: RecommendIntent,
-  requested?: number,
+  requested?: number
 ): number {
   if (mode === 'upsell') return 1
   if (mode === 'cross_sell') return Math.min(2, Math.max(1, requested ?? 2))
@@ -100,7 +107,7 @@ export function resolveRecommendLimit(
 
 export async function getRecommendations(
   db: SupabaseClient,
-  input: GetRecommendationsInput,
+  input: GetRecommendationsInput
 ): Promise<RankedRecommendation[]> {
   const mode = input.mode
   const limit = resolveRecommendLimit(mode, input.limit)
@@ -112,7 +119,7 @@ export async function getRecommendations(
   const commerce = await loadCommerceRecommendSignals(
     db,
     input.accountId,
-    input.contactId,
+    input.contactId
   )
   const seed = await resolveSeed(db, input, commerce.paidRetailerIds)
   const exclude = await collectExclusions(db, input, seed, commerce)
@@ -122,24 +129,63 @@ export async function getRecommendations(
     if (mode === 'bundle') {
       ranked = await recommendBundle(db, input, seed, mergedReq, exclude, limit)
     } else if (mode === 'cross_sell') {
-      ranked = await recommendCrossSell(db, input, seed, mergedReq, exclude, limit)
+      ranked = await recommendCrossSell(
+        db,
+        input,
+        seed,
+        mergedReq,
+        exclude,
+        limit
+      )
     } else if (mode === 'upsell') {
       ranked = await recommendUpsell(db, input, seed, mergedReq, exclude, limit)
     } else if (mode === 'alternative') {
-      ranked = await recommendAlternative(db, input, seed, mergedReq, exclude, limit)
+      ranked = await recommendAlternative(
+        db,
+        input,
+        seed,
+        mergedReq,
+        exclude,
+        limit
+      )
     } else {
-      ranked = await recommendSimilar(db, input, seed, mergedReq, exclude, limit)
+      ranked = await recommendSimilar(
+        db,
+        input,
+        seed,
+        mergedReq,
+        exclude,
+        limit
+      )
     }
   } catch (err) {
     console.warn('[catalog-intel] getRecommendations failed', err)
     ranked = []
   }
 
-  ranked = ranked.filter((row) => !exclude.has(row.product.id))
+  ranked = ranked.filter(
+    (row) =>
+      !exclude.has(row.product.id) &&
+      row.product.accountId === input.accountId &&
+      row.product.status === 'active' &&
+      row.product.variants.some((variant) => variant.available)
+  )
+  const recommendationSetId = stableRecommendationSetId({
+    accountId: input.accountId,
+    conversationId: input.conversationId,
+    sourceMessageId: input.sourceMessageId,
+    sourceTurnId: input.sourceTurnId,
+    mode,
+    seedProductId: seed?.id,
+    productIds: ranked.map((row) => row.product.id),
+  })
   await recordRecommendationEvents(db, {
     accountId: input.accountId,
     contactId: input.contactId,
     conversationId: input.conversationId,
+    sourceMessageId: input.sourceMessageId,
+    sourceTurnId: input.sourceTurnId,
+    recommendationSetId,
     mode,
     seedProductId: seed?.id ?? null,
     rows: ranked,
@@ -163,27 +209,37 @@ export async function recordRecommendationEvents(
     accountId: string
     contactId?: string | null
     conversationId?: string | null
+    sourceMessageId?: string | null
+    sourceTurnId?: string | null
+    recommendationSetId?: string
     mode: RecommendIntent | string
     seedProductId?: string | null
-    rows: { product: { id: string }; score: number; reasons: RecommendReason[] }[]
-    event: 'generated' | 'shown'
-  },
+    rows: {
+      product: { id: string }
+      score: number
+      reasons: RecommendReason[]
+    }[]
+    event: 'generated' | 'shown' | 'selected' | 'rejected' | 'unresolved'
+  }
 ): Promise<void> {
   if (args.rows.length === 0) return
   try {
-    const payload = args.rows.map((row) => ({
-      account_id: args.accountId,
-      contact_id: args.contactId ?? null,
-      conversation_id: args.conversationId ?? null,
+    await recordRecommendationEvidence(db, {
+      accountId: args.accountId,
+      recommendationSetId: args.recommendationSetId,
+      contactId: args.contactId,
+      conversationId: args.conversationId,
+      sourceMessageId: args.sourceMessageId,
+      sourceTurnId: args.sourceTurnId,
       mode: args.mode,
-      seed_product_id: args.seedProductId ?? null,
-      product_id: row.product.id,
-      score: row.score,
-      reasons: row.reasons,
+      seedProductId: args.seedProductId,
+      rows: args.rows,
       event: args.event,
-    }))
-    const { error } = await db.from('catalog_recommendation_events').insert(payload)
-    if (error) throw error
+      algorithmVersion: BASELINE_RECOMMENDATION_ALGORITHM,
+      rankingVariant: 'baseline',
+      isShadow: false,
+      isInjected: true,
+    })
   } catch (err) {
     console.warn('[catalog-intel] recommendation events failed', err)
   }
@@ -198,23 +254,68 @@ export async function recordShownRecommendationEvents(
     productIds: string[]
     mode?: string | null
     seedProductId?: string | null
-  },
+    sourceMessageId?: string | null
+    sourceTurnId?: string | null
+    recommendationSetId?: string
+  }
 ): Promise<void> {
   const ids = await validateCatalogIds(
     db,
     args.accountId,
-    args.productIds.filter(Boolean),
+    args.productIds.filter(Boolean)
   )
   if (ids.length === 0) return
   const products = await getCatalogProductsByIds(db, args.accountId, ids).catch(
-    () => [],
+    () => []
   )
+  let recommendationSetId = args.recommendationSetId
+  let mode = args.mode ?? 'recommend'
+  let seedProductId = args.seedProductId ?? null
+  if (!recommendationSetId && args.conversationId) {
+    const { data } = await db
+      .from('catalog_recommendation_events')
+      .select(
+        'recommendation_set_id, mode, seed_product_id, product_id, created_at'
+      )
+      .eq('account_id', args.accountId)
+      .eq('conversation_id', args.conversationId)
+      .eq('event', 'generated')
+      .eq('ranking_variant', 'baseline')
+      .in('product_id', ids)
+      .order('created_at', { ascending: false })
+      .limit(100)
+    const grouped = new Map<
+      string,
+      { mode: string; seedProductId: string | null; products: Set<string> }
+    >()
+    for (const row of data ?? []) {
+      const setId = String(row.recommendation_set_id)
+      const set = grouped.get(setId) ?? {
+        mode: String(row.mode),
+        seedProductId: row.seed_product_id ? String(row.seed_product_id) : null,
+        products: new Set<string>(),
+      }
+      if (row.product_id) set.products.add(String(row.product_id))
+      grouped.set(setId, set)
+    }
+    const match = [...grouped.entries()].find(([, set]) =>
+      ids.every((id) => set.products.has(id))
+    )
+    if (match) {
+      recommendationSetId = match[0]
+      mode = match[1].mode
+      seedProductId = match[1].seedProductId
+    }
+  }
   await recordRecommendationEvents(db, {
     accountId: args.accountId,
+    recommendationSetId,
     contactId: args.contactId,
     conversationId: args.conversationId,
-    mode: args.mode ?? 'recommend',
-    seedProductId: args.seedProductId ?? null,
+    sourceMessageId: args.sourceMessageId,
+    sourceTurnId: args.sourceTurnId,
+    mode,
+    seedProductId,
     rows: products.map((product) => ({
       product,
       score: 0,
@@ -227,7 +328,7 @@ export async function recordShownRecommendationEvents(
 async function resolveSeed(
   db: SupabaseClient,
   input: GetRecommendationsInput,
-  paidRetailerIds: string[] = [],
+  paidRetailerIds: string[] = []
 ): Promise<CatalogProduct | null> {
   const complementary =
     input.mode === 'cross_sell' ||
@@ -252,7 +353,7 @@ async function collectExclusions(
   db: SupabaseClient,
   input: GetRecommendationsInput,
   seed: CatalogProduct | null,
-  commerce: Awaited<ReturnType<typeof loadCommerceRecommendSignals>>,
+  commerce: Awaited<ReturnType<typeof loadCommerceRecommendSignals>>
 ): Promise<Set<string>> {
   const exclude = new Set<string>()
   if (seed) exclude.add(seed.id)
@@ -277,7 +378,7 @@ async function recommendBundle(
   seed: CatalogProduct | null,
   requirements: ShoppingRequirements,
   exclude: Set<string>,
-  limit: number,
+  limit: number
 ): Promise<RankedRecommendation[]> {
   if (!seed) return []
   const related = await listRelatedProducts(db, input.accountId, seed.id, [
@@ -286,7 +387,7 @@ async function recommendBundle(
   const eligible = related.filter((product) =>
     passesHardFilters(product, seed, requirements, input.shopping, exclude, {
       requireInStock: true,
-    }),
+    })
   )
   return eligible.slice(0, limit).map((product, index) => ({
     product,
@@ -302,7 +403,7 @@ async function recommendCrossSell(
   seed: CatalogProduct | null,
   requirements: ShoppingRequirements,
   exclude: Set<string>,
-  limit: number,
+  limit: number
 ): Promise<RankedRecommendation[]> {
   if (!seed) return []
   const related = await listRelatedProducts(db, input.accountId, seed.id, [
@@ -341,7 +442,7 @@ async function recommendCrossSell(
 async function retrieveCrossSellExtras(
   db: SupabaseClient,
   input: GetRecommendationsInput,
-  seed: CatalogProduct,
+  seed: CatalogProduct
 ): Promise<CatalogProduct[]> {
   const extras: CatalogProduct[] = []
   const collectionId = seed.collections?.[0]?.id
@@ -355,8 +456,8 @@ async function retrieveCrossSellExtras(
       })
       extras.push(
         ...sameCollection.filter((product) =>
-          (product.collections ?? []).some((col) => col.id === collectionId),
-        ),
+          (product.collections ?? []).some((col) => col.id === collectionId)
+        )
       )
     } catch {
       // lexical fill is optional
@@ -366,9 +467,16 @@ async function retrieveCrossSellExtras(
     const hybrid = await loadCatalogHybridMode(db, input.accountId)
     if (hybrid === 'on') {
       const key = await resolveCatalogEmbeddingsKey(db, input.accountId)
-      const ids = await semanticNeighborsForProduct(db, input.accountId, seed.id, key)
+      const ids = await semanticNeighborsForProduct(
+        db,
+        input.accountId,
+        seed.id,
+        key
+      )
       if (ids.length > 0) {
-        extras.push(...(await getCatalogProductsByIds(db, input.accountId, ids)))
+        extras.push(
+          ...(await getCatalogProductsByIds(db, input.accountId, ids))
+        )
       }
     }
   } catch {
@@ -381,7 +489,7 @@ function scoreCrossSell(
   seed: CatalogProduct,
   product: CatalogProduct,
   relatedIds: Set<string>,
-  requirements: ShoppingRequirements,
+  requirements: ShoppingRequirements
 ): RankedRecommendation {
   let score = 0
   const reasons: RecommendReason[] = []
@@ -411,10 +519,12 @@ async function recommendUpsell(
   seed: CatalogProduct | null,
   requirements: ShoppingRequirements,
   exclude: Set<string>,
-  limit: number,
+  limit: number
 ): Promise<RankedRecommendation[]> {
   if (!seed) return []
-  const relatedIds = await relatedIdsFor(db, input.accountId, seed.id, ['upsell'])
+  const relatedIds = await relatedIdsFor(db, input.accountId, seed.id, [
+    'upsell',
+  ])
   const ranked = await findSimilarProducts(db, {
     accountId: input.accountId,
     seed,
@@ -426,10 +536,17 @@ async function recommendUpsell(
   })
   return ranked
     .filter((row) =>
-      passesHardFilters(row.product, seed, requirements, input.shopping, exclude, {
-        requireInStock: true,
-        requireModestStepUp: true,
-      }),
+      passesHardFilters(
+        row.product,
+        seed,
+        requirements,
+        input.shopping,
+        exclude,
+        {
+          requireInStock: true,
+          requireModestStepUp: true,
+        }
+      )
     )
     .slice(0, limit)
     .map((row) => ({
@@ -438,8 +555,12 @@ async function recommendUpsell(
       score: row.score,
       reasons: uniqueReasons([
         ...row.reasons,
-        ...(relatedIds.has(row.product.id) ? (['relation_upsell'] as const) : []),
-        ...(withinBudget(row.product, requirements) ? (['within_budget'] as const) : []),
+        ...(relatedIds.has(row.product.id)
+          ? (['relation_upsell'] as const)
+          : []),
+        ...(withinBudget(row.product, requirements)
+          ? (['within_budget'] as const)
+          : []),
       ]),
     }))
 }
@@ -450,12 +571,21 @@ async function recommendAlternative(
   seed: CatalogProduct | null,
   requirements: ShoppingRequirements,
   exclude: Set<string>,
-  limit: number,
+  limit: number
 ): Promise<RankedRecommendation[]> {
   if (!seed) {
-    return recommendFromSearch(db, input, requirements, exclude, limit, 'alternative')
+    return recommendFromSearch(
+      db,
+      input,
+      requirements,
+      exclude,
+      limit,
+      'alternative'
+    )
   }
-  const relatedIds = await relatedIdsFor(db, input.accountId, seed.id, ['similar'])
+  const relatedIds = await relatedIdsFor(db, input.accountId, seed.id, [
+    'similar',
+  ])
   const intent = requirements.cheaper ? 'cheaper' : 'alternative'
   const ranked = await findAlternativeProducts(db, {
     accountId: input.accountId,
@@ -468,12 +598,19 @@ async function recommendAlternative(
   })
   return ranked
     .filter((row) =>
-      passesHardFilters(row.product, seed, requirements, input.shopping, exclude, {
-        requireInStock: true,
-        requireCheaper: Boolean(requirements.cheaper),
-        requireStatedOption: true,
-        requireStatedAttribute: true,
-      }),
+      passesHardFilters(
+        row.product,
+        seed,
+        requirements,
+        input.shopping,
+        exclude,
+        {
+          requireInStock: true,
+          requireCheaper: Boolean(requirements.cheaper),
+          requireStatedOption: true,
+          requireStatedAttribute: true,
+        }
+      )
     )
     .slice(0, limit)
     .map((row) => ({
@@ -490,12 +627,21 @@ async function recommendSimilar(
   seed: CatalogProduct | null,
   requirements: ShoppingRequirements,
   exclude: Set<string>,
-  limit: number,
+  limit: number
 ): Promise<RankedRecommendation[]> {
   if (!seed) {
-    return recommendFromSearch(db, input, requirements, exclude, limit, input.mode)
+    return recommendFromSearch(
+      db,
+      input,
+      requirements,
+      exclude,
+      limit,
+      input.mode
+    )
   }
-  const relatedIds = await relatedIdsFor(db, input.accountId, seed.id, ['similar'])
+  const relatedIds = await relatedIdsFor(db, input.accountId, seed.id, [
+    'similar',
+  ])
   const ranked = await findSimilarProducts(db, {
     accountId: input.accountId,
     seed,
@@ -507,11 +653,18 @@ async function recommendSimilar(
   })
   return ranked
     .filter((row) =>
-      passesHardFilters(row.product, seed, requirements, input.shopping, exclude, {
-        requireInStock: true,
-        requireStatedOption: true,
-        requireStatedAttribute: true,
-      }),
+      passesHardFilters(
+        row.product,
+        seed,
+        requirements,
+        input.shopping,
+        exclude,
+        {
+          requireInStock: true,
+          requireStatedOption: true,
+          requireStatedAttribute: true,
+        }
+      )
     )
     .slice(0, limit)
     .map((row) => ({
@@ -520,7 +673,9 @@ async function recommendSimilar(
       score: row.score,
       reasons: uniqueReasons([
         ...row.reasons,
-        ...(seedVariantMatch(seed, requirements) ? (['seed_variant'] as const) : []),
+        ...(seedVariantMatch(seed, requirements)
+          ? (['seed_variant'] as const)
+          : []),
       ]),
     }))
 }
@@ -531,7 +686,7 @@ async function recommendFromSearch(
   requirements: ShoppingRequirements,
   exclude: Set<string>,
   limit: number,
-  mode: RecommendIntent,
+  mode: RecommendIntent
 ): Promise<RankedRecommendation[]> {
   const text = [
     input.customerText,
@@ -560,7 +715,7 @@ async function recommendFromSearch(
         requireInStock: true,
         requireStatedOption: true,
         requireStatedAttribute: true,
-      }),
+      })
     )
     .slice(0, limit)
     .map((product, index) => ({
@@ -583,11 +738,14 @@ function passesHardFilters(
     requireCheaper?: boolean
     requireStatedOption?: boolean
     requireStatedAttribute?: boolean
-  },
+  }
 ): boolean {
   if (exclude.has(product.id)) return false
   if (product.status !== 'active') return false
-  if (opts.requireInStock && !product.variants.some((variant) => variant.available)) {
+  if (
+    opts.requireInStock &&
+    !product.variants.some((variant) => variant.available)
+  ) {
     return false
   }
   const [filtered] = applyCatalogHardFilters([product], {
@@ -619,11 +777,18 @@ function passesHardFilters(
   if (
     opts.requireStatedOption &&
     requirements.optionValue &&
-    !hasAvailableOption(product, requirements.optionName, requirements.optionValue)
+    !hasAvailableOption(
+      product,
+      requirements.optionName,
+      requirements.optionValue
+    )
   ) {
     return false
   }
-  if (opts.requireModestStepUp && !isModestStepUp(seed?.priceMin, product.priceMin)) {
+  if (
+    opts.requireModestStepUp &&
+    !isModestStepUp(seed?.priceMin, product.priceMin)
+  ) {
     return false
   }
   if (
@@ -645,7 +810,7 @@ function hitsDislike(product: CatalogProduct, dislikes: string[]): boolean {
     product.handle,
     product.description,
     ...product.variants.flatMap((variant) =>
-      variant.options.map((opt) => `${opt.name} ${opt.value}`),
+      variant.options.map((opt) => `${opt.name} ${opt.value}`)
     ),
     ...(product.attributes ?? []).map((attr) => `${attr.key} ${attr.value}`),
   ]
@@ -654,7 +819,10 @@ function hitsDislike(product: CatalogProduct, dislikes: string[]): boolean {
   return dislikes.some((dislike) => hay.includes(dislike.toLowerCase()))
 }
 
-export function isSubstitute(seed: CatalogProduct, product: CatalogProduct): boolean {
+export function isSubstitute(
+  seed: CatalogProduct,
+  product: CatalogProduct
+): boolean {
   if (nearDuplicateTitle(seed.title, product.title)) return true
   const typeA = inferProductType(seed)
   const typeB = inferProductType(product)
@@ -672,7 +840,8 @@ function nearDuplicateTitle(a: string, b: string): boolean {
 }
 
 function inferProductType(product: CatalogProduct): string | null {
-  const hay = `${product.title} ${product.handle} ${product.description}`.toLowerCase()
+  const hay =
+    `${product.title} ${product.handle} ${product.description}`.toLowerCase()
   for (const type of PRODUCT_TYPES) {
     if (!new RegExp(`\\b${type}s?\\b`).test(hay)) continue
     if (type === 'sari') return 'saree'
@@ -697,26 +866,33 @@ function tokenize(title: string): string[] {
     .filter((token) => token.length > 2)
 }
 
-function sharedCollections(seed: CatalogProduct, product: CatalogProduct): boolean {
+function sharedCollections(
+  seed: CatalogProduct,
+  product: CatalogProduct
+): boolean {
   const seedIds = new Set((seed.collections ?? []).map((col) => col.id))
   return (product.collections ?? []).some((col) => seedIds.has(col.id))
 }
 
-function sharedOccasion(seed: CatalogProduct, product: CatalogProduct): boolean {
+function sharedOccasion(
+  seed: CatalogProduct,
+  product: CatalogProduct
+): boolean {
   const seedOcc = (seed.attributes ?? []).filter((attr) =>
-    /occasion|use|event/i.test(attr.key),
+    /occasion|use|event/i.test(attr.key)
   )
   if (seedOcc.length === 0) return false
   const values = new Set(seedOcc.map((attr) => attr.value.toLowerCase()))
   return (product.attributes ?? []).some(
     (attr) =>
-      /occasion|use|event/i.test(attr.key) && values.has(attr.value.toLowerCase()),
+      /occasion|use|event/i.test(attr.key) &&
+      values.has(attr.value.toLowerCase())
   )
 }
 
 function withinBudget(
   product: CatalogProduct,
-  requirements: ShoppingRequirements,
+  requirements: ShoppingRequirements
 ): boolean {
   if (requirements.maxPrice == null) return false
   const price = product.priceMin ?? product.priceMax
@@ -725,15 +901,19 @@ function withinBudget(
 
 function seedVariantMatch(
   seed: CatalogProduct,
-  requirements: ShoppingRequirements,
+  requirements: ShoppingRequirements
 ): boolean {
   if (!requirements.optionValue) return false
-  return hasAvailableOption(seed, requirements.optionName, requirements.optionValue)
+  return hasAvailableOption(
+    seed,
+    requirements.optionName,
+    requirements.optionValue
+  )
 }
 
 function mergeRequirements(
   requirements: ShoppingRequirements,
-  shopping?: ShoppingContext,
+  shopping?: ShoppingContext
 ): ShoppingRequirements {
   return {
     minPrice: requirements.minPrice ?? shopping?.minPrice,
@@ -747,7 +927,10 @@ function mergeRequirements(
 }
 
 function comparePrice(a: CatalogProduct, b: CatalogProduct): number {
-  return (a.priceMin ?? Number.POSITIVE_INFINITY) - (b.priceMin ?? Number.POSITIVE_INFINITY)
+  return (
+    (a.priceMin ?? Number.POSITIVE_INFINITY) -
+    (b.priceMin ?? Number.POSITIVE_INFINITY)
+  )
 }
 
 function uniqueReasons(reasons: RecommendReason[]): RecommendReason[] {
@@ -757,9 +940,19 @@ function uniqueReasons(reasons: RecommendReason[]): RecommendReason[] {
 async function loadPaidRetailerIds(
   db: SupabaseClient,
   accountId: string,
-  contactId?: string | null,
-): Promise<{ paid: string[]; pending: string[]; hasPaid: boolean; hasCheckout: boolean }> {
-  const empty = { paid: [] as string[], pending: [] as string[], hasPaid: false, hasCheckout: false }
+  contactId?: string | null
+): Promise<{
+  paid: string[]
+  pending: string[]
+  hasPaid: boolean
+  hasCheckout: boolean
+}> {
+  const empty = {
+    paid: [] as string[],
+    pending: [] as string[],
+    hasPaid: false,
+    hasCheckout: false,
+  }
   if (!contactId) return empty
   try {
     const { data, error } = await db
@@ -817,7 +1010,7 @@ function retailerIdsFromLines(raw: unknown): string[] {
 async function mapRetailerIds(
   db: SupabaseClient,
   accountId: string,
-  retailerIds: string[],
+  retailerIds: string[]
 ): Promise<string[]> {
   const out: string[] = []
   for (const id of [...new Set(retailerIds.filter(Boolean))]) {
@@ -830,7 +1023,7 @@ async function mapRetailerIds(
 export async function loadCommerceRecommendSignals(
   db: SupabaseClient,
   accountId: string,
-  contactId?: string | null,
+  contactId?: string | null
 ): Promise<{
   cartRetailerIds: string[]
   paidRetailerIds: string[]

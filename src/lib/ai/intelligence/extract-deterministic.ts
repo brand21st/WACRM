@@ -167,7 +167,9 @@ export function extractDeterministicEvents(
     })
   }
 
-  for (const event of eventsFromShoppingContext(input)) push(event)
+  // Rolling customer memory is not tenant-wide evidence. Selected or
+  // rejected catalog IDs must come from a source message or trusted
+  // commerce/catalog row, not contact_ai_memory.facts.shopping.
 
   return events
 }
@@ -459,49 +461,6 @@ function eventFromCatalogRow(row: CatalogProductEventRow): CandidateSalesEvent |
   return null
 }
 
-function eventsFromShoppingContext(
-  input: DeterministicExtractInput,
-): CandidateSalesEvent[] {
-  const shopping = input.shopping
-  if (!shopping) return []
-  const events: CandidateSalesEvent[] = []
-  const storedProductTypes = storedProductKeys(input.existingEvents)
-
-  for (const productId of shopping.selectedIds ?? []) {
-    const key = `PRODUCT_SELECTED:${productId}`
-    if (storedProductTypes.has(key)) continue
-    events.push(
-      candidate({
-        eventType: 'PRODUCT_SELECTED',
-        source: 'shopping',
-        confidence: SHOPPING_CONFIDENCE,
-        metadata: { productId },
-        sourceMessageId: null,
-        sourceTable: 'contact_ai_memory',
-        sourceId: `${input.contactId ?? input.conversationId}:selected:${productId}`,
-      }),
-    )
-  }
-
-  for (const productId of shopping.rejectedIds ?? []) {
-    const key = `PRODUCT_OBJECTION:${productId}`
-    if (storedProductTypes.has(key)) continue
-    events.push(
-      candidate({
-        eventType: 'PRODUCT_OBJECTION',
-        source: 'shopping',
-        confidence: SHOPPING_CONFIDENCE,
-        metadata: { productId, objectionType: 'product' },
-        sourceMessageId: null,
-        sourceTable: 'contact_ai_memory',
-        sourceId: `${input.contactId ?? input.conversationId}:rejected:${productId}`,
-      }),
-    )
-  }
-
-  return events
-}
-
 function candidate(args: {
   eventType: SalesEventV1Type
   source: 'commerce' | 'catalog' | 'nl' | 'llm' | 'shopping' | 'conversation'
@@ -533,17 +492,6 @@ function alreadyStored(
     }
     return row.source_table === event.sourceTable && row.source_id === event.sourceId
   })
-}
-
-function storedProductKeys(existing: StoredSalesEventRef[]): Set<string> {
-  const keys = new Set<string>()
-  for (const row of existing) {
-    const productId = row.metadata?.productId
-    if (productId && (row.event_type === 'PRODUCT_SELECTED' || row.event_type === 'PRODUCT_OBJECTION')) {
-      keys.add(`${row.event_type}:${productId}`)
-    }
-  }
-  return keys
 }
 
 function isCustomerLike(message: AnalyzerMessage): boolean {

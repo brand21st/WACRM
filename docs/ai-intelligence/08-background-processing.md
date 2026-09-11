@@ -14,7 +14,7 @@ queue product.
 | `catalog-meta-sync` | `outboxId` | Meta catalog outbox |
 | `catalog-embed` | `productId` | Product embeddings |
 | `ai-conversation-follow-up` | `followUpId` | Silent-thread follow-up |
-| `ai-conversation-analyze` | `${accountId}:${conversationId}:${triggeringMessageId}` | Phase 3 sales-event extraction |
+| `ai-conversation-analyze` | unique `runId`; short-lived dedup `${accountId}:${conversationId}` (6s, replace) | Phase 3 sales-event extraction |
 | `ai-sales-pattern-discover` | `${accountId}:patterns` | Phase 4 pattern aggregation |
 | `ai-sales-pattern-effectiveness` | `${accountId}:effectiveness` | Phase 6 observational effectiveness |
 

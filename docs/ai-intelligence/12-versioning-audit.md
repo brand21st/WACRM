@@ -14,17 +14,11 @@
 No experiment platform. No `prompt_version` column. No knowledge
 snapshot on every reply.
 
-## Defer to Phase 5 / 7 (additive)
+## Phase 7 (implemented)
 
-Optional columns on `ai_usage_log` or a small `ai_reply_traces` row:
-
-- `prompt_hash`
-- `knowledge_chunk_ids`
-- `pattern_ids`
-- `pattern_version`
-
-Enough to answer “which model and which tenant patterns influenced
-this reply?” without a full feature-flag lab.
+Tenant-scoped `ai_behavior_versions` / `ai_behavior_experiments` /
+`ai_behavior_assignments`. `ai_usage_log` remains billing telemetry.
+See [21-controlled-ai-optimization.md](./21-controlled-ai-optimization.md).
 
 ## Pattern explainability (Phase 4+)
 

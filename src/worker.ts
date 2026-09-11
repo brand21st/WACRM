@@ -1,14 +1,23 @@
 import { createQueueWorkers } from '@/lib/queue/create-workers'
-import { getBullmqConnection } from '@/lib/queue/redis'
+import { parseWorkerGroup, type QueueName } from '@/lib/queue/names'
+import { startWorkerHeartbeat } from '@/lib/queue/queue-health'
+import { getBullmqConnection, getRedisUrl } from '@/lib/queue/redis'
 
 async function main() {
   const connection = getBullmqConnection()
-  if (!connection) {
+  const redisUrl = getRedisUrl()
+  if (!connection || !redisUrl) {
     console.error('[worker] REDIS_URL is required')
     process.exit(1)
   }
 
-  const workers = createQueueWorkers(connection)
+  const group = parseWorkerGroup(process.env.WORKER_GROUP)
+  const workers = createQueueWorkers(connection, group)
+  const heartbeat = startWorkerHeartbeat(
+    redisUrl,
+    group,
+    workers.map((worker) => worker.name as QueueName),
+  )
 
   for (const worker of workers) {
     worker.on('failed', (job, err) => {
@@ -26,7 +35,7 @@ async function main() {
   }
 
   console.info(
-    '[worker] listening on',
+    `[worker] ${group} group listening on`,
     workers.map((w) => w.name).join(', '),
   )
 
@@ -35,6 +44,7 @@ async function main() {
     if (shuttingDown) return
     shuttingDown = true
     console.info(`[worker] ${signal} — closing`)
+    await heartbeat.stop()
     await Promise.all(workers.map((w) => w.close()))
     process.exit(0)
   }

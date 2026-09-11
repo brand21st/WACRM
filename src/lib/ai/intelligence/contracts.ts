@@ -58,19 +58,26 @@ export function assertRetrievalQuery(query: RetrievalQuery): RetrievalQuery {
 export interface ConversationAnalyzeJob {
   accountId: string;
   conversationId: string;
-  contactId: string;
-  triggeringMessageId: string;
-  /** `${accountId}:${conversationId}:${triggeringMessageId}` */
+  contactId: string | null;
+  trigger:
+    | { type: 'message'; messageId: string }
+    | { type: 'commerce'; sourceId: string };
+  /** Unique execution identity; coalescing is handled separately by BullMQ. */
+  runId: string;
   idempotencyKey: string;
 }
 
 export function analyzeJobIdempotencyKey(args: {
   accountId: string;
   conversationId: string;
-  triggeringMessageId: string;
+  trigger: ConversationAnalyzeJob['trigger'];
 }): string {
   const accountId = requireAccountId(args.accountId, 'ConversationAnalyzeJob');
-  return `${accountId}:${args.conversationId}:${args.triggeringMessageId}`;
+  const source =
+    args.trigger.type === 'message'
+      ? args.trigger.messageId
+      : args.trigger.sourceId;
+  return `${accountId}:${args.conversationId}:${args.trigger.type}:${source}`;
 }
 
 export interface SalesEvent {

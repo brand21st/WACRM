@@ -1,11 +1,11 @@
-import type { SupabaseClient } from '@supabase/supabase-js'
-import { loadCommerceSettings } from '@/lib/shopify/commerce-config'
-import { loadShopifyConfig } from '@/lib/shopify/config'
-import { isMissingDbRelation } from '@/lib/shopify/config-db'
+import type { SupabaseClient } from '@supabase/supabase-js';
+import { loadCommerceSettings } from '@/lib/shopify/commerce-config';
+import { loadShopifyConfig } from '@/lib/shopify/config';
+import { isMissingDbRelation } from '@/lib/shopify/config-db';
 import {
   CHECKOUT_BUTTON_LABEL,
   VIEW_CART_BUTTON_LABEL,
-} from '@/lib/ai/checkout-cta'
+} from '@/lib/ai/checkout-cta';
 import {
   engineSendAddressMessage,
   engineSendCtaUrl,
@@ -13,43 +13,43 @@ import {
   engineSendInteractiveList,
   engineSendOrderDetails,
   engineSendText,
-} from '@/lib/flows/meta-send'
-import { buildCartOffer } from '@/lib/shopify/cart-offer'
-import type { CartOfferItem } from '@/lib/shopify/cart-offer'
+} from '@/lib/flows/meta-send';
+import { buildCartOffer } from '@/lib/shopify/cart-offer';
+import type { CartOfferItem } from '@/lib/shopify/cart-offer';
 import {
   numericShopifyId,
   parseFacebookShopifyRetailerId,
-} from '@/lib/shopify/retailer-id'
-import type { AddressMessageValues } from '@/lib/whatsapp/meta-api'
-import { buildOrderDetailsInteractive } from './order-details'
-import { newCommerceReferenceId } from './money'
-import { nativeCommerceEnabled } from './types'
-import type { CommerceBeneficiary, MappedCartLine } from './types'
-import { formatCartMoney, parseInboundOrderMessage } from './inbound-order'
-import { mapCartLinesToShopify } from './map-lines'
-import { recordCatalogLineEvents } from '@/lib/catalog/analytics/events'
+} from '@/lib/shopify/retailer-id';
+import type { AddressMessageValues } from '@/lib/whatsapp/meta-api';
+import { buildOrderDetailsInteractive } from './order-details';
+import { newCommerceReferenceId } from './money';
+import { nativeCommerceEnabled } from './types';
+import type { CommerceBeneficiary, MappedCartLine } from './types';
+import { formatCartMoney, parseInboundOrderMessage } from './inbound-order';
+import { mapCartLinesToShopify } from './map-lines';
+import { recordCatalogLineEvents } from '@/lib/catalog/analytics/events';
 import {
   ADDRESS_PROMPT,
   parseBeneficiaryFromText,
   resolveBeneficiary,
-} from './beneficiary'
+} from './beneficiary';
 import {
   ADDRESS_FORM_BODY,
   ADDRESS_PICKER_BODY,
   addressFormValuesFromBeneficiary,
   parseAddressMessageReply,
-} from './address-form'
+} from './address-form';
 import {
   getSavedAddress,
   loadSavedAddressRows,
   rememberSavedAddress,
   touchSavedAddress,
-} from './saved-addresses'
+} from './saved-addresses';
 import {
   ADDRESS_PICKER_BUTTON_LABEL,
   parseSavedAddressPickerReply,
   savedAddressPickerRows,
-} from './address-picker'
+} from './address-picker';
 import {
   CONFIRM_BUTTON_TITLE,
   EDIT_BUTTON_TITLE,
@@ -57,7 +57,7 @@ import {
   addressConfirmationBody,
   addressEditReplyId,
   parseAddressConfirmReply,
-} from './address-confirm'
+} from './address-confirm';
 import {
   DISCOUNT_INVALID_PROMPT,
   DISCOUNT_PROMPT,
@@ -67,7 +67,7 @@ import {
   isPlausibleDiscountCode,
   parseDiscountSkipReply,
   sanitizeDiscountCode,
-} from './discount-code'
+} from './discount-code';
 import {
   EMAIL_PROMPT,
   SKIP_EMAIL_BUTTON_TITLE,
@@ -75,44 +75,44 @@ import {
   isEmailSkipText,
   parseEmailSkipReply,
   parseOptionalEmail,
-} from './checkout-email'
-import { lookupShopifyCustomerEmail } from './shopify-customer'
+} from './checkout-email';
+import { lookupShopifyCustomerEmail } from './shopify-customer';
 import {
   lookupShopifyDiscountCode,
   type AppliedCommerceDiscount,
-} from './shopify-discount'
-import { isCompleteBeneficiary } from './order-details'
+} from './shopify-discount';
+import { isCompleteBeneficiary } from './order-details';
 
 export async function handleInboundWhatsAppOrder(args: {
-  db: SupabaseClient
-  accountId: string
-  userId: string
-  conversationId: string
-  contactId: string
-  contactPhone: string | null
-  contactName: string | null
-  message: { order?: unknown }
+  db: SupabaseClient;
+  accountId: string;
+  userId: string;
+  conversationId: string;
+  contactId: string;
+  contactPhone: string | null;
+  contactName: string | null;
+  message: { order?: unknown };
 }): Promise<
   'awaiting_confirmation' | 'awaiting_address' | 'shopify_checkout' | 'skipped'
 > {
-  const parsed = parseInboundOrderMessage(args.message)
-  if (!parsed) return 'skipped'
+  const parsed = parseInboundOrderMessage(args.message);
+  if (!parsed) return 'skipped';
 
-  const settings = await loadCommerceSettings(args.db, args.accountId)
+  const settings = await loadCommerceSettings(args.db, args.accountId);
   const { lines, missing } = await mapCartLinesToShopify(
     args.db,
     args.accountId,
     parsed.items,
-    settings.retailerIdSource,
-  )
+    settings.retailerIdSource
+  );
 
   if (!nativeCommerceEnabled(settings)) {
     const sent = await sendShopifyCheckoutForInboundCart({
       ...args,
       lines,
       items: parsed.items,
-    })
-    return sent ? 'shopify_checkout' : 'skipped'
+    });
+    return sent ? 'shopify_checkout' : 'skipped';
   }
 
   if (missing.length > 0 || lines.length === 0) {
@@ -120,14 +120,14 @@ export async function handleInboundWhatsAppOrder(args: {
       ...args,
       lines,
       items: parsed.items,
-    })
-    if (sent) return 'shopify_checkout'
+    });
+    if (sent) return 'shopify_checkout';
     await insertInboxNote(
       args.db,
       args.conversationId,
-      `WhatsApp cart could not be mapped to Shopify (${missing.join(', ') || 'no items'}). Send the bill manually.`,
-    )
-    return 'skipped'
+      `WhatsApp cart could not be mapped to Shopify (${missing.join(', ') || 'no items'}). Send the bill manually.`
+    );
+    return 'skipped';
   }
 
   const beneficiary = await resolveBeneficiary({
@@ -136,10 +136,13 @@ export async function handleInboundWhatsAppOrder(args: {
     contactPhone: args.contactPhone,
     contactName: args.contactName,
     settingsDefault: settings.shipBeneficiary,
-  })
+  });
 
-  const referenceId = newCommerceReferenceId()
-  const total = lines.reduce((sum, line) => sum + line.amountPaise * line.quantity, 0)
+  const referenceId = newCommerceReferenceId();
+  const total = lines.reduce(
+    (sum, line) => sum + line.amountPaise * line.quantity,
+    0
+  );
   const inserted = await insertCommerceOrder(args.db, {
     accountId: args.accountId,
     contactId: args.contactId,
@@ -155,15 +158,16 @@ export async function handleInboundWhatsAppOrder(args: {
     // still gets confirmed — it may be stale, and the customer is about
     // to pay against it.
     awaitingConfirmation: Boolean(beneficiary),
-  })
-  if (!inserted) return 'skipped'
+  });
+  if (!inserted) return 'skipped';
   void recordCatalogLineEvents(args.db, {
     accountId: args.accountId,
     event: 'add_to_cart',
     conversationId: args.conversationId,
     contactId: args.contactId,
+    sourceEventId: referenceId,
     lines,
-  })
+  });
 
   if (!beneficiary) {
     await askForDeliveryAddress({
@@ -174,8 +178,8 @@ export async function handleInboundWhatsAppOrder(args: {
       contactId: args.contactId,
       referenceId,
       values: addressFormValuesFromBeneficiary(null, args.contactPhone),
-    })
-    return 'awaiting_address'
+    });
+    return 'awaiting_address';
   }
 
   await askToConfirmAddress({
@@ -187,40 +191,40 @@ export async function handleInboundWhatsAppOrder(args: {
     beneficiary,
     totalPaise: total,
     itemCount: lines.length,
-  })
-  return 'awaiting_confirmation'
+  });
+  return 'awaiting_confirmation';
 }
 
 /** When WhatsApp payments are off, still send Shopify View cart + Checkout NOW. */
 async function sendShopifyCheckoutForInboundCart(args: {
-  db: SupabaseClient
-  accountId: string
-  userId: string
-  conversationId: string
-  contactId: string
-  lines: MappedCartLine[]
+  db: SupabaseClient;
+  accountId: string;
+  userId: string;
+  conversationId: string;
+  contactId: string;
+  lines: MappedCartLine[];
   items: Array<{
-    product_retailer_id: string
-    quantity: number
-    name?: string
-    item_price?: number
-    compare_at_price?: number
-    currency?: string
-  }>
+    product_retailer_id: string;
+    quantity: number;
+    name?: string;
+    item_price?: number;
+    compare_at_price?: number;
+    currency?: string;
+  }>;
 }): Promise<boolean> {
-  const domain = await loadStorefrontDomain(args.db, args.accountId)
+  const domain = await loadStorefrontDomain(args.db, args.accountId);
   const offerItems = shopifyCartItemsFromInboundOrder({
     lines: args.lines,
     items: args.items,
-  })
-  const offer = buildCartOffer(domain, offerItems)
+  });
+  const offer = buildCartOffer(domain, offerItems);
   if (!offer) {
     await insertInboxNote(
       args.db,
       args.conversationId,
-      'WhatsApp cart received but Shopify checkout could not be built (missing store domain or variant id).',
-    )
-    return false
+      'WhatsApp cart received but Shopify checkout could not be built (missing store domain or variant id).'
+    );
+    return false;
   }
 
   const sendArgs = {
@@ -229,48 +233,48 @@ async function sendShopifyCheckoutForInboundCart(args: {
     conversationId: args.conversationId,
     contactId: args.contactId,
     aiGenerated: true as const,
-  }
-  const body = (offer.summaryLines.join('\n') || 'Your cart').slice(0, 1024)
+  };
+  const body = (offer.summaryLines.join('\n') || 'Your cart').slice(0, 1024);
   try {
     await engineSendCtaUrl({
       ...sendArgs,
       bodyText: body,
       displayText: VIEW_CART_BUTTON_LABEL,
       url: offer.cartUrl,
-    })
+    });
     await engineSendCtaUrl({
       ...sendArgs,
       bodyText: body,
       displayText: CHECKOUT_BUTTON_LABEL,
       url: offer.checkoutUrl,
-    })
-    return true
+    });
+    return true;
   } catch (err) {
-    console.error('[commerce] Shopify checkout CTA send failed:', err)
+    console.error('[commerce] Shopify checkout CTA send failed:', err);
     await insertInboxNote(
       args.db,
       args.conversationId,
-      `Could not send Shopify checkout: ${err instanceof Error ? err.message : String(err)}`,
-    )
-    return false
+      `Could not send Shopify checkout: ${err instanceof Error ? err.message : String(err)}`
+    );
+    return false;
   }
 }
 
 export function shopifyCartItemsFromInboundOrder(args: {
-  lines: MappedCartLine[]
+  lines: MappedCartLine[];
   items: Array<{
-    product_retailer_id: string
-    quantity: number
-    name?: string
-    item_price?: number
-    compare_at_price?: number
-    currency?: string
-  }>
+    product_retailer_id: string;
+    quantity: number;
+    name?: string;
+    item_price?: number;
+    compare_at_price?: number;
+    currency?: string;
+  }>;
 }): CartOfferItem[] {
-  const fromLines: CartOfferItem[] = []
+  const fromLines: CartOfferItem[] = [];
   for (const line of args.lines) {
-    const variantId = checkoutVariantId(line)
-    if (!variantId) continue
+    const variantId = checkoutVariantId(line);
+    if (!variantId) continue;
     fromLines.push({
       variantId,
       quantity: line.quantity,
@@ -278,51 +282,54 @@ export function shopifyCartItemsFromInboundOrder(args: {
       price: line.amountPaise
         ? formatCartMoney(line.amountPaise / 100, 'INR')
         : undefined,
-    })
+    });
   }
-  if (fromLines.length > 0) return fromLines
+  if (fromLines.length > 0) return fromLines;
 
-  const fromIds: CartOfferItem[] = []
+  const fromIds: CartOfferItem[] = [];
   for (const item of args.items) {
-    const facebook = parseFacebookShopifyRetailerId(item.product_retailer_id)
+    const facebook = parseFacebookShopifyRetailerId(item.product_retailer_id);
     const variantId =
       facebook?.variantId ||
       (/^\d+$/.test(item.product_retailer_id.trim())
         ? item.product_retailer_id.trim()
-        : '')
-    if (!variantId) continue
+        : '');
+    if (!variantId) continue;
     fromIds.push({
       variantId,
       quantity: item.quantity,
       title: item.name?.trim() || item.product_retailer_id,
-    })
+    });
   }
-  return fromIds
+  return fromIds;
 }
 
 async function loadStorefrontDomain(
   db: SupabaseClient,
-  accountId: string,
+  accountId: string
 ): Promise<string | null> {
   const { data } = await db
     .from('shopify_configs')
     .select('primary_domain, shop_domain')
     .eq('account_id', accountId)
-    .maybeSingle()
-  const row = data as { primary_domain?: string | null; shop_domain?: string | null } | null
-  const fromRow = row?.primary_domain || row?.shop_domain || null
-  if (fromRow) return fromRow
-  const shopify = await loadShopifyConfig(db, accountId).catch(() => null)
-  return shopify?.primaryDomain || shopify?.shopDomain || null
+    .maybeSingle();
+  const row = data as {
+    primary_domain?: string | null;
+    shop_domain?: string | null;
+  } | null;
+  const fromRow = row?.primary_domain || row?.shop_domain || null;
+  if (fromRow) return fromRow;
+  const shopify = await loadShopifyConfig(db, accountId).catch(() => null);
+  return shopify?.primaryDomain || shopify?.shopDomain || null;
 }
 
 function checkoutVariantId(line: MappedCartLine): string {
-  const fromVariant = numericShopifyId(line.variantId)
-  if (fromVariant) return fromVariant
-  const facebook = parseFacebookShopifyRetailerId(line.retailer_id)
-  if (facebook) return facebook.variantId
-  if (/^\d+$/.test(line.retailer_id.trim())) return line.retailer_id.trim()
-  return ''
+  const fromVariant = numericShopifyId(line.variantId);
+  if (fromVariant) return fromVariant;
+  const facebook = parseFacebookShopifyRetailerId(line.retailer_id);
+  if (facebook) return facebook.variantId;
+  if (/^\d+$/.test(line.retailer_id.trim())) return line.retailer_id.trim();
+  return '';
 }
 
 /**
@@ -331,14 +338,14 @@ function checkoutVariantId(line: MappedCartLine): string {
  * wrong address is caught before money is involved.
  */
 async function askToConfirmAddress(args: {
-  accountId: string
-  userId: string
-  conversationId: string
-  contactId: string
-  referenceId: string
-  beneficiary: CommerceBeneficiary
-  totalPaise: number
-  itemCount: number
+  accountId: string;
+  userId: string;
+  conversationId: string;
+  contactId: string;
+  referenceId: string;
+  beneficiary: CommerceBeneficiary;
+  totalPaise: number;
+  itemCount: number;
 }): Promise<void> {
   try {
     await engineSendInteractiveButtons({
@@ -359,9 +366,9 @@ async function askToConfirmAddress(args: {
         { id: addressEditReplyId(args.referenceId), title: EDIT_BUTTON_TITLE },
       ],
       aiGenerated: true,
-    })
+    });
   } catch (err) {
-    console.error('[commerce] address confirmation send failed:', err)
+    console.error('[commerce] address confirmation send failed:', err);
   }
 }
 
@@ -378,25 +385,25 @@ async function askToConfirmAddress(args: {
  * India address form. Prefill `values` are only sent on that form.
  */
 async function askForDeliveryAddress(args: {
-  db: SupabaseClient
-  accountId: string
-  userId: string
-  conversationId: string
-  contactId: string
-  referenceId: string
-  values?: AddressMessageValues
-  validationErrors?: AddressMessageValues
-  skipPicker?: boolean
+  db: SupabaseClient;
+  accountId: string;
+  userId: string;
+  conversationId: string;
+  contactId: string;
+  referenceId: string;
+  values?: AddressMessageValues;
+  validationErrors?: AddressMessageValues;
+  skipPicker?: boolean;
 }): Promise<void> {
   // A re-ask carrying inline errors is a correction of one specific
   // submission, so it keeps that submission's values and drops the picker.
   const correcting = Boolean(
-    args.validationErrors && Object.keys(args.validationErrors).length > 0,
-  )
+    args.validationErrors && Object.keys(args.validationErrors).length > 0
+  );
   const savedRows =
     correcting || args.skipPicker
       ? []
-      : await loadSavedAddressRows(args.db, args.accountId, args.contactId)
+      : await loadSavedAddressRows(args.db, args.accountId, args.contactId);
   if (savedRows.length > 0) {
     try {
       await engineSendInteractiveList({
@@ -416,10 +423,10 @@ async function askForDeliveryAddress(args: {
           },
         ],
         aiGenerated: true,
-      })
-      return
+      });
+      return;
     } catch (err) {
-      console.warn('[commerce] saved address list send failed:', err)
+      console.warn('[commerce] saved address list send failed:', err);
     }
   }
   try {
@@ -432,19 +439,22 @@ async function askForDeliveryAddress(args: {
       values: args.values,
       validationErrors: args.validationErrors,
       aiGenerated: true,
-    })
-    return
+    });
+    return;
   } catch (err) {
-    console.warn('[commerce] address form send failed, using text prompt:', err)
+    console.warn(
+      '[commerce] address form send failed, using text prompt:',
+      err
+    );
   }
-  await sendAddressTextPrompt(args)
+  await sendAddressTextPrompt(args);
 }
 
 async function sendAddressTextPrompt(args: {
-  accountId: string
-  userId: string
-  conversationId: string
-  contactId: string
+  accountId: string;
+  userId: string;
+  conversationId: string;
+  contactId: string;
 }): Promise<void> {
   try {
     await engineSendText({
@@ -454,9 +464,9 @@ async function sendAddressTextPrompt(args: {
       contactId: args.contactId,
       text: ADDRESS_PROMPT,
       aiGenerated: true,
-    })
+    });
   } catch (err) {
-    console.error('[commerce] address prompt failed:', err)
+    console.error('[commerce] address prompt failed:', err);
   }
 }
 
@@ -470,22 +480,22 @@ async function sendAddressTextPrompt(args: {
  * recommended validation loop.
  */
 export async function completeCommerceAddressFromForm(args: {
-  db: SupabaseClient
-  accountId: string
-  userId: string
-  conversationId: string
-  contactId: string
-  responseJson: unknown
+  db: SupabaseClient;
+  accountId: string;
+  userId: string;
+  conversationId: string;
+  contactId: string;
+  responseJson: unknown;
 }): Promise<boolean> {
   const pending = await loadAwaitingAddressOrder(
     args.db,
     args.accountId,
-    args.conversationId,
-  )
-  if (!pending) return false
+    args.conversationId
+  );
+  if (!pending) return false;
 
-  const submission = parseAddressMessageReply(args.responseJson)
-  if (!submission) return false
+  const submission = parseAddressMessageReply(args.responseJson);
+  if (!submission) return false;
 
   if (!submission.beneficiary) {
     await askForDeliveryAddress({
@@ -497,8 +507,8 @@ export async function completeCommerceAddressFromForm(args: {
       referenceId: pending.reference_id,
       values: submission.values,
       validationErrors: submission.validationErrors,
-    })
-    return true
+    });
+    return true;
   }
 
   // Reusing a saved address bumps it to the top of the picker.
@@ -507,7 +517,7 @@ export async function completeCommerceAddressFromForm(args: {
       db: args.db,
       accountId: args.accountId,
       savedAddressId: submission.savedAddressId,
-    })
+    });
   }
 
   return storeAddressAndConfirm({
@@ -519,7 +529,7 @@ export async function completeCommerceAddressFromForm(args: {
     order: pending,
     beneficiary: submission.beneficiary,
     formValues: submission.values,
-  })
+  });
 }
 
 /**
@@ -528,18 +538,18 @@ export async function completeCommerceAddressFromForm(args: {
  * paths so both reach the bill through the same confirmation step.
  */
 async function storeAddressAndConfirm(args: {
-  db: SupabaseClient
-  accountId: string
-  userId: string
-  conversationId: string
-  contactId: string
-  order: { id: string; reference_id: string; line_items: unknown }
-  beneficiary: CommerceBeneficiary
+  db: SupabaseClient;
+  accountId: string;
+  userId: string;
+  conversationId: string;
+  contactId: string;
+  order: { id: string; reference_id: string; line_items: unknown };
+  beneficiary: CommerceBeneficiary;
   /** Raw address_message fields, kept verbatim for the saved-address picker. */
-  formValues?: AddressMessageValues
+  formValues?: AddressMessageValues;
 }): Promise<boolean> {
-  const lines = (args.order.line_items as MappedCartLine[]) ?? []
-  if (lines.length === 0) return false
+  const lines = (args.order.line_items as MappedCartLine[]) ?? [];
+  if (lines.length === 0) return false;
 
   await args.db
     .from('whatsapp_commerce_orders')
@@ -548,7 +558,7 @@ async function storeAddressAndConfirm(args: {
       awaiting_address: false,
       awaiting_confirmation: true,
     })
-    .eq('id', args.order.id)
+    .eq('id', args.order.id);
 
   // Offer this address back on the customer's next order.
   await rememberSavedAddress({
@@ -557,7 +567,7 @@ async function storeAddressAndConfirm(args: {
     contactId: args.contactId,
     beneficiary: args.beneficiary,
     formValues: args.formValues,
-  })
+  });
 
   await askToConfirmAddress({
     accountId: args.accountId,
@@ -568,11 +578,11 @@ async function storeAddressAndConfirm(args: {
     beneficiary: args.beneficiary,
     totalPaise: lines.reduce(
       (sum, line) => sum + line.amountPaise * line.quantity,
-      0,
+      0
     ),
     itemCount: lines.length,
-  })
-  return true
+  });
+  return true;
 }
 
 /**
@@ -581,25 +591,25 @@ async function storeAddressAndConfirm(args: {
  * WhatsApp often never shows that picker.
  */
 export async function handleSavedAddressPickerReply(args: {
-  db: SupabaseClient
-  accountId: string
-  userId: string
-  conversationId: string
-  contactId: string
-  contactPhone: string | null
-  replyId: string | null
+  db: SupabaseClient;
+  accountId: string;
+  userId: string;
+  conversationId: string;
+  contactId: string;
+  contactPhone: string | null;
+  replyId: string | null;
 }): Promise<boolean> {
-  const reply = parseSavedAddressPickerReply(args.replyId)
-  if (!reply) return false
+  const reply = parseSavedAddressPickerReply(args.replyId);
+  if (!reply) return false;
 
   const { data: order } = await args.db
     .from('whatsapp_commerce_orders')
     .select('id, reference_id, line_items, status, awaiting_address')
     .eq('account_id', args.accountId)
     .eq('reference_id', reply.referenceId)
-    .maybeSingle()
-  if (!order || order.status !== 'pending') return false
-  if (!order.awaiting_address) return true
+    .maybeSingle();
+  if (!order || order.status !== 'pending') return false;
+  if (!order.awaiting_address) return true;
 
   if (reply.action === 'new') {
     await askForDeliveryAddress({
@@ -611,8 +621,8 @@ export async function handleSavedAddressPickerReply(args: {
       referenceId: reply.referenceId,
       values: addressFormValuesFromBeneficiary(null, args.contactPhone),
       skipPicker: true,
-    })
-    return true
+    });
+    return true;
   }
 
   const saved = await getSavedAddress({
@@ -620,7 +630,7 @@ export async function handleSavedAddressPickerReply(args: {
     accountId: args.accountId,
     contactId: args.contactId,
     savedAddressId: reply.savedAddressId,
-  })
+  });
   if (!saved) {
     await askForDeliveryAddress({
       db: args.db,
@@ -631,15 +641,15 @@ export async function handleSavedAddressPickerReply(args: {
       referenceId: reply.referenceId,
       values: addressFormValuesFromBeneficiary(null, args.contactPhone),
       skipPicker: true,
-    })
-    return true
+    });
+    return true;
   }
 
   await touchSavedAddress({
     db: args.db,
     accountId: args.accountId,
     savedAddressId: saved.id,
-  })
+  });
   return storeAddressAndConfirm({
     db: args.db,
     accountId: args.accountId,
@@ -649,7 +659,7 @@ export async function handleSavedAddressPickerReply(args: {
     order,
     beneficiary: saved.beneficiary,
     formValues: saved.formValues,
-  })
+  });
 }
 
 /**
@@ -662,24 +672,26 @@ export async function handleSavedAddressPickerReply(args: {
  * discount prompt (or the bill, if that column is not migrated yet).
  */
 export async function handleAddressConfirmationReply(args: {
-  db: SupabaseClient
-  accountId: string
-  userId: string
-  conversationId: string
-  contactId: string
-  contactPhone: string | null
-  replyId: string | null
+  db: SupabaseClient;
+  accountId: string;
+  userId: string;
+  conversationId: string;
+  contactId: string;
+  contactPhone: string | null;
+  replyId: string | null;
 }): Promise<boolean> {
-  const reply = parseAddressConfirmReply(args.replyId)
-  if (!reply) return false
+  const reply = parseAddressConfirmReply(args.replyId);
+  if (!reply) return false;
 
   const { data: order } = await args.db
     .from('whatsapp_commerce_orders')
-    .select('id, reference_id, line_items, beneficiary, status, awaiting_confirmation')
+    .select(
+      'id, reference_id, line_items, beneficiary, status, awaiting_confirmation'
+    )
     .eq('account_id', args.accountId)
     .eq('reference_id', reply.referenceId)
-    .maybeSingle()
-  if (!order) return false
+    .maybeSingle();
+  if (!order) return false;
 
   if (reply.action === 'edit') {
     await args.db
@@ -691,7 +703,7 @@ export async function handleAddressConfirmationReply(args: {
         awaiting_email: false,
       })
       .eq('id', order.id)
-      .eq('status', 'pending')
+      .eq('status', 'pending');
     await askForDeliveryAddress({
       db: args.db,
       accountId: args.accountId,
@@ -701,16 +713,16 @@ export async function handleAddressConfirmationReply(args: {
       referenceId: order.reference_id,
       values: addressFormValuesFromBeneficiary(
         (order.beneficiary as CommerceBeneficiary) ?? null,
-        args.contactPhone,
+        args.contactPhone
       ),
-    })
-    return true
+    });
+    return true;
   }
 
-  const settings = await loadCommerceSettings(args.db, args.accountId)
-  if (!nativeCommerceEnabled(settings)) return false
+  const settings = await loadCommerceSettings(args.db, args.accountId);
+  if (!nativeCommerceEnabled(settings)) return false;
 
-  const beneficiary = order.beneficiary as CommerceBeneficiary | null
+  const beneficiary = order.beneficiary as CommerceBeneficiary | null;
   if (!beneficiary || !isCompleteBeneficiary(beneficiary)) {
     await args.db
       .from('whatsapp_commerce_orders')
@@ -721,7 +733,7 @@ export async function handleAddressConfirmationReply(args: {
         awaiting_email: false,
       })
       .eq('id', order.id)
-      .eq('status', 'pending')
+      .eq('status', 'pending');
     await askForDeliveryAddress({
       db: args.db,
       accountId: args.accountId,
@@ -730,8 +742,8 @@ export async function handleAddressConfirmationReply(args: {
       contactId: args.contactId,
       referenceId: order.reference_id,
       values: addressFormValuesFromBeneficiary(null, args.contactPhone),
-    })
-    return true
+    });
+    return true;
   }
 
   // Claim the confirmation. No row back means someone (or a second tap)
@@ -742,18 +754,18 @@ export async function handleAddressConfirmationReply(args: {
     .eq('id', order.id)
     .eq('status', 'pending')
     .eq('awaiting_confirmation', true)
-    .select('id')
-  if (!claimed || claimed.length === 0) return true
+    .select('id');
+  if (!claimed || claimed.length === 0) return true;
 
-  const lines = (order.line_items as MappedCartLine[]) ?? []
-  if (lines.length === 0) return true
+  const lines = (order.line_items as MappedCartLine[]) ?? [];
+  if (lines.length === 0) return true;
 
   await rememberSavedAddress({
     db: args.db,
     accountId: args.accountId,
     contactId: args.contactId,
     beneficiary,
-  })
+  });
 
   return continueCheckoutAfterAddress({
     db: args.db,
@@ -766,23 +778,23 @@ export async function handleAddressConfirmationReply(args: {
     orderId: order.id as string,
     lines,
     beneficiary,
-  })
+  });
 }
 
 /**
  * Skip tap on the optional receipt-email prompt.
  */
 export async function handleReceiptEmailReply(args: {
-  db: SupabaseClient
-  accountId: string
-  userId: string
-  conversationId: string
-  contactId: string
-  contactPhone: string | null
-  replyId: string | null
+  db: SupabaseClient;
+  accountId: string;
+  userId: string;
+  conversationId: string;
+  contactId: string;
+  contactPhone: string | null;
+  replyId: string | null;
 }): Promise<boolean> {
-  const skip = parseEmailSkipReply(args.replyId)
-  if (!skip) return false
+  const skip = parseEmailSkipReply(args.replyId);
+  if (!skip) return false;
   return completeReceiptEmail({
     db: args.db,
     accountId: args.accountId,
@@ -792,24 +804,24 @@ export async function handleReceiptEmailReply(args: {
     contactPhone: args.contactPhone,
     referenceId: skip.referenceId,
     email: null,
-  })
+  });
 }
 
 export async function tryCompleteCommerceEmail(args: {
-  db: SupabaseClient
-  accountId: string
-  userId: string
-  conversationId: string
-  contactId: string
-  contactPhone: string | null
-  text: string
+  db: SupabaseClient;
+  accountId: string;
+  userId: string;
+  conversationId: string;
+  contactId: string;
+  contactPhone: string | null;
+  text: string;
 }): Promise<boolean> {
   const pending = await loadAwaitingEmailOrder(
     args.db,
     args.accountId,
-    args.conversationId,
-  )
-  if (!pending) return false
+    args.conversationId
+  );
+  if (!pending) return false;
 
   if (isEmailSkipText(args.text)) {
     return completeReceiptEmail({
@@ -821,13 +833,13 @@ export async function tryCompleteCommerceEmail(args: {
       contactPhone: args.contactPhone,
       referenceId: pending.reference_id,
       email: null,
-    })
+    });
   }
 
-  const email = parseOptionalEmail(args.text)
+  const email = parseOptionalEmail(args.text);
   if (!email) {
     // "Hi" / "Ok" after a leftover checkout must reach the AI agent.
-    return false
+    return false;
   }
 
   return completeReceiptEmail({
@@ -839,48 +851,48 @@ export async function tryCompleteCommerceEmail(args: {
     contactPhone: args.contactPhone,
     referenceId: pending.reference_id,
     email,
-  })
+  });
 }
 
 async function continueCheckoutAfterAddress(args: {
-  db: SupabaseClient
-  accountId: string
-  userId: string
-  conversationId: string
-  contactId: string
-  contactPhone: string | null
-  referenceId: string
-  orderId: string
-  lines: MappedCartLine[]
-  beneficiary: CommerceBeneficiary
+  db: SupabaseClient;
+  accountId: string;
+  userId: string;
+  conversationId: string;
+  contactId: string;
+  contactPhone: string | null;
+  referenceId: string;
+  orderId: string;
+  lines: MappedCartLine[];
+  beneficiary: CommerceBeneficiary;
 }): Promise<boolean> {
-  let beneficiary = args.beneficiary
+  let beneficiary = args.beneficiary;
   if (!beneficiary.email && args.contactPhone) {
     const shopify = await loadShopifyConfig(args.db, args.accountId, {
       requireActive: false,
-    })
+    });
     if (shopify) {
       const existing = await lookupShopifyCustomerEmail({
         config: shopify,
         phone: args.contactPhone,
-      })
+      });
       if (existing) {
-        beneficiary = { ...beneficiary, email: existing }
+        beneficiary = { ...beneficiary, email: existing };
         await args.db
           .from('whatsapp_commerce_orders')
           .update({ beneficiary })
-          .eq('id', args.orderId)
+          .eq('id', args.orderId);
       }
     }
   }
 
   if (beneficiary.email) {
-    return proceedToDiscountOrBill({ ...args, beneficiary })
+    return proceedToDiscountOrBill({ ...args, beneficiary });
   }
 
-  const asked = await markAwaitingEmail(args.db, args.orderId)
+  const asked = await markAwaitingEmail(args.db, args.orderId);
   if (!asked) {
-    return proceedToDiscountOrBill(args)
+    return proceedToDiscountOrBill(args);
   }
   await askForReceiptEmail({
     accountId: args.accountId,
@@ -888,19 +900,19 @@ async function continueCheckoutAfterAddress(args: {
     conversationId: args.conversationId,
     contactId: args.contactId,
     referenceId: args.referenceId,
-  })
-  return true
+  });
+  return true;
 }
 
 async function completeReceiptEmail(args: {
-  db: SupabaseClient
-  accountId: string
-  userId: string
-  conversationId: string
-  contactId: string
-  contactPhone: string | null
-  referenceId: string
-  email: string | null
+  db: SupabaseClient;
+  accountId: string;
+  userId: string;
+  conversationId: string;
+  contactId: string;
+  contactPhone: string | null;
+  referenceId: string;
+  email: string | null;
 }): Promise<boolean> {
   const { data: order } = await args.db
     .from('whatsapp_commerce_orders')
@@ -908,20 +920,24 @@ async function completeReceiptEmail(args: {
     .eq('account_id', args.accountId)
     .eq('reference_id', args.referenceId)
     .eq('status', 'pending')
-    .maybeSingle()
-  if (!order) return false
+    .maybeSingle();
+  if (!order) return false;
 
-  const settings = await loadCommerceSettings(args.db, args.accountId)
-  if (!nativeCommerceEnabled(settings)) return false
-  let beneficiary = (order.beneficiary as CommerceBeneficiary) ?? null
-  if (!beneficiary || !isCompleteBeneficiary(beneficiary)) return false
-  if (args.email) beneficiary = { ...beneficiary, email: args.email }
+  const settings = await loadCommerceSettings(args.db, args.accountId);
+  if (!nativeCommerceEnabled(settings)) return false;
+  let beneficiary = (order.beneficiary as CommerceBeneficiary) ?? null;
+  if (!beneficiary || !isCompleteBeneficiary(beneficiary)) return false;
+  if (args.email) beneficiary = { ...beneficiary, email: args.email };
 
-  const claimed = await claimAwaitingEmail(args.db, order.id as string, beneficiary)
-  if (!claimed) return true
+  const claimed = await claimAwaitingEmail(
+    args.db,
+    order.id as string,
+    beneficiary
+  );
+  if (!claimed) return true;
 
-  const lines = (order.line_items as MappedCartLine[]) ?? []
-  if (lines.length === 0) return false
+  const lines = (order.line_items as MappedCartLine[]) ?? [];
+  if (lines.length === 0) return false;
 
   return proceedToDiscountOrBill({
     db: args.db,
@@ -934,25 +950,25 @@ async function completeReceiptEmail(args: {
     orderId: order.id as string,
     lines,
     beneficiary,
-  })
+  });
 }
 
 async function proceedToDiscountOrBill(args: {
-  db: SupabaseClient
-  accountId: string
-  userId: string
-  conversationId: string
-  contactId: string
-  contactPhone: string | null
-  referenceId: string
-  orderId: string
-  lines: MappedCartLine[]
-  beneficiary: CommerceBeneficiary
+  db: SupabaseClient;
+  accountId: string;
+  userId: string;
+  conversationId: string;
+  contactId: string;
+  contactPhone: string | null;
+  referenceId: string;
+  orderId: string;
+  lines: MappedCartLine[];
+  beneficiary: CommerceBeneficiary;
 }): Promise<boolean> {
-  const settings = await loadCommerceSettings(args.db, args.accountId)
-  if (!nativeCommerceEnabled(settings)) return false
+  const settings = await loadCommerceSettings(args.db, args.accountId);
+  if (!nativeCommerceEnabled(settings)) return false;
 
-  const asked = await markAwaitingDiscount(args.db, args.orderId)
+  const asked = await markAwaitingDiscount(args.db, args.orderId);
   if (!asked) {
     return sendCommerceBill({
       db: args.db,
@@ -965,7 +981,7 @@ async function proceedToDiscountOrBill(args: {
       configurationName: settings.waPaymentConfigurationName!,
       lines: args.lines,
       beneficiary: args.beneficiary,
-    })
+    });
   }
 
   await askForDiscountCode({
@@ -974,29 +990,29 @@ async function proceedToDiscountOrBill(args: {
     conversationId: args.conversationId,
     contactId: args.contactId,
     referenceId: args.referenceId,
-  })
-  return true
+  });
+  return true;
 }
 
 async function markAwaitingEmail(
   db: SupabaseClient,
-  orderId: string,
+  orderId: string
 ): Promise<boolean> {
   const { error } = await db
     .from('whatsapp_commerce_orders')
     .update({ awaiting_email: true })
     .eq('id', orderId)
-    .eq('status', 'pending')
-  if (!error) return true
-  if (isMissingDbRelation(error, 'awaiting_email')) return false
-  console.warn('[commerce] mark awaiting email failed:', error)
-  return false
+    .eq('status', 'pending');
+  if (!error) return true;
+  if (isMissingDbRelation(error, 'awaiting_email')) return false;
+  console.warn('[commerce] mark awaiting email failed:', error);
+  return false;
 }
 
 async function claimAwaitingEmail(
   db: SupabaseClient,
   orderId: string,
-  beneficiary: CommerceBeneficiary,
+  beneficiary: CommerceBeneficiary
 ): Promise<boolean> {
   const { data, error } = await db
     .from('whatsapp_commerce_orders')
@@ -1007,19 +1023,19 @@ async function claimAwaitingEmail(
     .eq('id', orderId)
     .eq('status', 'pending')
     .eq('awaiting_email', true)
-    .select('id')
+    .select('id');
   if (error) {
-    if (isMissingDbRelation(error, 'awaiting_email')) return true
-    console.warn('[commerce] claim email failed:', error)
-    return false
+    if (isMissingDbRelation(error, 'awaiting_email')) return true;
+    console.warn('[commerce] claim email failed:', error);
+    return false;
   }
-  return Boolean(data && data.length > 0)
+  return Boolean(data && data.length > 0);
 }
 
 async function loadAwaitingEmailOrder(
   db: SupabaseClient,
   accountId: string,
-  conversationId: string,
+  conversationId: string
 ) {
   const { data, error } = await db
     .from('whatsapp_commerce_orders')
@@ -1029,28 +1045,28 @@ async function loadAwaitingEmailOrder(
     .eq('status', 'pending')
     .order('created_at', { ascending: false })
     .limit(1)
-    .maybeSingle()
+    .maybeSingle();
   if (error) {
     if (
       isMissingDbRelation(error, 'whatsapp_commerce_orders') ||
       isMissingDbRelation(error, 'awaiting_email')
     ) {
-      return null
+      return null;
     }
-    console.warn('[commerce] load awaiting email failed:', error)
-    return null
+    console.warn('[commerce] load awaiting email failed:', error);
+    return null;
   }
-  if (!data || data.awaiting_email !== true) return null
-  return data
+  if (!data || data.awaiting_email !== true) return null;
+  return data;
 }
 
 async function askForReceiptEmail(args: {
-  accountId: string
-  userId: string
-  conversationId: string
-  contactId: string
-  referenceId: string
-  bodyText?: string
+  accountId: string;
+  userId: string;
+  conversationId: string;
+  contactId: string;
+  referenceId: string;
+  bodyText?: string;
 }): Promise<void> {
   try {
     await engineSendInteractiveButtons({
@@ -1066,9 +1082,9 @@ async function askForReceiptEmail(args: {
         },
       ],
       aiGenerated: true,
-    })
+    });
   } catch (err) {
-    console.error('[commerce] email prompt send failed:', err)
+    console.error('[commerce] email prompt send failed:', err);
     try {
       await engineSendText({
         accountId: args.accountId,
@@ -1077,9 +1093,9 @@ async function askForReceiptEmail(args: {
         contactId: args.contactId,
         text: args.bodyText ?? EMAIL_PROMPT,
         aiGenerated: true,
-      })
+      });
     } catch (textErr) {
-      console.error('[commerce] email text prompt failed:', textErr)
+      console.error('[commerce] email text prompt failed:', textErr);
     }
   }
 }
@@ -1089,15 +1105,15 @@ async function askForReceiptEmail(args: {
  * button so address confirm / menus still reach their handlers.
  */
 export async function handleDiscountCodeReply(args: {
-  db: SupabaseClient
-  accountId: string
-  userId: string
-  conversationId: string
-  contactId: string
-  replyId: string | null
+  db: SupabaseClient;
+  accountId: string;
+  userId: string;
+  conversationId: string;
+  contactId: string;
+  replyId: string | null;
 }): Promise<boolean> {
-  const skip = parseDiscountSkipReply(args.replyId)
-  if (!skip) return false
+  const skip = parseDiscountSkipReply(args.replyId);
+  if (!skip) return false;
   return billPendingDiscountOrder({
     db: args.db,
     accountId: args.accountId,
@@ -1106,7 +1122,7 @@ export async function handleDiscountCodeReply(args: {
     contactId: args.contactId,
     referenceId: skip.referenceId,
     discount: null,
-  })
+  });
 }
 
 /**
@@ -1114,19 +1130,19 @@ export async function handleDiscountCodeReply(args: {
  * Returns false when this conversation is not waiting on a code.
  */
 export async function tryCompleteCommerceDiscount(args: {
-  db: SupabaseClient
-  accountId: string
-  userId: string
-  conversationId: string
-  contactId: string
-  text: string
+  db: SupabaseClient;
+  accountId: string;
+  userId: string;
+  conversationId: string;
+  contactId: string;
+  text: string;
 }): Promise<boolean> {
   const pending = await loadAwaitingDiscountOrder(
     args.db,
     args.accountId,
-    args.conversationId,
-  )
-  if (!pending) return false
+    args.conversationId
+  );
+  if (!pending) return false;
 
   if (isDiscountSkipText(args.text)) {
     return billPendingDiscountOrder({
@@ -1137,23 +1153,23 @@ export async function tryCompleteCommerceDiscount(args: {
       contactId: args.contactId,
       referenceId: pending.reference_id,
       discount: null,
-    })
+    });
   }
 
-  const code = sanitizeDiscountCode(args.text)
+  const code = sanitizeDiscountCode(args.text);
   if (!isPlausibleDiscountCode(code)) {
-    return false
+    return false;
   }
 
   const shopify = await loadShopifyConfig(args.db, args.accountId, {
     requireActive: false,
-  })
+  });
   if (!shopify) {
     await insertInboxNote(
       args.db,
       args.conversationId,
-      `Discount code ${code} skipped — Shopify is not connected.`,
-    )
+      `Discount code ${code} skipped — Shopify is not connected.`
+    );
     return billPendingDiscountOrder({
       db: args.db,
       accountId: args.accountId,
@@ -1162,22 +1178,22 @@ export async function tryCompleteCommerceDiscount(args: {
       contactId: args.contactId,
       referenceId: pending.reference_id,
       discount: null,
-    })
+    });
   }
 
-  const lines = (pending.line_items as MappedCartLine[]) ?? []
+  const lines = (pending.line_items as MappedCartLine[]) ?? [];
   const lookedUp = await lookupShopifyDiscountCode({
     config: shopify,
     code,
     lines,
-  })
+  });
   if (!lookedUp.ok) {
     if (lookedUp.reason === 'unavailable') {
       await insertInboxNote(
         args.db,
         args.conversationId,
-        `Could not verify Shopify discount ${code}. Reconnect Shopify (discounts scope) to enable codes. Billing the full amount.`,
-      )
+        `Could not verify Shopify discount ${code}. Reconnect Shopify (discounts scope) to enable codes. Billing the full amount.`
+      );
       return billPendingDiscountOrder({
         db: args.db,
         accountId: args.accountId,
@@ -1186,7 +1202,7 @@ export async function tryCompleteCommerceDiscount(args: {
         contactId: args.contactId,
         referenceId: pending.reference_id,
         discount: null,
-      })
+      });
     }
     await askForDiscountCode({
       accountId: args.accountId,
@@ -1198,8 +1214,8 @@ export async function tryCompleteCommerceDiscount(args: {
         lookedUp.reason === 'unsupported'
           ? 'That code cannot be used on WhatsApp checkout (Buy X Get Y, free shipping, or collection-only). Send another, or tap Skip.'
           : DISCOUNT_INVALID_PROMPT,
-    })
-    return true
+    });
+    return true;
   }
 
   return billPendingDiscountOrder({
@@ -1210,7 +1226,7 @@ export async function tryCompleteCommerceDiscount(args: {
     contactId: args.contactId,
     referenceId: pending.reference_id,
     discount: lookedUp.discount,
-  })
+  });
 }
 
 /**
@@ -1220,63 +1236,67 @@ export async function tryCompleteCommerceDiscount(args: {
  * isn't silently stuck.
  */
 export async function handleAddressFormDeliveryFailure(args: {
-  db: SupabaseClient
-  phoneNumberId: string
-  messageId: string
+  db: SupabaseClient;
+  phoneNumberId: string;
+  messageId: string;
 }): Promise<void> {
   const { data: config } = await args.db
     .from('whatsapp_config')
     .select('account_id, user_id')
     .eq('phone_number_id', args.phoneNumberId)
-    .maybeSingle()
-  if (!config?.account_id || !config.user_id) return
+    .maybeSingle();
+  if (!config?.account_id || !config.user_id) return;
 
   const { data: message } = await args.db
     .from('messages')
     .select('conversation_id')
     .eq('message_id', args.messageId)
     .eq('interactive_payload->>kind', 'address_message')
-    .maybeSingle()
-  if (!message?.conversation_id) return
+    .maybeSingle();
+  if (!message?.conversation_id) return;
 
-  const conversationId = message.conversation_id as string
+  const conversationId = message.conversation_id as string;
   const pending = await loadAwaitingAddressOrder(
     args.db,
     config.account_id as string,
-    conversationId,
-  )
-  if (!pending) return
+    conversationId
+  );
+  if (!pending) return;
 
   const { data: conversation } = await args.db
     .from('conversations')
     .select('contact_id')
     .eq('id', conversationId)
-    .maybeSingle()
-  if (!conversation?.contact_id) return
+    .maybeSingle();
+  if (!conversation?.contact_id) return;
 
   await sendAddressTextPrompt({
     accountId: config.account_id as string,
     userId: config.user_id as string,
     conversationId,
     contactId: conversation.contact_id as string,
-  })
+  });
 }
 
 export async function tryCompleteCommerceAddress(args: {
-  db: SupabaseClient
-  accountId: string
-  userId: string
-  conversationId: string
-  contactId: string
-  contactName: string | null
-  text: string
+  db: SupabaseClient;
+  accountId: string;
+  userId: string;
+  conversationId: string;
+  contactId: string;
+  contactName: string | null;
+  text: string;
 }): Promise<boolean> {
-  const pending = await loadAwaitingAddressOrder(args.db, args.accountId, args.conversationId)
-  if (!pending) return false
+  const pending = await loadAwaitingAddressOrder(
+    args.db,
+    args.accountId,
+    args.conversationId
+  );
+  if (!pending) return false;
 
-  const beneficiary = parseBeneficiaryFromText(args.text, args.contactName)
+  const beneficiary = parseBeneficiaryFromText(args.text, args.contactName);
   if (!beneficiary) {
-    return false
+    return false;
   }
 
   return storeAddressAndConfirm({
@@ -1287,24 +1307,24 @@ export async function tryCompleteCommerceAddress(args: {
     contactId: args.contactId,
     order: pending,
     beneficiary,
-  })
+  });
 }
 
 async function sendCommerceBill(args: {
-  db: SupabaseClient
-  accountId: string
-  userId: string
-  conversationId: string
-  contactId: string
-  referenceId: string
-  catalogId: string
-  configurationName: string
-  lines: MappedCartLine[]
-  beneficiary: CommerceBeneficiary
-  discountPaise?: number
-  discountCode?: string
+  db: SupabaseClient;
+  accountId: string;
+  userId: string;
+  conversationId: string;
+  contactId: string;
+  referenceId: string;
+  catalogId: string;
+  configurationName: string;
+  lines: MappedCartLine[];
+  beneficiary: CommerceBeneficiary;
+  discountPaise?: number;
+  discountCode?: string;
 }): Promise<boolean> {
-  if (!isCompleteBeneficiary(args.beneficiary)) return false
+  if (!isCompleteBeneficiary(args.beneficiary)) return false;
   try {
     const built = buildOrderDetailsInteractive({
       referenceId: args.referenceId,
@@ -1321,7 +1341,7 @@ async function sendCommerceBill(args: {
       beneficiary: args.beneficiary,
       discountPaise: args.discountPaise,
       discountCode: args.discountCode,
-    })
+    });
     await engineSendOrderDetails({
       accountId: args.accountId,
       userId: args.userId,
@@ -1332,34 +1352,34 @@ async function sendCommerceBill(args: {
       catalogId: args.catalogId,
       interactive: built.interactive,
       aiGenerated: true,
-    })
-    return true
+    });
+    return true;
   } catch (err) {
-    console.error('[commerce] send order_details failed:', err)
+    console.error('[commerce] send order_details failed:', err);
     await insertInboxNote(
       args.db,
       args.conversationId,
-      `Could not send WhatsApp bill (${args.referenceId}): ${err instanceof Error ? err.message : String(err)}`,
-    )
-    return false
+      `Could not send WhatsApp bill (${args.referenceId}): ${err instanceof Error ? err.message : String(err)}`
+    );
+    return false;
   }
 }
 
 async function insertCommerceOrder(
   db: SupabaseClient,
   row: {
-    accountId: string
-    contactId: string
-    conversationId: string
-    referenceId: string
-    catalogId: string | null
-    total: number
-    lines: MappedCartLine[]
-    beneficiary: CommerceBeneficiary | null
-    paymentConfigId: string | null
-    awaitingAddress: boolean
-    awaitingConfirmation: boolean
-  },
+    accountId: string;
+    contactId: string;
+    conversationId: string;
+    referenceId: string;
+    catalogId: string | null;
+    total: number;
+    lines: MappedCartLine[];
+    beneficiary: CommerceBeneficiary | null;
+    paymentConfigId: string | null;
+    awaitingAddress: boolean;
+    awaitingConfirmation: boolean;
+  }
 ): Promise<boolean> {
   const { error } = await db.from('whatsapp_commerce_orders').insert({
     account_id: row.accountId,
@@ -1375,21 +1395,21 @@ async function insertCommerceOrder(
     payment_config_id: row.paymentConfigId,
     awaiting_address: row.awaitingAddress,
     awaiting_confirmation: row.awaitingConfirmation,
-  })
+  });
   if (error) {
     if (isMissingDbRelation(error, 'whatsapp_commerce_orders')) {
-      console.warn('[commerce] whatsapp_commerce_orders table missing')
-      return false
+      console.warn('[commerce] whatsapp_commerce_orders table missing');
+      return false;
     }
-    console.error('[commerce] insert order failed:', error)
-    return false
+    console.error('[commerce] insert order failed:', error);
+    return false;
   }
   await supersedeStalePendingCheckouts(db, {
     accountId: row.accountId,
     conversationId: row.conversationId,
     keepReferenceId: row.referenceId,
-  })
-  return true
+  });
+  return true;
 }
 
 /** A new cart in the same thread cancels older unpaid checkouts so their
@@ -1397,10 +1417,10 @@ async function insertCommerceOrder(
 async function supersedeStalePendingCheckouts(
   db: SupabaseClient,
   args: {
-    accountId: string
-    conversationId: string
-    keepReferenceId: string
-  },
+    accountId: string;
+    conversationId: string;
+    keepReferenceId: string;
+  }
 ): Promise<void> {
   const { error } = await db
     .from('whatsapp_commerce_orders')
@@ -1414,9 +1434,9 @@ async function supersedeStalePendingCheckouts(
     .eq('account_id', args.accountId)
     .eq('conversation_id', args.conversationId)
     .eq('status', 'pending')
-    .neq('reference_id', args.keepReferenceId)
-  if (!error) return
-  if (isMissingDbRelation(error, 'whatsapp_commerce_orders')) return
+    .neq('reference_id', args.keepReferenceId);
+  if (!error) return;
+  if (isMissingDbRelation(error, 'whatsapp_commerce_orders')) return;
   const { error: retryErr } = await db
     .from('whatsapp_commerce_orders')
     .update({
@@ -1427,34 +1447,34 @@ async function supersedeStalePendingCheckouts(
     .eq('account_id', args.accountId)
     .eq('conversation_id', args.conversationId)
     .eq('status', 'pending')
-    .neq('reference_id', args.keepReferenceId)
+    .neq('reference_id', args.keepReferenceId);
   if (retryErr) {
-    console.warn('[commerce] supersede stale checkouts failed:', retryErr)
+    console.warn('[commerce] supersede stale checkouts failed:', retryErr);
   }
 }
 
 async function markAwaitingDiscount(
   db: SupabaseClient,
-  orderId: string,
+  orderId: string
 ): Promise<boolean> {
   const { error } = await db
     .from('whatsapp_commerce_orders')
     .update({ awaiting_discount: true })
     .eq('id', orderId)
-    .eq('status', 'pending')
-  if (!error) return true
-  if (isMissingDbRelation(error, 'awaiting_discount')) return false
-  console.warn('[commerce] mark awaiting discount failed:', error)
-  return false
+    .eq('status', 'pending');
+  if (!error) return true;
+  if (isMissingDbRelation(error, 'awaiting_discount')) return false;
+  console.warn('[commerce] mark awaiting discount failed:', error);
+  return false;
 }
 
 async function askForDiscountCode(args: {
-  accountId: string
-  userId: string
-  conversationId: string
-  contactId: string
-  referenceId: string
-  bodyText?: string
+  accountId: string;
+  userId: string;
+  conversationId: string;
+  contactId: string;
+  referenceId: string;
+  bodyText?: string;
 }): Promise<void> {
   try {
     await engineSendInteractiveButtons({
@@ -1470,9 +1490,9 @@ async function askForDiscountCode(args: {
         },
       ],
       aiGenerated: true,
-    })
+    });
   } catch (err) {
-    console.error('[commerce] discount prompt send failed:', err)
+    console.error('[commerce] discount prompt send failed:', err);
     try {
       await engineSendText({
         accountId: args.accountId,
@@ -1481,21 +1501,21 @@ async function askForDiscountCode(args: {
         contactId: args.contactId,
         text: args.bodyText ?? DISCOUNT_PROMPT,
         aiGenerated: true,
-      })
+      });
     } catch (textErr) {
-      console.error('[commerce] discount text prompt failed:', textErr)
+      console.error('[commerce] discount text prompt failed:', textErr);
     }
   }
 }
 
 async function billPendingDiscountOrder(args: {
-  db: SupabaseClient
-  accountId: string
-  userId: string
-  conversationId: string
-  contactId: string
-  referenceId: string
-  discount: AppliedCommerceDiscount | null
+  db: SupabaseClient;
+  accountId: string;
+  userId: string;
+  conversationId: string;
+  contactId: string;
+  referenceId: string;
+  discount: AppliedCommerceDiscount | null;
 }): Promise<boolean> {
   const { data: order } = await args.db
     .from('whatsapp_commerce_orders')
@@ -1503,18 +1523,22 @@ async function billPendingDiscountOrder(args: {
     .eq('account_id', args.accountId)
     .eq('reference_id', args.referenceId)
     .eq('status', 'pending')
-    .maybeSingle()
-  if (!order) return false
+    .maybeSingle();
+  if (!order) return false;
 
-  const settings = await loadCommerceSettings(args.db, args.accountId)
-  if (!nativeCommerceEnabled(settings)) return false
-  const beneficiary = order.beneficiary as CommerceBeneficiary | null
-  if (!beneficiary || !isCompleteBeneficiary(beneficiary)) return false
-  const lines = (order.line_items as MappedCartLine[]) ?? []
-  if (lines.length === 0) return false
+  const settings = await loadCommerceSettings(args.db, args.accountId);
+  if (!nativeCommerceEnabled(settings)) return false;
+  const beneficiary = order.beneficiary as CommerceBeneficiary | null;
+  if (!beneficiary || !isCompleteBeneficiary(beneficiary)) return false;
+  const lines = (order.line_items as MappedCartLine[]) ?? [];
+  if (lines.length === 0) return false;
 
-  const claimed = await claimAwaitingDiscount(args.db, order.id as string, args.discount)
-  if (!claimed) return true
+  const claimed = await claimAwaitingDiscount(
+    args.db,
+    order.id as string,
+    args.discount
+  );
+  if (!claimed) return true;
 
   return sendCommerceBill({
     db: args.db,
@@ -1529,13 +1553,13 @@ async function billPendingDiscountOrder(args: {
     beneficiary,
     discountPaise: args.discount?.amountPaise,
     discountCode: args.discount?.code,
-  })
+  });
 }
 
 async function claimAwaitingDiscount(
   db: SupabaseClient,
   orderId: string,
-  discount: AppliedCommerceDiscount | null,
+  discount: AppliedCommerceDiscount | null
 ): Promise<boolean> {
   const { data, error } = await db
     .from('whatsapp_commerce_orders')
@@ -1548,19 +1572,19 @@ async function claimAwaitingDiscount(
     .eq('id', orderId)
     .eq('status', 'pending')
     .eq('awaiting_discount', true)
-    .select('id')
+    .select('id');
   if (error) {
-    if (isMissingDbRelation(error, 'awaiting_discount')) return true
-    console.warn('[commerce] claim discount failed:', error)
-    return false
+    if (isMissingDbRelation(error, 'awaiting_discount')) return true;
+    console.warn('[commerce] claim discount failed:', error);
+    return false;
   }
-  return Boolean(data && data.length > 0)
+  return Boolean(data && data.length > 0);
 }
 
 async function loadAwaitingDiscountOrder(
   db: SupabaseClient,
   accountId: string,
-  conversationId: string,
+  conversationId: string
 ) {
   const { data, error } = await db
     .from('whatsapp_commerce_orders')
@@ -1570,25 +1594,25 @@ async function loadAwaitingDiscountOrder(
     .eq('status', 'pending')
     .order('created_at', { ascending: false })
     .limit(1)
-    .maybeSingle()
+    .maybeSingle();
   if (error) {
     if (
       isMissingDbRelation(error, 'whatsapp_commerce_orders') ||
       isMissingDbRelation(error, 'awaiting_discount')
     ) {
-      return null
+      return null;
     }
-    console.warn('[commerce] load awaiting discount failed:', error)
-    return null
+    console.warn('[commerce] load awaiting discount failed:', error);
+    return null;
   }
-  if (!data || data.awaiting_discount !== true) return null
-  return data
+  if (!data || data.awaiting_discount !== true) return null;
+  return data;
 }
 
 async function loadAwaitingAddressOrder(
   db: SupabaseClient,
   accountId: string,
-  conversationId: string,
+  conversationId: string
 ) {
   const { data, error } = await db
     .from('whatsapp_commerce_orders')
@@ -1598,21 +1622,21 @@ async function loadAwaitingAddressOrder(
     .eq('status', 'pending')
     .order('created_at', { ascending: false })
     .limit(1)
-    .maybeSingle()
+    .maybeSingle();
   if (error) {
-    if (isMissingDbRelation(error, 'whatsapp_commerce_orders')) return null
-    console.warn('[commerce] load awaiting address failed:', error)
-    return null
+    if (isMissingDbRelation(error, 'whatsapp_commerce_orders')) return null;
+    console.warn('[commerce] load awaiting address failed:', error);
+    return null;
   }
-  if (!data || data.awaiting_address !== true) return null
-  return data
+  if (!data || data.awaiting_address !== true) return null;
+  return data;
 }
 
 /** True when this thread has an unpaid native checkout still collecting address/payment. */
 export async function conversationHasPendingCommerceOrder(
   db: SupabaseClient,
   accountId: string,
-  conversationId: string,
+  conversationId: string
 ): Promise<boolean> {
   const { data, error } = await db
     .from('whatsapp_commerce_orders')
@@ -1621,19 +1645,19 @@ export async function conversationHasPendingCommerceOrder(
     .eq('conversation_id', conversationId)
     .eq('status', 'pending')
     .limit(1)
-    .maybeSingle()
+    .maybeSingle();
   if (error) {
-    if (isMissingDbRelation(error, 'whatsapp_commerce_orders')) return false
-    console.warn('[commerce] pending order lookup failed:', error)
-    return false
+    if (isMissingDbRelation(error, 'whatsapp_commerce_orders')) return false;
+    console.warn('[commerce] pending order lookup failed:', error);
+    return false;
   }
-  return Boolean(data && typeof data === 'object' && 'id' in data && data.id)
+  return Boolean(data && typeof data === 'object' && 'id' in data && data.id);
 }
 
 export async function insertInboxNote(
   db: SupabaseClient,
   conversationId: string,
-  text: string,
+  text: string
 ): Promise<void> {
   const { error } = await db.from('messages').insert({
     conversation_id: conversationId,
@@ -1641,8 +1665,8 @@ export async function insertInboxNote(
     content_type: 'text',
     content_text: text.slice(0, 1024),
     status: 'delivered',
-  })
+  });
   if (error) {
-    console.warn('[commerce] inbox note failed:', error)
+    console.warn('[commerce] inbox note failed:', error);
   }
 }

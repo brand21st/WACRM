@@ -131,6 +131,12 @@ export function buildSystemPrompt(args: {
    */
   salesGuidance?: string | null
   /**
+   * Phase 7 allowlisted experimental style. Already formatted from
+   * source-controlled snippets. Empty / omitted = no experiment overlay.
+   * Never a business fact or policy.
+   */
+  behaviorGuidance?: string | null
+  /**
    * Trusted catalog facts for the currently focused product.
    * Already formatted. Empty / omitted = no live product loaded.
    */
@@ -157,6 +163,7 @@ export function buildSystemPrompt(args: {
     productFocus,
     salesSnapshot,
     salesGuidance,
+    behaviorGuidance,
     productFacts,
     replyDirective,
   } = args
@@ -234,6 +241,7 @@ export function buildSystemPrompt(args: {
     catalog ? salesVoiceBlock() : '',
     salesSnapshotBlock(salesSnapshot),
     salesGuidanceBlock(salesGuidance),
+    behaviorGuidanceBlock(behaviorGuidance),
     productFactsBlock(productFacts),
     replyDirectiveBlock(replyDirective),
     formatReplyLanguageInstruction(replyLanguage),
@@ -415,6 +423,12 @@ function salesSnapshotBlock(raw?: string | null): string {
 }
 
 function salesGuidanceBlock(raw?: string | null): string {
+  const guidance = raw?.trim() || ''
+  if (!guidance) return ''
+  return guidance
+}
+
+function behaviorGuidanceBlock(raw?: string | null): string {
   const guidance = raw?.trim() || ''
   if (!guidance) return ''
   return guidance

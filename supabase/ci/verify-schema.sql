@@ -140,10 +140,177 @@ BEGIN
     SELECT 1
     FROM information_schema.columns
     WHERE table_schema = 'public'
+      AND table_name = 'sales_patterns'
+      AND column_name = 'effectiveness'
+  ) THEN
+    RAISE EXCEPTION 'sales_patterns.effectiveness is missing — migration 095 did not apply';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'sales_patterns'
+      AND column_name = 'last_effectiveness_at'
+  ) THEN
+    RAISE EXCEPTION 'sales_patterns.last_effectiveness_at is missing — migration 095 did not apply';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
       AND table_name = 'ai_configs'
       AND column_name = 'sales_pattern_effectiveness'
   ) THEN
     RAISE EXCEPTION 'ai_configs.sales_pattern_effectiveness is missing — migration 095 did not apply';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'ai_configs'
+      AND column_name = 'ai_behavior_optimization'
+  ) THEN
+    RAISE EXCEPTION 'ai_configs.ai_behavior_optimization is missing — migration 096 did not apply';
+  END IF;
+
+  IF to_regclass('public.ai_behavior_versions') IS NULL THEN
+    RAISE EXCEPTION 'public.ai_behavior_versions is missing — migration 096 did not apply';
+  END IF;
+
+  IF to_regclass('public.ai_behavior_experiments') IS NULL THEN
+    RAISE EXCEPTION 'public.ai_behavior_experiments is missing — migration 096 did not apply';
+  END IF;
+
+  IF to_regclass('public.ai_behavior_assignments') IS NULL THEN
+    RAISE EXCEPTION 'public.ai_behavior_assignments is missing — migration 096 did not apply';
+  END IF;
+
+  IF to_regclass('public.ai_behavior_optimization_cursors') IS NULL THEN
+    RAISE EXCEPTION 'public.ai_behavior_optimization_cursors is missing — migration 096 did not apply';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conname = 'ai_behavior_assignments_attributed_event_id_fkey'
+  ) THEN
+    RAISE EXCEPTION 'ai_behavior_assignments_attributed_event_id_fkey is missing — migration 097 did not apply';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'conversations'
+      AND column_name = 'last_customer_message_at'
+  ) THEN
+    RAISE EXCEPTION 'conversations.last_customer_message_at is missing — migration 098 did not apply';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'conversations'
+      AND column_name = 'customer_service_expires_at'
+  ) THEN
+    RAISE EXCEPTION 'conversations.customer_service_expires_at is missing — migration 098 did not apply';
+  END IF;
+
+  IF to_regclass('public.sales_pattern_shadow_diagnostics') IS NULL THEN
+    RAISE EXCEPTION 'public.sales_pattern_shadow_diagnostics is missing — migration 099 did not apply';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'ai_configs'
+      AND column_name = 'background_learning_mode'
+  ) THEN
+    RAISE EXCEPTION 'ai_configs.background_learning_mode is missing — migration 20260911041537 did not apply';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_proc p
+    JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname = 'public'
+      AND p.proname = 'preview_conversation_analysis_backfill'
+  ) THEN
+    RAISE EXCEPTION 'preview_conversation_analysis_backfill is missing — migration 20260911041537 did not apply';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_proc p
+    JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname = 'public'
+      AND p.proname = 'start_conversation_analysis'
+  ) THEN
+    RAISE EXCEPTION 'start_conversation_analysis is missing — migration 20260911041537 did not apply';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_proc p
+    JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname = 'public'
+      AND p.proname = 'complete_conversation_analysis'
+  ) THEN
+    RAISE EXCEPTION 'complete_conversation_analysis is missing — migration 20260911041537 did not apply';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_proc p
+    JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname = 'public'
+      AND p.proname = 'count_sales_events_by_type'
+  ) THEN
+    RAISE EXCEPTION 'count_sales_events_by_type is missing — migration 20260911041537 did not apply';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_proc p
+    JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname = 'public'
+      AND p.proname = 'mark_conversation_analysis_trigger_pending'
+  ) THEN
+    RAISE EXCEPTION 'mark_conversation_analysis_trigger_pending is missing — migration 20260911041537 did not apply';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_proc p
+    JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname = 'public'
+      AND p.proname = 'list_conversations_due_for_analysis'
+      AND p.pronargs = 3
+  ) THEN
+    RAISE EXCEPTION 'list_conversations_due_for_analysis(uuid, integer, integer) is missing — migration 20260911041537 did not apply';
+  END IF;
+
+  IF to_regclass('public.catalog_recommendation_stats') IS NULL THEN
+    RAISE EXCEPTION 'public.catalog_recommendation_stats is missing — migration 20260911041539 did not apply';
+  END IF;
+
+  IF to_regclass('public.recommendation_intelligence_cursors') IS NULL THEN
+    RAISE EXCEPTION 'public.recommendation_intelligence_cursors is missing — migration 20260911041539 did not apply';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'ai_configs'
+      AND column_name = 'recommendation_intelligence'
+  ) THEN
+    RAISE EXCEPTION 'ai_configs.recommendation_intelligence is missing — migration 20260911041539 did not apply';
   END IF;
 
   RAISE NOTICE 'schema verification passed';

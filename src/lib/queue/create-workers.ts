@@ -1,132 +1,143 @@
-import { Worker, type ConnectionOptions } from 'bullmq'
+import { Worker, type ConnectionOptions } from 'bullmq';
 
-import { processAiChatReply } from '@/lib/queue/processors/ai-chat-reply'
-import { processAiVoiceInbound } from '@/lib/queue/processors/ai-voice-inbound'
-import { processCallRecordingJob } from '@/lib/queue/processors/call-recording'
-import { processCatalogEmbed } from '@/lib/queue/processors/catalog-embed'
-import { processCatalogMetaSync } from '@/lib/queue/processors/catalog-meta-sync'
-import { processKnowledgeScrape } from '@/lib/queue/processors/knowledge-scrape'
-import { processAiConversationFollowUp } from '@/lib/queue/processors/ai-conversation-follow-up'
-import { processAiConversationAnalyze } from '@/lib/queue/processors/ai-conversation-analyze'
-import { processAiSalesPatternDiscover } from '@/lib/queue/processors/ai-sales-pattern-discover'
-import { processAiSalesPatternEffectiveness } from '@/lib/queue/processors/ai-sales-pattern-effectiveness'
+import { processAiChatReply } from '@/lib/queue/processors/ai-chat-reply';
+import { processAiVoiceInbound } from '@/lib/queue/processors/ai-voice-inbound';
+import { processCallRecordingJob } from '@/lib/queue/processors/call-recording';
+import { processCatalogEmbed } from '@/lib/queue/processors/catalog-embed';
+import { processCatalogMetaSync } from '@/lib/queue/processors/catalog-meta-sync';
+import { processKnowledgeScrape } from '@/lib/queue/processors/knowledge-scrape';
+import { processAiConversationFollowUp } from '@/lib/queue/processors/ai-conversation-follow-up';
+import { processAiConversationAnalyze } from '@/lib/queue/processors/ai-conversation-analyze';
+import { processAiSalesPatternDiscover } from '@/lib/queue/processors/ai-sales-pattern-discover';
+import { processAiRecommendationIntelligence } from '@/lib/queue/processors/ai-recommendation-intelligence';
+import { processAiSalesPatternEffectiveness } from '@/lib/queue/processors/ai-sales-pattern-effectiveness';
+import { processAiBehaviorOptimization } from '@/lib/queue/processors/ai-behavior-optimization';
 import {
+  QUEUE_WORKER_GROUP,
   QUEUE_NAMES,
   WORKER_CONCURRENCY,
   WORKER_LOCK_MS,
-} from '@/lib/queue/names'
+  type QueueName,
+  type WorkerGroup,
+} from '@/lib/queue/names';
 
-export function createQueueWorkers(connection: ConnectionOptions): Worker[] {
-  return [
-    new Worker(
+type WorkerDefinition = {
+  name: QueueName;
+  create: () => Worker;
+};
+
+function defineWorker<Data>(
+  name: QueueName,
+  processor: (data: Data) => Promise<unknown>,
+  connection: ConnectionOptions,
+  concurrency: number,
+  lockDuration: number
+): WorkerDefinition {
+  return {
+    name,
+    create: () =>
+      new Worker<Data>(
+        name,
+        async (job) => {
+          await processor(job.data);
+        },
+        { connection, concurrency, lockDuration }
+      ),
+  };
+}
+
+export function createQueueWorkers(
+  connection: ConnectionOptions,
+  group: WorkerGroup = 'all'
+): Worker[] {
+  const definitions = [
+    defineWorker(
       QUEUE_NAMES.aiChatReply,
-      async (job) => {
-        await processAiChatReply(job.data)
-      },
-      {
-        connection,
-        concurrency: WORKER_CONCURRENCY.aiChatReply,
-        lockDuration: WORKER_LOCK_MS.aiChatReply,
-      },
+      processAiChatReply,
+      connection,
+      WORKER_CONCURRENCY.aiChatReply,
+      WORKER_LOCK_MS.aiChatReply
     ),
-    new Worker(
+    defineWorker(
       QUEUE_NAMES.aiVoiceInbound,
-      async (job) => {
-        await processAiVoiceInbound(job.data)
-      },
-      {
-        connection,
-        concurrency: WORKER_CONCURRENCY.aiVoiceInbound,
-        lockDuration: WORKER_LOCK_MS.aiVoiceInbound,
-      },
+      processAiVoiceInbound,
+      connection,
+      WORKER_CONCURRENCY.aiVoiceInbound,
+      WORKER_LOCK_MS.aiVoiceInbound
     ),
-    new Worker(
+    defineWorker(
       QUEUE_NAMES.callRecording,
-      async (job) => {
-        await processCallRecordingJob(job.data)
-      },
-      {
-        connection,
-        concurrency: WORKER_CONCURRENCY.callRecording,
-        lockDuration: WORKER_LOCK_MS.callRecording,
-      },
+      processCallRecordingJob,
+      connection,
+      WORKER_CONCURRENCY.callRecording,
+      WORKER_LOCK_MS.callRecording
     ),
-    new Worker(
+    defineWorker(
       QUEUE_NAMES.knowledgeScrape,
-      async (job) => {
-        await processKnowledgeScrape(job.data)
-      },
-      {
-        connection,
-        concurrency: WORKER_CONCURRENCY.knowledgeScrape,
-        lockDuration: WORKER_LOCK_MS.knowledgeScrape,
-      },
+      processKnowledgeScrape,
+      connection,
+      WORKER_CONCURRENCY.knowledgeScrape,
+      WORKER_LOCK_MS.knowledgeScrape
     ),
-    new Worker(
+    defineWorker(
       QUEUE_NAMES.catalogMetaSync,
-      async (job) => {
-        await processCatalogMetaSync(job.data)
-      },
-      {
-        connection,
-        concurrency: WORKER_CONCURRENCY.catalogMetaSync,
-        lockDuration: WORKER_LOCK_MS.catalogMetaSync,
-      },
+      processCatalogMetaSync,
+      connection,
+      WORKER_CONCURRENCY.catalogMetaSync,
+      WORKER_LOCK_MS.catalogMetaSync
     ),
-    new Worker(
+    defineWorker(
       QUEUE_NAMES.catalogEmbed,
-      async (job) => {
-        await processCatalogEmbed(job.data)
-      },
-      {
-        connection,
-        concurrency: WORKER_CONCURRENCY.catalogEmbed,
-        lockDuration: WORKER_LOCK_MS.catalogEmbed,
-      },
+      processCatalogEmbed,
+      connection,
+      WORKER_CONCURRENCY.catalogEmbed,
+      WORKER_LOCK_MS.catalogEmbed
     ),
-    new Worker(
+    defineWorker(
       QUEUE_NAMES.aiConversationFollowUp,
-      async (job) => {
-        await processAiConversationFollowUp(job.data)
-      },
-      {
-        connection,
-        concurrency: WORKER_CONCURRENCY.aiConversationFollowUp,
-        lockDuration: WORKER_LOCK_MS.aiConversationFollowUp,
-      },
+      processAiConversationFollowUp,
+      connection,
+      WORKER_CONCURRENCY.aiConversationFollowUp,
+      WORKER_LOCK_MS.aiConversationFollowUp
     ),
-    new Worker(
+    defineWorker(
       QUEUE_NAMES.aiConversationAnalyze,
-      async (job) => {
-        await processAiConversationAnalyze(job.data)
-      },
-      {
-        connection,
-        concurrency: WORKER_CONCURRENCY.aiConversationAnalyze,
-        lockDuration: WORKER_LOCK_MS.aiConversationAnalyze,
-      },
+      processAiConversationAnalyze,
+      connection,
+      WORKER_CONCURRENCY.aiConversationAnalyze,
+      WORKER_LOCK_MS.aiConversationAnalyze
     ),
-    new Worker(
+    defineWorker(
       QUEUE_NAMES.aiSalesPatternDiscover,
-      async (job) => {
-        await processAiSalesPatternDiscover(job.data)
-      },
-      {
-        connection,
-        concurrency: WORKER_CONCURRENCY.aiSalesPatternDiscover,
-        lockDuration: WORKER_LOCK_MS.aiSalesPatternDiscover,
-      },
+      processAiSalesPatternDiscover,
+      connection,
+      WORKER_CONCURRENCY.aiSalesPatternDiscover,
+      WORKER_LOCK_MS.aiSalesPatternDiscover
     ),
-    new Worker(
+    defineWorker(
+      QUEUE_NAMES.aiRecommendationIntelligence,
+      processAiRecommendationIntelligence,
+      connection,
+      WORKER_CONCURRENCY.aiRecommendationIntelligence,
+      WORKER_LOCK_MS.aiRecommendationIntelligence
+    ),
+    defineWorker(
       QUEUE_NAMES.aiSalesPatternEffectiveness,
-      async (job) => {
-        await processAiSalesPatternEffectiveness(job.data)
-      },
-      {
-        connection,
-        concurrency: WORKER_CONCURRENCY.aiSalesPatternEffectiveness,
-        lockDuration: WORKER_LOCK_MS.aiSalesPatternEffectiveness,
-      },
+      processAiSalesPatternEffectiveness,
+      connection,
+      WORKER_CONCURRENCY.aiSalesPatternEffectiveness,
+      WORKER_LOCK_MS.aiSalesPatternEffectiveness
     ),
-  ]
+    defineWorker(
+      QUEUE_NAMES.aiBehaviorOptimization,
+      processAiBehaviorOptimization,
+      connection,
+      WORKER_CONCURRENCY.aiBehaviorOptimization,
+      WORKER_LOCK_MS.aiBehaviorOptimization
+    ),
+  ];
+
+  return definitions
+    .filter(({ name }) => group === 'all' || QUEUE_WORKER_GROUP[name] === group)
+    .map(({ create }) => create());
 }

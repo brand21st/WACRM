@@ -5,10 +5,10 @@
 //
 // IMPORTANT: this module is server-only. It imports the Supabase
 // SSR client (`@/lib/supabase/server`), which reads `next/headers`
-// cookies. Importing it from a client component will fail at
-// build time with the standard Next.js "You're importing a
-// component that needs `next/headers`" error — that's the
-// boundary check; we don't need the `server-only` package.
+// cookies and the Authorization header. Importing it from a client
+// component will fail at build time with the standard Next.js
+// "You're importing a component that needs `next/headers`" error —
+// that's the boundary check; we don't need the `server-only` package.
 //
 // Calling convention
 // ------------------
@@ -30,7 +30,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { EntitlementError, QuotaError } from "@/lib/billing/entitlements";
 import { RazorpayConfigError } from "@/lib/billing/razorpay";
-import { createClient } from "@/lib/supabase/server";
+import { createRequestClient } from "@/lib/supabase/server";
 import { hasMinRole, isAccountRole, type AccountRole } from "./roles";
 
 // ------------------------------------------------------------
@@ -122,7 +122,8 @@ export interface AccountContext {
 /**
  * Resolve the caller's user + account + role in one round trip.
  *
- * Throws `UnauthorizedError` if there's no Supabase session.
+ * Throws `UnauthorizedError` if there's no Supabase session
+ * (cookie or `Authorization: Bearer` user JWT).
  * Throws `ForbiddenError` if the profile is missing account
  * fields (shouldn't happen post-017 migration; defensive guard
  * against profile rows that pre-date the backfill or were
@@ -132,7 +133,7 @@ export interface AccountContext {
  * minimum-role check — it's a thin wrapper over this.
  */
 export async function getCurrentAccount(): Promise<AccountContext> {
-  const supabase = await createClient();
+  const supabase = await createRequestClient();
 
   const {
     data: { user },

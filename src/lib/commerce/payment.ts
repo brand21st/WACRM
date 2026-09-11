@@ -1,87 +1,90 @@
-import type { SupabaseClient } from '@supabase/supabase-js'
-import { decrypt } from '@/lib/whatsapp/encryption'
+import type { SupabaseClient } from '@supabase/supabase-js';
+import { decrypt } from '@/lib/whatsapp/encryption';
 import {
   lookupWhatsAppPayment,
   sendOrderStatusMessage,
   type PaymentLookupResult,
-} from '@/lib/whatsapp/meta-api'
-import { loadCommerceSettings } from '@/lib/shopify/commerce-config'
-import { loadShopifyConfig } from '@/lib/shopify/config'
-import { isMissingDbRelation } from '@/lib/shopify/config-db'
-import { engineSendOrderStatus, engineSendText } from '@/lib/flows/meta-send'
+} from '@/lib/whatsapp/meta-api';
+import { loadCommerceSettings } from '@/lib/shopify/commerce-config';
+import { loadShopifyConfig } from '@/lib/shopify/config';
+import { isMissingDbRelation } from '@/lib/shopify/config-db';
+import { engineSendOrderStatus, engineSendText } from '@/lib/flows/meta-send';
 import {
   createPaidShopifyOrder,
   markShopifyOrderAsPaid,
-} from './shopify-order'
-import { upsertShopifyCustomerForPayment } from './shopify-customer'
-import { recordCatalogLineEvents } from '@/lib/catalog/analytics/events'
+} from './shopify-order';
+import { upsertShopifyCustomerForPayment } from './shopify-customer';
+import { recordCatalogLineEvents } from '@/lib/catalog/analytics/events';
 import {
   ORDER_CONFIRMED_BODY,
   PAYMENT_RECEIVED_BODY,
   canTransitionOrderStatus,
   orderConfirmedText,
-} from './order-status'
-import { sanitizeReferenceId, sanitizeWebhookText } from './sanitize'
-import { insertInboxNote } from './checkout'
-import { markContactWhatsAppPaid } from './paid-labels'
-import { enqueueAiConversationAnalyze } from '@/lib/queue/enqueue'
-import { aiConversationAnalyzeJob } from '@/lib/queue/jobs'
-import type { CommerceBeneficiary, MappedCartLine } from './types'
-import type { AppliedCommerceDiscount } from './shopify-discount'
+} from './order-status';
+import { sanitizeReferenceId, sanitizeWebhookText } from './sanitize';
+import { insertInboxNote } from './checkout';
+import { markContactWhatsAppPaid } from './paid-labels';
+import { enqueueAiConversationAnalyze } from '@/lib/queue/enqueue';
+import { aiConversationAnalyzeJob } from '@/lib/queue/jobs';
+import { markConversationLearningPending } from '@/lib/ai/intelligence/trigger-learning';
+import type { CommerceBeneficiary, MappedCartLine } from './types';
+import type { AppliedCommerceDiscount } from './shopify-discount';
 
 export interface WhatsAppPaymentStatus {
-  id?: string
-  status?: string
-  timestamp?: string
-  recipient_id?: string
-  type?: string
+  id?: string;
+  status?: string;
+  timestamp?: string;
+  recipient_id?: string;
+  type?: string;
   payment?: {
-    reference_id?: string
+    reference_id?: string;
     transaction?: {
-      id?: string
-      pg_transaction_id?: string
-      type?: string
-      status?: string
-      method?: { type?: string }
-    }
-  }
+      id?: string;
+      pg_transaction_id?: string;
+      type?: string;
+      status?: string;
+      method?: { type?: string };
+    };
+  };
 }
 
 export function isPaymentStatus(status: {
-  type?: string
-  payment?: { reference_id?: string }
+  type?: string;
+  payment?: { reference_id?: string };
 }): boolean {
   return (
     status.type === 'payment' || Boolean(status.payment?.reference_id?.trim())
-  )
+  );
 }
 
 export function isCapturedPaymentLookup(
-  lookup: PaymentLookupResult | null,
+  lookup: PaymentLookupResult | null
 ): boolean {
-  if (!lookup) return false
-  if (lookup.status === 'captured') return true
+  if (!lookup) return false;
+  if (lookup.status === 'captured') return true;
   return lookup.transactions.some((t) => {
-    const s = (t.status ?? '').toLowerCase()
-    return s === 'success' || s === 'captured'
-  })
+    const s = (t.status ?? '').toLowerCase();
+    return s === 'success' || s === 'captured';
+  });
 }
 
 /** HMAC-verified Meta payment status after the PG redirects back to chat. */
-export function isCapturedWebhookPayment(status: WhatsAppPaymentStatus): boolean {
-  const s = (status.status ?? '').toLowerCase()
-  if (s !== 'captured' && s !== 'success') return false
-  const txn = status.payment?.transaction?.status
-  if (!txn) return true
-  const t = txn.toLowerCase()
-  return t === 'success' || t === 'captured'
+export function isCapturedWebhookPayment(
+  status: WhatsAppPaymentStatus
+): boolean {
+  const s = (status.status ?? '').toLowerCase();
+  if (s !== 'captured' && s !== 'success') return false;
+  const txn = status.payment?.transaction?.status;
+  if (!txn) return true;
+  const t = txn.toLowerCase();
+  return t === 'success' || t === 'captured';
 }
 
 function lookupFromWebhook(
   status: WhatsAppPaymentStatus,
-  referenceId: string,
+  referenceId: string
 ): PaymentLookupResult {
-  const txn = status.payment?.transaction
+  const txn = status.payment?.transaction;
   return {
     reference_id: referenceId,
     status: 'captured',
@@ -96,93 +99,98 @@ function lookupFromWebhook(
           },
         ]
       : [],
-  }
+  };
 }
 
 export async function handleWhatsAppPaymentStatus(args: {
-  db: SupabaseClient
-  phoneNumberId: string
-  status: WhatsAppPaymentStatus
+  db: SupabaseClient;
+  phoneNumberId: string;
+  status: WhatsAppPaymentStatus;
 }): Promise<void> {
-  const referenceId = sanitizeReferenceId(args.status.payment?.reference_id)
-  if (!referenceId) return
+  const referenceId = sanitizeReferenceId(args.status.payment?.reference_id);
+  if (!referenceId) return;
 
   const { data: waConfig, error: waErr } = await args.db
     .from('whatsapp_config')
     .select('account_id, user_id, access_token, phone_number_id')
     .eq('phone_number_id', args.phoneNumberId)
-    .maybeSingle()
-  if (waErr || !waConfig?.account_id || !waConfig.access_token) return
+    .maybeSingle();
+  if (waErr || !waConfig?.account_id || !waConfig.access_token) return;
 
-  const accountId = waConfig.account_id as string
-  const order = await loadCommerceOrder(args.db, accountId, referenceId)
-  if (!order) return
-  if (order.status === 'canceled') return
+  const accountId = waConfig.account_id as string;
+  const order = await loadCommerceOrder(args.db, accountId, referenceId);
+  if (!order) return;
+  if (order.status === 'canceled') return;
 
   const conversationId =
-    typeof order.conversation_id === 'string' ? order.conversation_id : null
+    typeof order.conversation_id === 'string' ? order.conversation_id : null;
 
-  const settings = await loadCommerceSettings(args.db, accountId)
+  const settings = await loadCommerceSettings(args.db, accountId);
   const configurationName =
     settings.waPaymentConfigurationName?.trim() ||
     (typeof order.payment_config_id === 'string'
       ? order.payment_config_id.trim()
-      : '')
+      : '');
   if (!configurationName) {
     if (conversationId) {
       await insertInboxNote(
         args.db,
         conversationId,
-        `Payment webhook for ${referenceId} but WhatsApp payment configuration is missing.`,
-      )
+        `Payment webhook for ${referenceId} but WhatsApp payment configuration is missing.`
+      );
     }
-    return
+    return;
   }
 
-  let lookup: PaymentLookupResult | null = null
+  let lookup: PaymentLookupResult | null = null;
   try {
     lookup = await lookupWhatsAppPayment({
       phoneNumberId: args.phoneNumberId,
       accessToken: decrypt(waConfig.access_token as string),
       configurationName,
       referenceId,
-    })
+    });
   } catch (err) {
-    console.error('[commerce] payment lookup failed:', err)
+    console.error('[commerce] payment lookup failed:', err);
   }
   if (!isCapturedPaymentLookup(lookup)) {
     if (isCapturedWebhookPayment(args.status)) {
-      lookup = lookupFromWebhook(args.status, referenceId)
+      lookup = lookupFromWebhook(args.status, referenceId);
     } else {
-      const failed = lookup?.transactions.find((t) => t.status === 'failed')
+      const failed = lookup?.transactions.find((t) => t.status === 'failed');
       if (failed && conversationId && order.status === 'pending') {
         await insertInboxNote(
           args.db,
           conversationId,
-          `WhatsApp payment attempt failed for ${referenceId}. Customer can retry on the same bill.`,
-        )
+          `WhatsApp payment attempt failed for ${referenceId}. Customer can retry on the same bill.`
+        );
       }
-      return
+      return;
     }
   }
 
   const success =
-    lookup?.transactions.find((t) => t.status === 'success' || t.status === 'captured') ??
-    lookup?.transactions[0]
+    lookup?.transactions.find(
+      (t) => t.status === 'success' || t.status === 'captured'
+    ) ?? lookup?.transactions[0];
   const txn = {
-    id: sanitizeWebhookText(success?.id ?? args.status.payment?.transaction?.id, 80),
+    id: sanitizeWebhookText(
+      success?.id ?? args.status.payment?.transaction?.id,
+      80
+    ),
     pg_transaction_id: sanitizeWebhookText(
-      success?.pg_transaction_id ?? args.status.payment?.transaction?.pg_transaction_id,
-      80,
+      success?.pg_transaction_id ??
+        args.status.payment?.transaction?.pg_transaction_id,
+      80
     ),
     type: sanitizeWebhookText(success?.type ?? 'razorpay', 40),
     status: 'success',
     method: sanitizeWebhookText(success?.method?.type, 40),
-  }
+  };
 
-  const wasPending = order.status === 'pending'
+  const wasPending = order.status === 'pending';
   if (wasPending) {
-    if (!canTransitionOrderStatus('pending', 'processing')) return
+    if (!canTransitionOrderStatus('pending', 'processing')) return;
     await args.db
       .from('whatsapp_commerce_orders')
       .update({
@@ -193,37 +201,56 @@ export async function handleWhatsAppPaymentStatus(args: {
         pg_transaction: txn,
       })
       .eq('id', order.id)
-      .eq('status', 'pending')
-    const lineItems = Array.isArray(order.line_items) ? order.line_items : []
+      .eq('status', 'pending');
+    const lineItems = Array.isArray(order.line_items) ? order.line_items : [];
     void recordCatalogLineEvents(args.db, {
       accountId,
       event: 'purchase',
-      conversationId: typeof order.conversation_id === 'string' ? order.conversation_id : null,
+      conversationId:
+        typeof order.conversation_id === 'string'
+          ? order.conversation_id
+          : null,
       contactId: typeof order.contact_id === 'string' ? order.contact_id : null,
-      lines: lineItems as Array<{ retailer_id?: string | null; quantity?: number | null }>,
-    })
+      sourceEventId: String(order.id),
+      lines: lineItems as Array<{
+        retailer_id?: string | null;
+        quantity?: number | null;
+      }>,
+    });
   }
 
-  const contactId = typeof order.contact_id === 'string' ? order.contact_id : null
+  const contactId =
+    typeof order.contact_id === 'string' ? order.contact_id : null;
   if (contactId) {
     try {
-      await markContactWhatsAppPaid(args.db, accountId, contactId)
+      await markContactWhatsAppPaid(args.db, accountId, contactId);
     } catch (err) {
-      console.error('[commerce] WhatsApp paid label failed:', err)
+      console.error('[commerce] WhatsApp paid label failed:', err);
     }
   }
 
   if (wasPending && conversationId) {
-    void enqueueAiConversationAnalyze(
-      aiConversationAnalyzeJob({
+    const trigger = {
+      type: 'commerce' as const,
+      sourceId: `payment:${order.id}`,
+    };
+    void (async () => {
+      await markConversationLearningPending(args.db, {
         accountId,
         conversationId,
-        contactId: contactId ?? '',
-        triggeringMessageId: `payment:${order.id}`,
-      }),
-    ).catch((err) => {
-      console.warn('[commerce] conversation analyze enqueue failed:', err)
-    })
+        trigger,
+      });
+      await enqueueAiConversationAnalyze(
+        aiConversationAnalyzeJob({
+          accountId,
+          conversationId,
+          contactId,
+          trigger,
+        })
+      );
+    })().catch((err) => {
+      console.warn('[commerce] conversation analyze enqueue failed:', err);
+    });
   }
 
   // Create (or finish marking paid) the Shopify order before telling
@@ -237,21 +264,23 @@ export async function handleWhatsAppPaymentStatus(args: {
     referenceId,
     order,
     authorizationCode: txn.pg_transaction_id || txn.id || null,
-  })
+  });
 
   if (wasPending) {
     await sendPaymentConfirmation({
       accountId,
       userId: typeof waConfig.user_id === 'string' ? waConfig.user_id : null,
       conversationId:
-        typeof order.conversation_id === 'string' ? order.conversation_id : null,
+        typeof order.conversation_id === 'string'
+          ? order.conversation_id
+          : null,
       contactId: typeof order.contact_id === 'string' ? order.contact_id : null,
       phoneNumberId: args.phoneNumberId,
       accessToken: waConfig.access_token as string,
       recipientId: args.status.recipient_id || '',
       referenceId,
       shopifyOrderName,
-    })
+    });
   } else if (
     shopifyOrderName &&
     !order.shopify_order_id &&
@@ -267,9 +296,9 @@ export async function handleWhatsAppPaymentStatus(args: {
         contactId: order.contact_id,
         text: orderConfirmedText(shopifyOrderName),
         aiGenerated: true,
-      })
+      });
     } catch (err) {
-      console.error('[commerce] order confirmation text failed:', err)
+      console.error('[commerce] order confirmation text failed:', err);
     }
   }
 }
@@ -281,102 +310,106 @@ export async function handleWhatsAppPaymentStatus(args: {
  * for an agent to finish by hand.
  */
 async function createShopifyOrderForPayment(args: {
-  db: SupabaseClient
-  accountId: string
-  referenceId: string
-  authorizationCode?: string | null
+  db: SupabaseClient;
+  accountId: string;
+  referenceId: string;
+  authorizationCode?: string | null;
   order: {
-    id: unknown
-    conversation_id?: unknown
-    contact_id?: unknown
-    line_items?: unknown
-    beneficiary?: unknown
-    total_value?: unknown
-    shopify_order_id?: unknown
-    shopify_order_name?: unknown
-    discount_code?: unknown
-    discount_value?: unknown
-    discount_percent?: unknown
-  }
+    id: unknown;
+    conversation_id?: unknown;
+    contact_id?: unknown;
+    line_items?: unknown;
+    beneficiary?: unknown;
+    total_value?: unknown;
+    shopify_order_id?: unknown;
+    shopify_order_name?: unknown;
+    discount_code?: unknown;
+    discount_value?: unknown;
+    discount_percent?: unknown;
+  };
 }): Promise<string | null> {
   const conversationId =
-    typeof args.order.conversation_id === 'string' ? args.order.conversation_id : null
+    typeof args.order.conversation_id === 'string'
+      ? args.order.conversation_id
+      : null;
 
   const shopify = await loadShopifyConfig(args.db, args.accountId, {
     requireActive: false,
-  })
+  });
   if (!shopify) {
     if (conversationId) {
       await insertInboxNote(
         args.db,
         conversationId,
-        `Payment captured for ${args.referenceId} but Shopify is not connected. Create the order manually.`,
-      )
+        `Payment captured for ${args.referenceId} but Shopify is not connected. Create the order manually.`
+      );
     }
-    return null
+    return null;
   }
 
   const existingId =
-    typeof args.order.shopify_order_id === 'string' ? args.order.shopify_order_id : ''
+    typeof args.order.shopify_order_id === 'string'
+      ? args.order.shopify_order_id
+      : '';
   if (existingId) {
     try {
-      await markShopifyOrderAsPaid({ config: shopify, orderId: existingId })
+      await markShopifyOrderAsPaid({ config: shopify, orderId: existingId });
     } catch (err) {
-      console.error('[commerce] Shopify orderMarkAsPaid failed:', err)
+      console.error('[commerce] Shopify orderMarkAsPaid failed:', err);
       if (conversationId) {
         await insertInboxNote(
           args.db,
           conversationId,
-          `Payment captured for ${args.referenceId} but Shopify mark-as-paid failed: ${err instanceof Error ? err.message : String(err)}`,
-        )
+          `Payment captured for ${args.referenceId} but Shopify mark-as-paid failed: ${err instanceof Error ? err.message : String(err)}`
+        );
       }
     }
     return typeof args.order.shopify_order_name === 'string'
       ? args.order.shopify_order_name
-      : null
+      : null;
   }
 
-  const lines = (args.order.line_items as MappedCartLine[]) ?? []
-  const unmapped = lines.filter((line) => !line.variantId)
+  const lines = (args.order.line_items as MappedCartLine[]) ?? [];
+  const unmapped = lines.filter((line) => !line.variantId);
   if (unmapped.length > 0) {
     if (conversationId) {
       await insertInboxNote(
         args.db,
         conversationId,
-        `Payment captured for ${args.referenceId} but Shopify mapping failed for ${unmapped.map((l) => l.retailer_id).join(', ')}. Complete the order manually.`,
-      )
+        `Payment captured for ${args.referenceId} but Shopify mapping failed for ${unmapped.map((l) => l.retailer_id).join(', ')}. Complete the order manually.`
+      );
     }
-    return null
+    return null;
   }
 
-  let phone: string | null = null
+  let phone: string | null = null;
   if (typeof args.order.contact_id === 'string') {
     const { data: contact } = await args.db
       .from('contacts')
       .select('phone')
       .eq('id', args.order.contact_id)
-      .maybeSingle()
-    phone = typeof contact?.phone === 'string' ? contact.phone : null
+      .maybeSingle();
+    phone = typeof contact?.phone === 'string' ? contact.phone : null;
   }
 
-  const beneficiary = (args.order.beneficiary as CommerceBeneficiary) ?? null
-  const email = beneficiary?.email?.trim() || null
-  let customerId: string | null = null
+  const beneficiary = (args.order.beneficiary as CommerceBeneficiary) ?? null;
+  const email = beneficiary?.email?.trim() || null;
+  let customerId: string | null = null;
   try {
     customerId = await upsertShopifyCustomerForPayment({
       config: shopify,
       phone,
       email,
       beneficiary,
-    })
+    });
   } catch (err) {
-    console.error('[commerce] Shopify customer upsert failed:', err)
+    console.error('[commerce] Shopify customer upsert failed:', err);
     if (conversationId) {
       await insertInboxNote(
         args.db,
         conversationId,
-        `Payment captured for ${args.referenceId} but Shopify customer save failed: ${err instanceof Error ? err.message : String(err)}. Creating the order anyway.`,
-      )
+        `Payment captured for ${args.referenceId} but Shopify customer save failed: ${err instanceof Error ? err.message : String(err)}. Creating the order anyway.`
+      );
     }
   }
 
@@ -392,37 +425,37 @@ async function createShopifyOrderForPayment(args: {
       totalPaise: Number(args.order.total_value) || 0,
       discount: commerceDiscountFromOrder(args.order),
       authorizationCode: args.authorizationCode,
-    })
+    });
     await args.db
       .from('whatsapp_commerce_orders')
       .update({
         shopify_order_id: created.id,
         shopify_order_name: created.name,
       })
-      .eq('id', args.order.id)
+      .eq('id', args.order.id);
     try {
-      await markShopifyOrderAsPaid({ config: shopify, orderId: created.id })
+      await markShopifyOrderAsPaid({ config: shopify, orderId: created.id });
     } catch (err) {
-      console.error('[commerce] Shopify orderMarkAsPaid failed:', err)
+      console.error('[commerce] Shopify orderMarkAsPaid failed:', err);
       if (conversationId) {
         await insertInboxNote(
           args.db,
           conversationId,
-          `Shopify order ${created.name} created for ${args.referenceId} but mark-as-paid failed: ${err instanceof Error ? err.message : String(err)}`,
-        )
+          `Shopify order ${created.name} created for ${args.referenceId} but mark-as-paid failed: ${err instanceof Error ? err.message : String(err)}`
+        );
       }
     }
-    return created.name
+    return created.name;
   } catch (err) {
-    console.error('[commerce] Shopify orderCreate failed:', err)
+    console.error('[commerce] Shopify orderCreate failed:', err);
     if (conversationId) {
       await insertInboxNote(
         args.db,
         conversationId,
-        `Payment captured for ${args.referenceId} but Shopify order create failed: ${err instanceof Error ? err.message : String(err)}`,
-      )
+        `Payment captured for ${args.referenceId} but Shopify order create failed: ${err instanceof Error ? err.message : String(err)}`
+      );
     }
-    return null
+    return null;
   }
 }
 
@@ -436,19 +469,19 @@ async function createShopifyOrderForPayment(args: {
  * inbox just misses the copy.
  */
 async function sendPaymentConfirmation(args: {
-  accountId: string
-  userId: string | null
-  conversationId: string | null
-  contactId: string | null
-  phoneNumberId: string
-  accessToken: string
-  recipientId: string
-  referenceId: string
-  shopifyOrderName: string | null
+  accountId: string;
+  userId: string | null;
+  conversationId: string | null;
+  contactId: string | null;
+  phoneNumberId: string;
+  accessToken: string;
+  recipientId: string;
+  referenceId: string;
+  shopifyOrderName: string | null;
 }): Promise<void> {
   const bodyText = args.shopifyOrderName
     ? ORDER_CONFIRMED_BODY
-    : PAYMENT_RECEIVED_BODY
+    : PAYMENT_RECEIVED_BODY;
 
   if (args.userId && args.conversationId && args.contactId) {
     try {
@@ -461,9 +494,9 @@ async function sendPaymentConfirmation(args: {
         referenceId: args.referenceId,
         status: 'processing',
         aiGenerated: true,
-      })
+      });
     } catch (err) {
-      console.error('[commerce] order_status confirmation failed:', err)
+      console.error('[commerce] order_status confirmation failed:', err);
     }
 
     // The card alone doesn't carry the order number, and Shopify's own
@@ -477,12 +510,12 @@ async function sendPaymentConfirmation(args: {
           contactId: args.contactId,
           text: orderConfirmedText(args.shopifyOrderName),
           aiGenerated: true,
-        })
+        });
       } catch (err) {
-        console.error('[commerce] order confirmation text failed:', err)
+        console.error('[commerce] order confirmation text failed:', err);
       }
     }
-    return
+    return;
   }
 
   try {
@@ -493,47 +526,52 @@ async function sendPaymentConfirmation(args: {
       referenceId: args.referenceId,
       status: 'processing',
       bodyText,
-    })
+    });
   } catch (err) {
-    console.error('[commerce] order_status confirmation failed:', err)
+    console.error('[commerce] order_status confirmation failed:', err);
   }
 }
 
 async function loadCommerceOrder(
   db: SupabaseClient,
   accountId: string,
-  referenceId: string,
+  referenceId: string
 ) {
   const { data, error } = await db
     .from('whatsapp_commerce_orders')
     .select(
-      'id, status, conversation_id, contact_id, line_items, beneficiary, total_value, shopify_order_id, shopify_order_name, payment_config_id, discount_code, discount_value, discount_percent',
+      'id, status, conversation_id, contact_id, line_items, beneficiary, total_value, shopify_order_id, shopify_order_name, payment_config_id, discount_code, discount_value, discount_percent'
     )
     .eq('account_id', accountId)
     .eq('reference_id', referenceId)
-    .maybeSingle()
+    .maybeSingle();
   if (error) {
-    if (isMissingDbRelation(error, 'whatsapp_commerce_orders')) return null
-    console.error('[commerce] load order failed:', error)
-    return null
+    if (isMissingDbRelation(error, 'whatsapp_commerce_orders')) return null;
+    console.error('[commerce] load order failed:', error);
+    return null;
   }
-  return data
+  return data;
 }
 
 function commerceDiscountFromOrder(order: {
-  discount_code?: unknown
-  discount_value?: unknown
-  discount_percent?: unknown
+  discount_code?: unknown;
+  discount_value?: unknown;
+  discount_percent?: unknown;
 }): AppliedCommerceDiscount | null {
-  const code = typeof order.discount_code === 'string' ? order.discount_code.trim() : ''
-  const amountPaise = Math.max(0, Math.round(Number(order.discount_value) || 0))
-  if (!code || amountPaise <= 0) return null
-  const percentRaw = Number(order.discount_percent)
-  const percent = Number.isFinite(percentRaw) && percentRaw > 0 ? percentRaw : null
+  const code =
+    typeof order.discount_code === 'string' ? order.discount_code.trim() : '';
+  const amountPaise = Math.max(
+    0,
+    Math.round(Number(order.discount_value) || 0)
+  );
+  if (!code || amountPaise <= 0) return null;
+  const percentRaw = Number(order.discount_percent);
+  const percent =
+    Number.isFinite(percentRaw) && percentRaw > 0 ? percentRaw : null;
   return {
     code,
     kind: percent != null ? 'percentage' : 'fixed',
     percent,
     amountPaise,
-  }
+  };
 }

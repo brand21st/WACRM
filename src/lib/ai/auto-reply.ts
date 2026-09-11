@@ -132,9 +132,14 @@ import { mergeAndPersistShoppingContext, loadShoppingContext, emptyShoppingConte
 import { classifySalesTurn, shouldPersistSalesContext, unlocksCatalogBrowse } from '@/lib/shopify/sales-turn'
 import {
   resolveSalesPatternGuidance,
+  type SalesPatternRetrievalMode,
   type RetrievedSalesPattern,
 } from '@/lib/ai/intelligence/retrieve-sales-patterns'
 import { recordSalesPatternUsage } from '@/lib/ai/intelligence/record-sales-pattern-usage'
+import {
+  recordAiBehaviorAssignment,
+  resolveAiBehaviorForReply,
+} from '@/lib/ai/intelligence/assign-ai-behavior'
 import { parseRequestedPrice } from '@/lib/shopify/rank'
 import {
   acceptedOfferReplyDirective,
@@ -776,6 +781,7 @@ export async function dispatchInboundToAiReply(
       : ''
     let salesGuidance: string | null = null
     let salesPatternMatches: RetrievedSalesPattern[] = []
+    let salesPatternMode: SalesPatternRetrievalMode = 'off'
     try {
       const resolved = await resolveSalesPatternGuidance(db, {
         accountId,
@@ -784,12 +790,17 @@ export async function dispatchInboundToAiReply(
         shopping,
         productId: productFocus?.handle ?? shopping.selectedIds[0] ?? null,
       })
+      salesPatternMode = resolved.mode
       salesGuidance = resolved.salesGuidance
       salesPatternMatches = resolved.matches
     } catch (err) {
       console.warn('[ai auto-reply] sales pattern retrieval failed')
       void err
     }
+    let behaviorGuidance: string | null = null
+    let pendingBehaviorAssignment: Awaited<
+      ReturnType<typeof resolveAiBehaviorForReply>
+    >['pendingAssignment'] = null
     const commerceDirective =
       commerceFollow === 'accept_show'
         ? acceptedOfferReplyDirective()
@@ -825,6 +836,24 @@ export async function dispatchInboundToAiReply(
         console.warn('[ai auto-reply] fact-reply shopping persist failed:', err)
       }
     }
+    if (!factReply && salesPatternMode !== 'shadow') {
+      try {
+        const resolvedBehavior = await resolveAiBehaviorForReply(db, {
+          accountId,
+          conversationId,
+          salesTurn,
+          queryText,
+          salesGuidance,
+          factReply: false,
+        })
+        salesGuidance = resolvedBehavior.salesGuidance
+        behaviorGuidance = resolvedBehavior.behaviorGuidance
+        pendingBehaviorAssignment = resolvedBehavior.pendingAssignment
+      } catch (err) {
+        console.warn('[ai auto-reply] ai behavior resolve failed')
+        void err
+      }
+    }
     const systemPrompt = buildSystemPrompt({
       userPrompt: config.systemPrompt,
       mode: 'auto_reply',
@@ -842,6 +871,7 @@ export async function dispatchInboundToAiReply(
       productFocus,
       salesSnapshot,
       salesGuidance,
+      behaviorGuidance,
       productFacts,
       replyDirective,
     })
@@ -887,6 +917,7 @@ export async function dispatchInboundToAiReply(
         productFocus,
         salesSnapshot,
         salesGuidance,
+        behaviorGuidance,
         productFacts,
         replyDirective,
         tools: shopifyTools.tools,
@@ -900,6 +931,9 @@ export async function dispatchInboundToAiReply(
           conversationId,
           matches: salesPatternMatches,
         })
+      }
+      if (pendingBehaviorAssignment && generated.text) {
+        void recordAiBehaviorAssignment(db, pendingBehaviorAssignment)
       }
     }
 
@@ -1634,6 +1668,7 @@ export async function generateCustomerFacingReply(args: {
   productFocus?: ProductFocus | null
   salesSnapshot?: string | null
   salesGuidance?: string | null
+  behaviorGuidance?: string | null
   productFacts?: string | null
   replyDirective?: string | null
   tools?: LlmToolDef[]
@@ -1687,6 +1722,7 @@ export async function generateCustomerFacingReply(args: {
         productFocus: args.productFocus,
         salesSnapshot: args.salesSnapshot,
         salesGuidance: args.salesGuidance,
+        behaviorGuidance: args.behaviorGuidance,
         productFacts: args.productFacts,
         replyDirective: args.replyDirective,
       }),

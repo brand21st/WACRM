@@ -8,6 +8,8 @@ import {
 } from '@/lib/ai/describe-inbound-image'
 import { loadShopifyConfig } from '@/lib/shopify/config'
 import type { AiChatReplyJob } from '@/lib/queue/jobs'
+import { aiConversationAnalyzeJob } from '@/lib/queue/jobs'
+import { enqueueAiConversationAnalyze } from '@/lib/queue/enqueue'
 
 /**
  * Image vision (when needed) then the existing auto-reply path.
@@ -17,6 +19,7 @@ export async function processAiChatReply(job: AiChatReplyJob): Promise<void> {
   const db = supabaseAdmin()
 
   if (job.inboundContentType === 'image') {
+    let enrichmentPersisted = false
     const config = await loadAiConfig(db, job.accountId).catch((err) => {
       console.error('[ai-chat-reply] loadAiConfig failed:', err)
       return null
@@ -24,7 +27,9 @@ export async function processAiChatReply(job: AiChatReplyJob): Promise<void> {
     if (config) {
       const { data: message } = await db
         .from('messages')
-        .select('id, content_text')
+        .select('id, content_text, conversations!inner(account_id)')
+        .eq('conversations.account_id', job.accountId)
+        .eq('conversation_id', job.conversationId)
         .eq('id', job.messageId)
         .maybeSingle()
       const caption =
@@ -53,12 +58,26 @@ export async function processAiChatReply(job: AiChatReplyJob): Promise<void> {
         if (error) {
           console.error('[ai-chat-reply] persist image description failed:', error.message)
         } else {
+          enrichmentPersisted = true
           await db
             .from('conversations')
             .update({ last_message_text: nextText })
+            .eq('account_id', job.accountId)
             .eq('id', job.conversationId)
         }
+      } else {
+        enrichmentPersisted = true
       }
+      if (enrichmentPersisted) void enqueueAiConversationAnalyze(
+        aiConversationAnalyzeJob({
+          accountId: job.accountId,
+          conversationId: job.conversationId,
+          contactId: job.contactId,
+          trigger: { type: 'message', messageId: job.messageId },
+        }),
+      ).catch((error) => {
+        console.warn('[ai-chat-reply] learning enqueue failed:', error)
+      })
     }
   }
 

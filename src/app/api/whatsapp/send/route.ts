@@ -1,5 +1,6 @@
-import { NextResponse } from 'next/server'
+import { NextResponse, type NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { mobileCorsOptionsResponse, withMobileCors } from '@/lib/http/mobile-cors'
 import { requireRole, toErrorResponse } from '@/lib/auth/account'
 import {
   checkRateLimit,
@@ -21,7 +22,11 @@ import {
 // endpoint reuses. This route is a thin adapter: resolve the
 // conversation, delegate, then map `SendMessageError` back onto the
 // dashboard's internal `{ error }` shape.
-export async function POST(request: Request) {
+export async function OPTIONS(request: NextRequest) {
+  return mobileCorsOptionsResponse(request) ?? new NextResponse(null, { status: 405 })
+}
+
+export async function POST(request: NextRequest) {
   try {
     // Requires the 'agent' role, matching both `canSendMessages` and the
     // `messages_modify` RLS policy (migration 017).
@@ -169,16 +174,19 @@ export async function POST(request: Request) {
         replyToMessageId: reply_to_message_id,
       })
 
-      return NextResponse.json({
-        success: true,
-        message_id: result.messageId,
-        whatsapp_message_id: result.whatsappMessageId,
-      })
+      return withMobileCors(
+        request,
+        NextResponse.json({
+          success: true,
+          message_id: result.messageId,
+          whatsapp_message_id: result.whatsappMessageId,
+        }),
+      )
     } catch (err) {
       if (err instanceof SendMessageError) {
-        return NextResponse.json(
-          { error: err.message },
-          { status: err.status }
+        return withMobileCors(
+          request,
+          NextResponse.json({ error: err.message }, { status: err.status }),
         )
       }
       throw err
@@ -187,7 +195,7 @@ export async function POST(request: Request) {
     // requireRole throws Unauthorized/Forbidden; toErrorResponse maps
     // those to 401/403 and collapses anything else to a generic 500.
     console.error('Error in WhatsApp send POST:', error)
-    return toErrorResponse(error)
+    return withMobileCors(request, toErrorResponse(error))
   }
 }
 

@@ -1,16 +1,18 @@
-import type { SupabaseClient } from '@supabase/supabase-js'
-import type { AiProvider, AiUsage } from './types'
+import type { SupabaseClient } from '@supabase/supabase-js';
+import type { AiProvider, AiUsage } from './types';
 
 export interface LogAiUsageArgs {
-  accountId: string
+  accountId: string;
   /** Null for a draft not tied to one thread, or when the row was
    *  deleted between generation and logging. */
-  conversationId: string | null
-  mode: 'auto_reply' | 'draft'
-  provider: AiProvider
-  model: string
+  conversationId: string | null;
+  mode: 'auto_reply' | 'draft' | 'conversation_analysis';
+  purpose?: string | null;
+  analyzerVersion?: string | null;
+  provider: AiProvider;
+  model: string;
   /** Provider usage; a no-op when null (nothing worth recording). */
-  usage: AiUsage | null
+  usage: AiUsage | null;
 }
 
 /**
@@ -28,11 +30,11 @@ export interface LogAiUsageArgs {
  */
 export async function logAiUsage(
   db: SupabaseClient,
-  args: LogAiUsageArgs,
+  args: LogAiUsageArgs
 ): Promise<void> {
-  if (!args.usage) return
+  if (!args.usage) return;
   try {
-    const { error } = await db.from('ai_usage_log').insert({
+    const row: Record<string, unknown> = {
       account_id: args.accountId,
       conversation_id: args.conversationId,
       mode: args.mode,
@@ -41,11 +43,16 @@ export async function logAiUsage(
       prompt_tokens: args.usage.promptTokens,
       completion_tokens: args.usage.completionTokens,
       total_tokens: args.usage.totalTokens,
-    })
+    };
+    if (args.purpose != null) row.purpose = args.purpose;
+    if (args.analyzerVersion != null) {
+      row.analyzer_version = args.analyzerVersion;
+    }
+    const { error } = await db.from('ai_usage_log').insert(row);
     if (error) {
-      console.error('[ai usage] log insert failed:', error)
+      console.error('[ai usage] log insert failed:', error);
     }
   } catch (err) {
-    console.error('[ai usage] log insert threw:', err)
+    console.error('[ai usage] log insert threw:', err);
   }
 }

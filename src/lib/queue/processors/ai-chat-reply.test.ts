@@ -11,21 +11,26 @@ const conversationUpdates: Array<{ patch: Record<string, unknown>; id: string }>
 vi.mock('@/lib/ai/admin-client', () => ({
   supabaseAdmin: () => ({
     from(table: string) {
-      return {
-        select: () => ({
-          eq: () => ({
-            maybeSingle: async () => ({
-              data: { id: 'msg-1', content_text: caption },
-            }),
-          }),
+      const selectBuilder = {
+        eq: () => selectBuilder,
+        maybeSingle: async () => ({
+          data: { id: 'msg-1', content_text: caption },
         }),
-        update: (patch: Record<string, unknown>) => ({
-          eq: async (_col: string, id: string) => {
+      }
+      const updateBuilder = (patch: Record<string, unknown>) => {
+        const builder = {
+          eq: (col: string, id: string) => {
+            if (col !== 'id') return builder
             if (table === 'messages') messageUpdates.push({ patch, id })
             if (table === 'conversations') conversationUpdates.push({ patch, id })
-            return { error: null }
+            return Promise.resolve({ error: null })
           },
-        }),
+        }
+        return builder
+      }
+      return {
+        select: () => selectBuilder,
+        update: updateBuilder,
       }
     },
   }),

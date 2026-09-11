@@ -27,6 +27,11 @@ const apps = [
     name: 'wacrm-worker',
     script: isProd ? 'dist/worker.js' : 'node_modules/tsx/dist/cli.mjs',
     cwd: process.cwd(),
+    env: {
+      // Keep "all" for the existing single-worker topology. Separate process
+      // definitions may override this with "customer" or "learning".
+      WORKER_GROUP: process.env.WORKER_GROUP || 'all',
+    },
     instances: 1,
     exec_mode: 'fork',
     kill_timeout: 30000,

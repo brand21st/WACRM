@@ -232,6 +232,47 @@ export interface Conversation {
   ai_handoff_summary?: string | null;
   /** Agent-selected Shopify product for this thread (migration 074). */
   ai_product_focus?: import('@/lib/shopify/product-focus').ProductFocus | null;
+  /**
+   * Latest inbound customer message (UTC). Start of the WhatsApp
+   * 24h customer-service window. Migration 098.
+   */
+  last_customer_message_at?: string | null;
+  /**
+   * Generated: last_customer_message_at + 24 hours. Null when no
+   * customer message exists. Migration 098.
+   */
+  customer_service_expires_at?: string | null;
+}
+
+/** Session-auth conversation DTO for Expo (no account_id / secrets). */
+export interface MobileConversationContact {
+  id: string;
+  phone: string;
+  name: string | null;
+  email: string | null;
+  company: string | null;
+  avatar_url: string | null;
+  tags: { id: string; name: string; color: string }[];
+}
+
+export interface MobileConversation {
+  id: string;
+  status: ConversationStatus;
+  assigned_agent_id: string | null;
+  last_message_text: string | null;
+  last_message_at: string | null;
+  unread_count: number;
+  ai_autoreply_disabled: boolean;
+  customer_service_expires_at: string | null;
+  created_at: string;
+  updated_at: string;
+  contact: MobileConversationContact | null;
+}
+
+/** GET /api/account — same shape for web and mobile. */
+export interface MobileAuthResponse {
+  account: { id: string; name: string };
+  role: AccountRole;
 }
 
 // ============================================================

@@ -206,6 +206,8 @@ export const RATE_LIMITS = {
   liveAiRealtimeAccount: { limit: 40, windowMs: 60_000 },
   /** Realtime tool + transcript posts during a live call. */
   liveAiTool: { limit: 60, windowMs: 60_000 },
+  /** Expo device token register / rotate, per user. */
+  devicePush: { limit: 20, windowMs: 60_000 },
 } as const;
 
 /** Test-only helper. Clears the in-memory state so unit tests don't

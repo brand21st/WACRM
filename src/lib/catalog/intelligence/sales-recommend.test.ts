@@ -7,7 +7,7 @@ import { emptyShoppingContext, mergeShoppingContext } from './shopping-context'
 
 function salesDb(
   mode: 'off' | 'shadow' | 'on' = 'on',
-  extra: Record<string, Record<string, unknown>[]> = {},
+  extra: Record<string, Record<string, unknown>[]> = {}
 ) {
   const seed = intelSeed()
   return createCatalogMemoryDb({
@@ -49,14 +49,14 @@ describe('getRecommendations', () => {
         accountId: 'acct-b',
         mode: 'cross_sell',
         seedId: 'p-red',
-      }),
+      })
     ).toEqual([])
     expect(
       await getRecommendations(db, {
         accountId: 'acct-a',
         mode: 'upsell',
         seedId: 'missing',
-      }),
+      })
     ).toEqual([])
   })
 
@@ -96,12 +96,16 @@ describe('getRecommendations', () => {
   it('does not treat another bag as a cross-sell', async () => {
     const seed = intelSeed()
     seed.catalog_product_relations = seed.catalog_product_relations.filter(
-      (row) => (row as { kind?: string }).kind !== 'cross_sell',
+      (row) => (row as { kind?: string }).kind !== 'cross_sell'
     )
     const db = createCatalogMemoryDb({
       ...seed,
       ai_configs: [
-        { account_id: 'acct-a', catalog_sales_automation: 'on', catalog_hybrid_search: 'off' },
+        {
+          account_id: 'acct-a',
+          catalog_sales_automation: 'on',
+          catalog_hybrid_search: 'off',
+        },
       ],
     })
     const rows = await getRecommendations(db, {
@@ -127,7 +131,9 @@ describe('getRecommendations', () => {
     expect(rows[0].reasons).toContain('relation_cross_sell')
     const { data } = await db.from('catalog_recommendation_events').select()
     expect(data).toHaveLength(1)
-    expect((data as { event?: string; account_id?: string }[])[0]).toMatchObject({
+    expect(
+      (data as { event?: string; account_id?: string }[])[0]
+    ).toMatchObject({
       event: 'generated',
       account_id: 'acct-a',
       product_id: 'p-cheap',
@@ -189,9 +195,9 @@ describe('getRecommendations', () => {
       shopping: { ...emptyShoppingContext(), dislikes: ['red'] },
     })
     expect(noRed.map((row) => row.product.id)).not.toContain('p-red')
-    expect(noRed.map((row) => row.product.title.toLowerCase()).join(' ')).not.toMatch(
-      /\bred\b/,
-    )
+    expect(
+      noRed.map((row) => row.product.title.toLowerCase()).join(' ')
+    ).not.toMatch(/\bred\b/)
   })
 
   it('dedupes cart and paid retailer ids and skips unmatched ones', async () => {
@@ -245,7 +251,9 @@ describe('getRecommendations', () => {
     for (const row of rows) {
       expect(row.product.id).toMatch(/^p-/)
       expect(row.product.priceMin).toEqual(expect.any(Number))
-      expect(row.product.variants.some((variant) => variant.available)).toBe(true)
+      expect(row.product.variants.some((variant) => variant.available)).toBe(
+        true
+      )
     }
   })
 
@@ -261,7 +269,9 @@ describe('getRecommendations', () => {
       seedId: 'p-red',
       customerText: 'under 5k',
     })
-    expect(underCap.every((row) => (row.product.priceMin ?? 0) <= 5000)).toBe(true)
+    expect(underCap.every((row) => (row.product.priceMin ?? 0) <= 5000)).toBe(
+      true
+    )
     const blocked = await getRecommendations(db, {
       accountId: 'acct-a',
       mode: 'upsell',
@@ -312,12 +322,16 @@ describe('getRecommendations', () => {
   it('returns no complement when the customer asks what goes well and none exists', async () => {
     const seed = intelSeed()
     seed.catalog_product_relations = seed.catalog_product_relations.filter(
-      (row) => (row as { kind?: string }).kind !== 'cross_sell',
+      (row) => (row as { kind?: string }).kind !== 'cross_sell'
     )
     const db = createCatalogMemoryDb({
       ...seed,
       ai_configs: [
-        { account_id: 'acct-a', catalog_sales_automation: 'on', catalog_hybrid_search: 'off' },
+        {
+          account_id: 'acct-a',
+          catalog_sales_automation: 'on',
+          catalog_hybrid_search: 'off',
+        },
       ],
     })
     const rows = await getRecommendations(db, {
@@ -374,9 +388,7 @@ describe('intel extras stay account scoped', () => {
           retailer_id: 'WALLET',
         }),
       ],
-      ai_configs: [
-        { account_id: 'acct-a', catalog_sales_automation: 'on' },
-      ],
+      ai_configs: [{ account_id: 'acct-a', catalog_sales_automation: 'on' }],
     })
     const rows = await getRecommendations(db, {
       accountId: 'acct-a',
@@ -384,5 +396,70 @@ describe('intel extras stay account scoped', () => {
       seedId: 'p-red',
     })
     expect(rows.map((row) => row.product.id)).not.toContain('p-wallet')
+  })
+})
+
+describe('recommendation intelligence shadow', () => {
+  it('preserves exact output and leaves learned work to the processor', async () => {
+    const seed = intelSeed()
+    const common = {
+      ...seed,
+      catalog_recommendation_stats: [
+        {
+          account_id: 'acct-a',
+          product_id: 'p-gold',
+          mode: 'similar',
+          smoothed_selection_rate: 0.95,
+          smoothed_rejection_rate: 0.05,
+          shown_count: 20,
+        },
+      ],
+    }
+    const off = createCatalogMemoryDb({
+      ...common,
+      ai_configs: [
+        {
+          account_id: 'acct-a',
+          catalog_sales_automation: 'on',
+          catalog_hybrid_search: 'off',
+          recommendation_intelligence: 'off',
+        },
+      ],
+    })
+    const shadow = createCatalogMemoryDb({
+      ...common,
+      ai_configs: [
+        {
+          account_id: 'acct-a',
+          catalog_sales_automation: 'on',
+          catalog_hybrid_search: 'off',
+          recommendation_intelligence: 'shadow',
+        },
+      ],
+    })
+    const input = {
+      accountId: 'acct-a',
+      conversationId: 'conv-shadow',
+      sourceMessageId: 'message-shadow',
+      mode: 'similar' as const,
+      seedId: 'p-red',
+      limit: 10,
+    }
+    const baselineRows = await getRecommendations(off, input)
+    const shadowRows = await getRecommendations(shadow, input)
+    expect(shadowRows).toEqual(baselineRows)
+    expect(
+      shadowRows.every(
+        (row) =>
+          row.product.accountId === 'acct-a' &&
+          row.product.status === 'active' &&
+          row.product.variants.some((variant) => variant.available)
+      )
+    ).toBe(true)
+    const { data } = await shadow
+      .from('catalog_recommendation_events')
+      .select()
+      .eq('ranking_variant', 'shadow')
+    expect(data).toEqual([])
   })
 })

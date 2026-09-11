@@ -61,14 +61,18 @@ function makeClient(opts: {
   };
 }
 
-const createClient = vi.fn();
+const createRequestClient = vi.fn();
 vi.mock("@/lib/supabase/server", () => ({
-  createClient: () => createClient(),
+  createClient: () => createRequestClient(),
+  createRequestClient: () => createRequestClient(),
 }));
 
-const { getCurrentAccount, UnauthorizedError, ForbiddenError } = await import(
-  "./account"
-);
+const {
+  getCurrentAccount,
+  requireRole,
+  UnauthorizedError,
+  ForbiddenError,
+} = await import("./account");
 
 afterEach(() => {
   vi.clearAllMocks();
@@ -86,7 +90,7 @@ describe("getCurrentAccount", () => {
         accounts: { data: { id: "acct-1", name: "Acme" }, error: null },
       },
     });
-    createClient.mockReturnValue(client);
+    createRequestClient.mockReturnValue(client);
 
     const ctx = await getCurrentAccount();
 
@@ -108,7 +112,7 @@ describe("getCurrentAccount", () => {
 
   it("throws UnauthorizedError when there is no session", async () => {
     const { client } = makeClient({ user: null, byTable: {} });
-    createClient.mockReturnValue(client);
+    createRequestClient.mockReturnValue(client);
     await expect(getCurrentAccount()).rejects.toBeInstanceOf(UnauthorizedError);
   });
 
@@ -119,7 +123,7 @@ describe("getCurrentAccount", () => {
         profiles: { data: null, error: { code: "PGRST200" } },
       },
     });
-    createClient.mockReturnValue(client);
+    createRequestClient.mockReturnValue(client);
     await expect(getCurrentAccount()).rejects.toThrow(
       "Could not load account context",
     );
@@ -138,7 +142,7 @@ describe("getCurrentAccount", () => {
         accounts: { data: null, error: { code: "PGRST200" } },
       },
     });
-    createClient.mockReturnValue(client);
+    createRequestClient.mockReturnValue(client);
     const err = await getCurrentAccount().catch((e) => e);
     expect(err).toBeInstanceOf(ForbiddenError);
     expect(err.message).toBe("Could not load account context");
@@ -151,7 +155,7 @@ describe("getCurrentAccount", () => {
         profiles: { data: { account_id: null, account_role: null }, error: null },
       },
     });
-    createClient.mockReturnValue(client);
+    createRequestClient.mockReturnValue(client);
     await expect(getCurrentAccount()).rejects.toThrow(
       "Profile is not linked to an account",
     );
@@ -168,9 +172,70 @@ describe("getCurrentAccount", () => {
         accounts: { data: null, error: null },
       },
     });
-    createClient.mockReturnValue(client);
+    createRequestClient.mockReturnValue(client);
     await expect(getCurrentAccount()).rejects.toThrow(
       "Profile is not linked to an account",
     );
+  });
+
+  it("resolves the same context when the request client comes from a Bearer JWT", async () => {
+    const { client } = makeClient({
+      user: { id: "mobile-user" },
+      byTable: {
+        profiles: {
+          data: { account_id: "acct-1", account_role: "agent" },
+          error: null,
+        },
+        accounts: { data: { id: "acct-1", name: "Acme" }, error: null },
+      },
+    });
+    createRequestClient.mockReturnValue(client);
+
+    const ctx = await getCurrentAccount();
+    expect(ctx).toMatchObject({
+      userId: "mobile-user",
+      accountId: "acct-1",
+      role: "agent",
+    });
+  });
+});
+
+describe("requireRole", () => {
+  function mockRole(role: string) {
+    const { client } = makeClient({
+      user: { id: "user-1" },
+      byTable: {
+        profiles: {
+          data: { account_id: "acct-1", account_role: role },
+          error: null,
+        },
+        accounts: { data: { id: "acct-1", name: "Acme" }, error: null },
+      },
+    });
+    createRequestClient.mockReturnValue(client);
+  }
+
+  it("rejects a viewer when the route requires agent", async () => {
+    mockRole("viewer");
+    await expect(requireRole("agent")).rejects.toBeInstanceOf(ForbiddenError);
+    await expect(requireRole("agent")).rejects.toThrow(/agent/i);
+  });
+
+  it("accepts an agent for agent-level actions", async () => {
+    mockRole("agent");
+    const ctx = await requireRole("agent");
+    expect(ctx.role).toBe("agent");
+    expect(ctx.accountId).toBe("acct-1");
+  });
+
+  it("rejects an agent when the route requires admin (AI config write)", async () => {
+    mockRole("agent");
+    await expect(requireRole("admin")).rejects.toBeInstanceOf(ForbiddenError);
+  });
+
+  it("accepts an admin for admin-level actions", async () => {
+    mockRole("admin");
+    const ctx = await requireRole("admin");
+    expect(ctx.role).toBe("admin");
   });
 });

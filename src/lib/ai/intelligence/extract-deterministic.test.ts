@@ -146,7 +146,7 @@ describe('extractDeterministicEvents', () => {
     expect(events.some((e) => e.eventType === 'PURCHASE_INTENT')).toBe(false)
   })
 
-  it('skips shopping-context ids that are already stored', () => {
+  it('does not promote rolling customer memory into tenant sales events', () => {
     const events = extractDeterministicEvents({
       ...BASE,
       shopping: {
@@ -154,12 +154,8 @@ describe('extractDeterministicEvents', () => {
         selectedIds: ['prod-a'],
         rejectedIds: ['prod-b'],
       },
-      existingEvents: [
-        { event_type: 'PRODUCT_SELECTED', metadata: { productId: 'prod-a' } },
-      ],
     })
-    expect(events.map((e) => e.eventType)).toEqual(['PRODUCT_OBJECTION'])
-    expect(events[0].metadata.productId).toBe('prod-b')
+    expect(events).toEqual([])
   })
 })
 

@@ -70,7 +70,10 @@ testsprite_tests/tmp/config.json
 
 # Scratch / temp
 supabase/.temp/
-.tmp-coolify-query.py
+.tmp-*.py
+.tmp-*.mjs
+.tmp-*.out
+.tmp-*.json
 
 # Local Compose experiments (Coolify must never load this)
 docker-compose.override.yml

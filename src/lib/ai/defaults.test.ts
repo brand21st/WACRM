@@ -442,6 +442,33 @@ describe('buildSystemPrompt', () => {
     expect(prompt).not.toMatch(/Business Sales Guidance/)
   })
 
+  it('injects experimental behavior guidance after sales guidance and before product facts', () => {
+    const prompt = buildSystemPrompt({
+      userPrompt: null,
+      mode: 'auto_reply',
+      shopify: true,
+      salesGuidance: 'Business Sales Guidance\nnot a business policy',
+      behaviorGuidance:
+        'Experimental reply style\nIt is subordinate to the current customer request',
+      productFacts: 'Current product facts\nprice: 1499',
+    })
+    const guidanceAt = prompt.indexOf('Business Sales Guidance')
+    const behaviorAt = prompt.indexOf('Experimental reply style')
+    const factsAt = prompt.indexOf('Current product facts')
+    expect(guidanceAt).toBeGreaterThan(-1)
+    expect(behaviorAt).toBeGreaterThan(guidanceAt)
+    expect(factsAt).toBeGreaterThan(behaviorAt)
+  })
+
+  it('omits experimental behavior guidance when the optional block is empty', () => {
+    const prompt = buildSystemPrompt({
+      userPrompt: null,
+      mode: 'auto_reply',
+      shopify: true,
+    })
+    expect(prompt).not.toMatch(/Experimental reply style/)
+  })
+
   it('does not add a shop welcome when Shopify is off', () => {
     const prompt = buildSystemPrompt({
       userPrompt: null,

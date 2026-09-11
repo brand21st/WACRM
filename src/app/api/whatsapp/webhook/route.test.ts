@@ -9,6 +9,7 @@ const h = vi.hoisted(() => ({
   enqueueAiChatReply: vi.fn(),
   enqueueAiConversationAnalyze: vi.fn(),
   enqueueAiVoiceInbound: vi.fn(),
+  markConversationLearningPending: vi.fn(),
   describeInboundImage: vi.fn(),
   transcribeInboundVoiceNote: vi.fn(),
   dispatchWebhookEvent: vi.fn(),
@@ -234,6 +235,9 @@ vi.mock('@/lib/queue/enqueue', () => ({
   enqueueAiConversationAnalyze: h.enqueueAiConversationAnalyze,
   enqueueAiVoiceInbound: h.enqueueAiVoiceInbound,
 }))
+vi.mock('@/lib/ai/intelligence/trigger-learning', () => ({
+  markConversationLearningPending: h.markConversationLearningPending,
+}))
 vi.mock('@/lib/ai/transcribe-inbound', () => ({
   transcribeInboundVoiceNote: h.transcribeInboundVoiceNote,
 }))
@@ -251,6 +255,9 @@ vi.mock('@/lib/shopify/config', () => ({
 }))
 vi.mock('@/lib/webhooks/deliver', () => ({
   dispatchWebhookEvent: h.dispatchWebhookEvent,
+}))
+vi.mock('@/lib/notifications/expo-push', () => ({
+  notifyAccountDevicesOfIncomingMessage: vi.fn(async () => undefined),
 }))
 
 import { GET, POST } from './route'
@@ -295,6 +302,9 @@ async function runWebhook(message?: Record<string, unknown>) {
   const res = await POST(inboundRequest(message))
   // Drain the after() callback exactly as the runtime would.
   for (const cb of h.state.afterCallbacks) await cb()
+  // The analyze enqueue is a fail-open async IIFE after persist.
+  await Promise.resolve()
+  await Promise.resolve()
   return res
 }
 
@@ -327,6 +337,7 @@ beforeEach(() => {
   h.enqueueAiChatReply.mockResolvedValue(true)
   h.enqueueAiConversationAnalyze.mockResolvedValue(true)
   h.enqueueAiVoiceInbound.mockResolvedValue(true)
+  h.markConversationLearningPending.mockResolvedValue(true)
   h.describeInboundImage.mockResolvedValue(null)
   h.transcribeInboundVoiceNote.mockResolvedValue(null)
   h.dispatchWebhookEvent.mockResolvedValue(undefined)
@@ -400,7 +411,15 @@ describe('inbound webhook: idempotent insert (#367)', () => {
       expect.objectContaining({
         accountId: 'acc-1',
         conversationId: 'conv-1',
-        triggeringMessageId: 'msg-1',
+        trigger: { type: 'message', messageId: 'msg-1' },
+      }),
+    )
+    expect(h.markConversationLearningPending).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        accountId: 'acc-1',
+        conversationId: 'conv-1',
+        trigger: { type: 'message', messageId: 'msg-1' },
       }),
     )
   })
@@ -420,6 +439,7 @@ describe('inbound webhook: idempotent insert (#367)', () => {
     expect(h.dispatchInboundToAiReply).not.toHaveBeenCalled()
     expect(h.enqueueAiChatReply).not.toHaveBeenCalled()
     expect(h.enqueueAiConversationAnalyze).not.toHaveBeenCalled()
+    expect(h.markConversationLearningPending).not.toHaveBeenCalled()
     expect(h.dispatchWebhookEvent).not.toHaveBeenCalled()
   })
 })

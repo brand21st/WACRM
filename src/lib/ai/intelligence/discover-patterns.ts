@@ -4,6 +4,7 @@
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { randomUUID } from 'node:crypto'
 import { requireAccountId } from './contracts'
 import {
   aggregateSalesEvents,
@@ -30,6 +31,7 @@ export interface DiscoverPatternsResult {
 
 export interface PatternDiscoverJob {
   accountId: string
+  runId: string
   idempotencyKey: string
 }
 
@@ -53,7 +55,11 @@ export async function discoverAccountPatterns(
   const scoped = events.filter((row) => row.account_id === id)
   if (!scoped.length) {
     const saveCursor = deps.upsertCursor ?? upsertDiscoveryCursor
-    await saveCursor(db, { accountId: id, lastEventCreatedAt: null })
+    await saveCursor(db, {
+      accountId: id,
+      lastEventCreatedAt: null,
+      lastEventId: null,
+    })
     return { accountId: id, wrote: 0, staleUpdated: 0, skipped: true, reason: 'no_events' }
   }
 
@@ -84,13 +90,15 @@ export async function discoverAccountPatterns(
     now,
   )
 
-  const newest = scoped.reduce(
-    (max, row) => (row.created_at > max ? row.created_at : max),
-    scoped[0].created_at,
-  )
+  const newest = [...scoped].sort(
+    (a, b) =>
+      b.created_at.localeCompare(a.created_at) ||
+      (b.id ?? '').localeCompare(a.id ?? ''),
+  )[0]
   await (deps.upsertCursor ?? upsertDiscoveryCursor)(db, {
     accountId: id,
-    lastEventCreatedAt: newest,
+    lastEventCreatedAt: newest.created_at,
+    lastEventId: newest.id ?? null,
   })
 
   return { accountId: id, wrote, staleUpdated, skipped: false }
@@ -113,6 +121,7 @@ export async function drainPatternDiscoveryJobs(
   for (const accountId of accounts) {
     const job: PatternDiscoverJob = {
       accountId,
+      runId: randomUUID(),
       idempotencyKey: `${accountId}:patterns`,
     }
     const enqueued = opts.enqueue ? await opts.enqueue(job) : false
@@ -131,37 +140,17 @@ export async function listAccountsDueForPatternDiscovery(
   limit = ACCOUNTS_PER_CRON,
 ): Promise<string[]> {
   const { data: recent, error } = await db
-    .from('sales_events')
-    .select('account_id, created_at')
-    .order('created_at', { ascending: false })
-    .limit(2000)
-  if (error) throw error
-  const rows = (recent ?? []) as Array<{ account_id: string; created_at: string }>
-  const newestByAccount = new Map<string, string>()
-  for (const row of rows) {
-    if (!row.account_id || newestByAccount.has(row.account_id)) continue
-    newestByAccount.set(row.account_id, row.created_at)
-  }
-  if (!newestByAccount.size) return []
-
-  const { data: cursors, error: cursorErr } = await db
     .from('pattern_discovery_cursors')
-    .select('account_id, last_event_created_at')
-    .in('account_id', [...newestByAccount.keys()])
-  if (cursorErr) throw cursorErr
-  const cursorByAccount = new Map(
-    ((cursors ?? []) as Array<{ account_id: string; last_event_created_at: string | null }>).map(
-      (row) => [row.account_id, row.last_event_created_at],
-    ),
+    .select('account_id')
+    .in('status', ['pending', 'failed'])
+    .or(`next_attempt_at.is.null,next_attempt_at.lte.${new Date().toISOString()}`)
+    .order('updated_at', { ascending: true })
+    .order('account_id', { ascending: true })
+    .limit(Math.max(1, limit))
+  if (error) throw error
+  return ((recent ?? []) as Array<{ account_id: string }>).map(
+    (row) => row.account_id,
   )
-
-  const due: string[] = []
-  for (const [accountId, newest] of newestByAccount) {
-    const watermark = cursorByAccount.get(accountId)
-    if (!watermark || newest > watermark) due.push(accountId)
-    if (due.length >= limit) break
-  }
-  return due
 }
 
 export async function loadAccountSalesEvents(
@@ -170,7 +159,7 @@ export async function loadAccountSalesEvents(
 ): Promise<AggregateSalesEvent[]> {
   const { data, error } = await db
     .from('sales_events')
-    .select('account_id, conversation_id, event_type, kind, metadata, created_at')
+    .select('id, account_id, conversation_id, event_type, kind, metadata, created_at')
     .eq('account_id', accountId)
     .order('created_at', { ascending: false })
     .limit(MAX_EVENTS_PER_ACCOUNT)
@@ -272,14 +261,31 @@ export async function markMissingPatterns(
 
 export async function upsertDiscoveryCursor(
   db: SupabaseClient,
-  args: { accountId: string; lastEventCreatedAt: string | null },
+  args: {
+    accountId: string
+    lastEventCreatedAt: string | null
+    lastEventId: string | null
+  },
 ): Promise<void> {
+  if (args.lastEventCreatedAt && args.lastEventId) {
+    const { error } = await db.rpc('complete_pattern_discovery', {
+      p_account_id: args.accountId,
+      p_processed_created_at: args.lastEventCreatedAt,
+      p_processed_event_id: args.lastEventId,
+      p_analyzer_version: PATTERN_ANALYZER_VERSION,
+    })
+    if (error) throw error
+    return
+  }
   const { error } = await db.from('pattern_discovery_cursors').upsert(
     {
       account_id: args.accountId,
       last_event_created_at: args.lastEventCreatedAt,
       last_run_at: new Date().toISOString(),
       analyzer_version: PATTERN_ANALYZER_VERSION,
+      status: 'idle',
+      last_error: null,
+      updated_at: new Date().toISOString(),
     },
     { onConflict: 'account_id' },
   )
