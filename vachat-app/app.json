@@ -19,6 +19,7 @@
     },
     "android": {
       "package": "com.vachat.app",
+      "versionCode": 2,
       "permissions": [
         "RECORD_AUDIO",
         "POST_NOTIFICATIONS",
