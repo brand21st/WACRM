@@ -235,6 +235,12 @@ export async function POST(request: Request) {
         .eq('account_id', accountId)
       if (upErr) {
         console.error('[ai/config POST] update error:', upErr)
+        if (upErr.code === '23514' && upErr.message?.includes('ai_configs_provider_check')) {
+          return NextResponse.json(
+            { error: 'Database constraint missing: Please run migration 101_openrouter.sql in your Supabase SQL Editor.' },
+            { status: 400 },
+          )
+        }
         return NextResponse.json(
           { error: 'Failed to save AI configuration' },
           { status: 500 },
@@ -249,6 +255,12 @@ export async function POST(request: Request) {
       })
       if (insErr) {
         console.error('[ai/config POST] insert error:', insErr)
+        if (insErr.code === '23514' && insErr.message?.includes('ai_configs_provider_check')) {
+          return NextResponse.json(
+            { error: 'Database constraint missing: Please run migration 101_openrouter.sql in your Supabase SQL Editor.' },
+            { status: 400 },
+          )
+        }
         return NextResponse.json(
           { error: 'Failed to save AI configuration' },
           { status: 500 },
