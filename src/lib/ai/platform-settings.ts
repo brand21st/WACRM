@@ -10,6 +10,7 @@ export interface PlatformAiSettings {
   voiceProvider: VoiceProvider
   openaiApiKey: string | null
   anthropicApiKey: string | null
+  openrouterApiKey: string | null
   embeddingsApiKey: string | null
   elevenlabsApiKey: string | null
   sarvamApiKey: string | null
@@ -40,9 +41,7 @@ export async function loadPlatformAiSettings(): Promise<PlatformAiSettings | nul
 
   const { data, error } = await supabaseAdmin()
     .from('platform_ai_settings')
-    .select(
-      'openai_api_key, anthropic_api_key, embeddings_api_key, elevenlabs_api_key, sarvam_api_key, chat_provider, chat_model, voice_provider, global_ai_enabled',
-    )
+    .select('*')
     .eq('id', 1)
     .maybeSingle()
 
@@ -57,7 +56,11 @@ export async function loadPlatformAiSettings(): Promise<PlatformAiSettings | nul
   }
 
   const chatProvider =
-    data.chat_provider === 'anthropic' ? 'anthropic' : 'openai'
+    data.chat_provider === 'anthropic'
+      ? 'anthropic'
+      : data.chat_provider === 'openrouter'
+        ? 'openrouter'
+        : 'openai'
   const value: PlatformAiSettings = {
     globalAiEnabled: data.global_ai_enabled !== false,
     chatProvider,
@@ -68,6 +71,7 @@ export async function loadPlatformAiSettings(): Promise<PlatformAiSettings | nul
     voiceProvider: data.voice_provider === 'sarvam' ? 'sarvam' : 'elevenlabs',
     openaiApiKey: decryptOptional(data.openai_api_key, 'OpenAI key'),
     anthropicApiKey: decryptOptional(data.anthropic_api_key, 'Anthropic key'),
+    openrouterApiKey: decryptOptional(data.openrouter_api_key, 'OpenRouter key'),
     embeddingsApiKey: decryptOptional(data.embeddings_api_key, 'embeddings key'),
     elevenlabsApiKey: decryptOptional(data.elevenlabs_api_key, 'ElevenLabs key'),
     sarvamApiKey: decryptOptional(data.sarvam_api_key, 'Sarvam key'),
@@ -80,7 +84,9 @@ export function chatKeyForProvider(
   settings: PlatformAiSettings,
   provider: AiProvider,
 ): string | null {
-  return provider === 'anthropic' ? settings.anthropicApiKey : settings.openaiApiKey
+  if (provider === 'anthropic') return settings.anthropicApiKey
+  if (provider === 'openrouter') return settings.openrouterApiKey
+  return settings.openaiApiKey
 }
 
 export type PlatformKeyResult =
@@ -103,9 +109,11 @@ export async function requirePlatformChatKey(
   const next = provider ?? platform.chatProvider
   const apiKey = chatKeyForProvider(platform, next)
   if (!apiKey) {
+    const label =
+      next === 'anthropic' ? 'Anthropic' : next === 'openrouter' ? 'OpenRouter' : 'OpenAI'
     return {
       ok: false,
-      error: `${next === 'anthropic' ? 'Anthropic' : 'OpenAI'} is not configured by the platform administrator.`,
+      error: `${label} is not configured by the platform administrator.`,
       code: 'ai_not_configured',
     }
   }

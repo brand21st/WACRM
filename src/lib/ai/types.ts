@@ -6,7 +6,7 @@
 // whether the account is on OpenAI or Anthropic.
 // ============================================================
 
-export type AiProvider = 'openai' | 'anthropic'
+export type AiProvider = 'openai' | 'anthropic' | 'openrouter'
 
 /** How WhatsApp auto-replies are delivered when voice is configured. */
 export type VoiceReplyMode = 'same' | 'text' | 'audio' | 'both'

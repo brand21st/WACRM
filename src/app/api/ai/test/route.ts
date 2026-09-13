@@ -25,7 +25,8 @@ export async function POST(request: Request) {
       const pasted =
         (typeof body.api_key === 'string' && body.api_key.trim()) ||
         (typeof body.openai_api_key === 'string' && body.openai_api_key.trim()) ||
-        (typeof body.anthropic_api_key === 'string' && body.anthropic_api_key.trim())
+        (typeof body.anthropic_api_key === 'string' && body.anthropic_api_key.trim()) ||
+        (typeof body.openrouter_api_key === 'string' && body.openrouter_api_key.trim())
       if (pasted) {
         return NextResponse.json(
           { error: 'API keys are managed by the platform administrator' },

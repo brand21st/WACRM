@@ -59,6 +59,8 @@ function pressOffsetX(event: GestureResponderEvent): number | null {
   return null;
 }
 
+let activePlayer: any = null;
+
 export function VoiceNotePlayer({
   uri,
   durationMs,
@@ -101,6 +103,9 @@ export function VoiceNotePlayer({
   function togglePlayback() {
     if (audioStatus.playing) {
       player.pause();
+      if (activePlayer === player) {
+        activePlayer = null;
+      }
       return;
     }
     if (
@@ -110,6 +115,10 @@ export function VoiceNotePlayer({
     ) {
       player.seekTo(0);
     }
+    if (activePlayer && activePlayer !== player) {
+      activePlayer.pause();
+    }
+    activePlayer = player;
     player.play();
   }
 

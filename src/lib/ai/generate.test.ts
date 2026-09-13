@@ -413,4 +413,35 @@ describe('generateReply — spoken rewrite', () => {
     expect(res.text).toMatch(/നിങ്ങൾ പറഞ്ഞ/)
     expect(fetchMock).toHaveBeenCalledTimes(2)
   })
+
+  it('routes to OpenRouter with proper headers and parses response', async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(
+      okResponse({
+        choices: [{ message: { content: 'Hello from OpenRouter!' } }],
+        usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+      }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const res = await generateReply({
+      config: config({ provider: 'openrouter', model: 'meta-llama/llama-3-8b-instruct' }),
+      systemPrompt: 'You are helpful',
+      messages: [{ role: 'user', content: 'Hi' }],
+    })
+
+    expect(res.text).toBe('Hello from OpenRouter!')
+    expect(res.usage).toEqual({ promptTokens: 10, completionTokens: 5, totalTokens: 15 })
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://openrouter.ai/api/v1/chat/completions',
+      expect.objectContaining({
+        method: 'POST',
+        headers: expect.objectContaining({
+          Authorization: 'Bearer sk-test',
+          'Content-Type': 'application/json',
+          'X-Title': 'WACRM',
+        }),
+      }),
+    )
+  })
 })
+

@@ -206,9 +206,9 @@ export function ConversationScreen({ conversationId }: { conversationId?: string
 
   return (
     <GestureHandlerRootView style={styles.fill}>
-      <SafeAreaView style={[styles.safe, { backgroundColor: theme.background }]} edges={['top', 'bottom']}>
+      <SafeAreaView style={[styles.safe, { backgroundColor: theme.background }]} edges={['top']}>
         <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          behavior="padding"
           style={styles.fill}>
           <ConversationHeader
             conversation={conversation}

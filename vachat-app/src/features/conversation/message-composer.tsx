@@ -142,7 +142,7 @@ export function MessageComposer({
           return;
         }
         const result = await ImagePicker.launchCameraAsync({
-          mediaTypes: ['images'],
+          mediaTypes: ImagePicker.MediaTypeOptions.Images,
           quality: 0.8,
         });
         const asset = result.assets?.[0];
@@ -157,7 +157,7 @@ export function MessageComposer({
           return;
         }
         const result = await ImagePicker.launchImageLibraryAsync({
-          mediaTypes: ['images', 'videos'],
+          mediaTypes: ImagePicker.MediaTypeOptions.All,
           quality: 0.8,
         });
         const asset = result.assets?.[0];

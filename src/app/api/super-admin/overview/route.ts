@@ -33,7 +33,7 @@ export async function GET() {
         .neq('owner_user_id', userId),
       admin
         .from('platform_ai_settings')
-        .select('openai_api_key, anthropic_api_key, global_ai_enabled')
+        .select('*')
         .eq('id', 1)
         .maybeSingle(),
       admin
@@ -74,7 +74,9 @@ export async function GET() {
       accounts: accounts.count ?? 0,
       suspended: suspended.count ?? 0,
       ai_configured: Boolean(
-        platform.data?.openai_api_key || platform.data?.anthropic_api_key,
+        platform.data?.openai_api_key ||
+          platform.data?.anthropic_api_key ||
+          (platform.data as Record<string, unknown> | null)?.openrouter_api_key,
       ),
       global_ai_enabled: platform.data?.global_ai_enabled !== false,
       active_subscriptions: activeSubs,

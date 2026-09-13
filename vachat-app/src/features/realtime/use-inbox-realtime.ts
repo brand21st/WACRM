@@ -11,6 +11,8 @@ import { applyMessageInsert, applyMessageUpdate } from '@/features/realtime/patc
 import { resyncInboxQueries } from '@/features/realtime/resync-queries';
 import { logger } from '@/lib/logger';
 import { getSupabase } from '@/lib/supabase';
+import { Vibration } from 'react-native';
+
 import type { Message } from '@/types/messages';
 
 export type RealtimeStatus = {
@@ -43,6 +45,9 @@ export function useInboxRealtime(enabled: boolean): RealtimeStatus {
           if (payload.eventType === 'INSERT') {
             logger.info('[REALTIME] message INSERT');
             applyMessageInsert(queryClient, row);
+            if (row.direction === 'inbound') {
+              Vibration.vibrate(80);
+            }
             return;
           }
           if (payload.eventType === 'UPDATE') {

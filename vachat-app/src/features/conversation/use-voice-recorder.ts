@@ -311,7 +311,13 @@ const NATIVE_VOICE_OPTIONS = {
 };
 
 function useNativeVoiceRecorder() {
-  const recorder = useAudioRecorder(NATIVE_VOICE_OPTIONS);
+  const recorder = useAudioRecorder(NATIVE_VOICE_OPTIONS, (status) => {
+    // Absorb any native recorder error events — if we let them propagate
+    // unchecked they surface as unhandled exceptions and crash the app on Android.
+    if ((status as any).error) {
+      console.warn('[voice-recorder] native recorder error event:', (status as any).error);
+    }
+  });
   const state = useAudioRecorderState(recorder, 200);
   const [draft, setDraft] = useState<VoiceRecording | null>(null);
   const stoppingRef = useRef(false);
@@ -340,7 +346,11 @@ function useNativeVoiceRecorder() {
         console.warn('[voice-recorder] prepareToRecordAsync notice:', prepErr);
       }
 
-      recorder.record({ forDuration: MAX_RECORDING_SECONDS });
+      try {
+        recorder.record({ forDuration: MAX_RECORDING_SECONDS });
+      } catch (recordErr) {
+        console.warn('[voice-recorder] record() notice:', recordErr);
+      }
       startedAtRef.current = Date.now();
       setDraft(null);
       return true;

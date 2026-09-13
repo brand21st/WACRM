@@ -37,7 +37,7 @@ function buildRows(messages: Message[]): ListRow[] {
     }
     rows.push({ type: 'message', message });
   }
-  return rows;
+  return rows.reverse();
 }
 
 type MessageListProps = {
@@ -79,7 +79,7 @@ export function MessageList({
   const lastMessageId = messages[messages.length - 1]?.id;
 
   const scrollToLatest = useCallback((animated = false) => {
-    listRef.current?.scrollToEnd({ animated });
+    listRef.current?.scrollToOffset({ offset: 0, animated });
   }, []);
 
   const scheduleScrollToLatest = useCallback(
@@ -119,8 +119,8 @@ export function MessageList({
   }, [lastMessageId]);
 
   const onScroll = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
-    const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
-    const near = contentOffset.y + layoutMeasurement.height >= contentSize.height - 80;
+    const { contentOffset } = event.nativeEvent;
+    const near = contentOffset.y <= 80;
     stickToBottomRef.current = near;
     if (near) {
       setPendingNew(false);
@@ -204,6 +204,7 @@ export function MessageList({
         ListEmptyComponent={<ConversationEmpty />}
         contentContainerStyle={rows.length === 0 ? styles.empty : styles.content}
         keyboardShouldPersistTaps="handled"
+        inverted
         onContentSizeChange={onContentSizeChange}
         onScroll={onScroll}
         scrollEventThrottle={16}

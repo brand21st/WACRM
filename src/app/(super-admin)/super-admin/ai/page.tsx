@@ -24,6 +24,7 @@ import {
 type Flags = {
   openai: boolean;
   anthropic: boolean;
+  openrouter: boolean;
   embeddings: boolean;
   elevenlabs: boolean;
   sarvam: boolean;
@@ -32,6 +33,7 @@ type Flags = {
 const emptyFlags: Flags = {
   openai: false,
   anthropic: false,
+  openrouter: false,
   embeddings: false,
   elevenlabs: false,
   sarvam: false,
@@ -46,6 +48,7 @@ export default function SuperAdminAiPage() {
   const [globalOn, setGlobalOn] = useState(true);
   const [openaiKey, setOpenaiKey] = useState("");
   const [anthropicKey, setAnthropicKey] = useState("");
+  const [openrouterKey, setOpenrouterKey] = useState("");
   const [embeddingsKey, setEmbeddingsKey] = useState("");
   const [elevenlabsKey, setElevenlabsKey] = useState("");
   const [sarvamKey, setSarvamKey] = useState("");
@@ -60,6 +63,7 @@ export default function SuperAdminAiPage() {
     setFlags({
       openai: Boolean(d.has_openai_key),
       anthropic: Boolean(d.has_anthropic_key),
+      openrouter: Boolean(d.has_openrouter_key),
       embeddings: Boolean(d.has_embeddings_key),
       elevenlabs: Boolean(d.has_elevenlabs_key),
       sarvam: Boolean(d.has_sarvam_key),
@@ -90,6 +94,7 @@ export default function SuperAdminAiPage() {
           global_ai_enabled: globalOn,
           openai_api_key: clear.openai ? null : openaiKey || undefined,
           anthropic_api_key: clear.anthropic ? null : anthropicKey || undefined,
+          openrouter_api_key: clear.openrouter ? null : openrouterKey || undefined,
           embeddings_api_key: clear.embeddings ? null : embeddingsKey || undefined,
           elevenlabs_api_key: clear.elevenlabs ? null : elevenlabsKey || undefined,
           sarvam_api_key: clear.sarvam ? null : sarvamKey || undefined,
@@ -103,6 +108,7 @@ export default function SuperAdminAiPage() {
       toast.success("Platform AI saved — keys apply to every account");
       setOpenaiKey("");
       setAnthropicKey("");
+      setOpenrouterKey("");
       setEmbeddingsKey("");
       setElevenlabsKey("");
       setSarvamKey("");
@@ -146,6 +152,7 @@ export default function SuperAdminAiPage() {
               <SelectContent>
                 <SelectItem value="openai">OpenAI</SelectItem>
                 <SelectItem value="anthropic">Anthropic</SelectItem>
+                <SelectItem value="openrouter">OpenRouter</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -201,6 +208,20 @@ export default function SuperAdminAiPage() {
             onClear={() => {
               setAnthropicKey("");
               setClear((c) => ({ ...c, anthropic: true }));
+            }}
+          />
+          <KeyField
+            label="OpenRouter"
+            saved={flags.openrouter}
+            pendingClear={Boolean(clear.openrouter)}
+            value={openrouterKey}
+            onChange={(v) => {
+              setOpenrouterKey(v);
+              setClear((c) => ({ ...c, openrouter: false }));
+            }}
+            onClear={() => {
+              setOpenrouterKey("");
+              setClear((c) => ({ ...c, openrouter: true }));
             }}
           />
           <KeyField

@@ -16,11 +16,11 @@ export function conversationDisplayName(conversation: MobileConversation): strin
 }
 
 export function isManualConversation(conversation: MobileConversation, fullAgentOn: boolean): boolean {
-  return Boolean(fullAgentOn && (conversation.ai_autoreply_disabled || conversation.assigned_agent_id));
+  return Boolean(conversation.ai_autoreply_disabled || conversation.assigned_agent_id);
 }
 
 export function isAiConversation(conversation: MobileConversation, fullAgentOn: boolean): boolean {
-  return Boolean(fullAgentOn && !conversation.ai_autoreply_disabled && !conversation.assigned_agent_id);
+  return Boolean(!conversation.ai_autoreply_disabled && !conversation.assigned_agent_id);
 }
 
 export function matchesConversationSearch(conversation: MobileConversation, query: string): boolean {
