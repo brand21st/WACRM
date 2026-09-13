@@ -15,6 +15,17 @@ describe("verifyMetaWebhookSignature", () => {
     expect(verifyMetaWebhookSignature(body, signedHeader(body))).toBe(true);
   });
 
+  it("accepts a tenant secret when multiple secrets are provided", () => {
+    const body = '{"entry":[]}';
+    const tenantSecret = "tenant-app-secret";
+    expect(
+      verifyMetaWebhookSignature(body, signedHeader(body, tenantSecret), [
+        SECRET,
+        tenantSecret,
+      ]),
+    ).toBe(true);
+  });
+
   it("rejects a signature computed with a different secret", () => {
     const body = "{}";
     expect(verifyMetaWebhookSignature(body, signedHeader(body, "wrong"))).toBe(

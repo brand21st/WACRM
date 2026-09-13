@@ -375,6 +375,10 @@ export interface WhatsAppConfig {
   waba_id?: string;
   access_token: string;
   verify_token?: string;
+  /** Meta developer app id when the tenant uses their own Meta app. */
+  meta_app_id?: string | null;
+  /** Encrypted at rest; never sent to the client. */
+  meta_app_secret?: string | null;
   status: 'connected' | 'disconnected';
   connected_at?: string;
   /**

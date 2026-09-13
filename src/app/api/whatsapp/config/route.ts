@@ -7,6 +7,7 @@ import {
   verifyPhoneNumber,
 } from '@/lib/whatsapp/meta-api'
 import { encrypt, decrypt } from '@/lib/whatsapp/encryption'
+import { invalidateWebhookAppSecretsCache } from '@/lib/whatsapp/webhook-app-secrets'
 import { isUniqueViolation } from '@/lib/contacts/dedupe'
 
 /**
@@ -189,7 +190,15 @@ export async function POST(request: Request) {
     await assertWhatsAppConnect(accountId)
 
     const body = await request.json()
-    const { phone_number_id, waba_id, access_token, verify_token, pin } = body
+    const {
+      phone_number_id,
+      waba_id,
+      access_token,
+      verify_token,
+      pin,
+      meta_app_id,
+      meta_app_secret,
+    } = body
 
     if (!access_token || !phone_number_id) {
       return NextResponse.json(
@@ -205,6 +214,18 @@ export async function POST(request: Request) {
           { status: 400 }
         )
       }
+    }
+
+    const trimmedMetaAppId =
+      typeof meta_app_id === 'string' ? meta_app_id.trim() : ''
+    const trimmedMetaAppSecret =
+      typeof meta_app_secret === 'string' ? meta_app_secret.trim() : ''
+
+    if (trimmedMetaAppId && !/^\d+$/.test(trimmedMetaAppId)) {
+      return NextResponse.json(
+        { error: 'Meta App ID must be a numeric string.' },
+        { status: 400 },
+      )
     }
 
     // Reject if another account has already claimed this phone_number_id.
@@ -290,9 +311,23 @@ export async function POST(request: Request) {
     // /register when the user didn't provide a PIN this time around.
     const { data: existing } = await supabase
       .from('whatsapp_config')
-      .select('id, registered_at, phone_number_id')
+      .select('id, registered_at, phone_number_id, meta_app_id, meta_app_secret')
       .eq('account_id', accountId)
       .maybeSingle()
+
+    const resolvedMetaAppId = trimmedMetaAppId || existing?.meta_app_id || null
+    let encryptedMetaAppSecret: string | null = existing?.meta_app_secret ?? null
+    if (trimmedMetaAppSecret) {
+      encryptedMetaAppSecret = encrypt(trimmedMetaAppSecret)
+    } else if (resolvedMetaAppId && !encryptedMetaAppSecret) {
+      return NextResponse.json(
+        {
+          error:
+            'Meta App Secret is required when using your own Meta app. Paste it from Meta → App Settings → Basic → App Secret.',
+        },
+        { status: 400 },
+      )
+    }
 
     const sameNumber =
       existing?.phone_number_id === phone_number_id &&
@@ -374,6 +409,8 @@ export async function POST(request: Request) {
       waba_id: waba_id || null,
       access_token: encryptedAccessToken,
       verify_token: encryptedVerifyToken,
+      meta_app_id: resolvedMetaAppId,
+      meta_app_secret: encryptedMetaAppSecret,
       status: registrationError ? 'disconnected' : 'connected',
       connected_at: registrationError ? null : new Date().toISOString(),
       registered_at: registrationError ? null : registeredAt,
@@ -395,6 +432,7 @@ export async function POST(request: Request) {
           { status: 500 }
         )
       }
+      invalidateWebhookAppSecretsCache()
     } else {
       // Insert with both columns: `account_id` is the tenancy key
       // (NOT NULL post-017, UNIQUE so duplicates trip the constraint
@@ -424,6 +462,7 @@ export async function POST(request: Request) {
           { status: 500 }
         )
       }
+      invalidateWebhookAppSecretsCache()
     }
 
     if (registrationError) {

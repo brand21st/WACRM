@@ -74,6 +74,9 @@ export function WhatsAppConfig() {
   const [wabaId, setWabaId] = useState('');
   const [accessToken, setAccessToken] = useState('');
   const [verifyToken, setVerifyToken] = useState('');
+  const [metaAppId, setMetaAppId] = useState('');
+  const [metaAppSecret, setMetaAppSecret] = useState('');
+  const [metaSecretEdited, setMetaSecretEdited] = useState(false);
   const [pin, setPin] = useState('');
   const [tokenEdited, setTokenEdited] = useState(false);
 
@@ -138,6 +141,9 @@ export function WhatsAppConfig() {
         setWabaId(data.waba_id || '');
         setAccessToken(MASKED_TOKEN);
         setVerifyToken('');
+        setMetaAppId(data.meta_app_id || '');
+        setMetaAppSecret(data.meta_app_secret ? MASKED_TOKEN : '');
+        setMetaSecretEdited(false);
         setPin('');
         setTokenEdited(false);
         // Undefined on a row read before migration 039 — treat that as
@@ -151,6 +157,9 @@ export function WhatsAppConfig() {
         setWabaId('');
         setAccessToken('');
         setVerifyToken('');
+        setMetaAppId('');
+        setMetaAppSecret('');
+        setMetaSecretEdited(false);
         setPin('');
         setTokenEdited(false);
         setMirrorMedia(true);
@@ -257,7 +266,12 @@ export function WhatsAppConfig() {
         // requires it on first save or when changing numbers; for a
         // simple token rotation, leaving it blank skips re-register.
         pin: pin.trim() || null,
+        meta_app_id: metaAppId.trim() || null,
       };
+
+      if (metaSecretEdited && metaAppSecret !== MASKED_TOKEN && metaAppSecret.trim()) {
+        payload.meta_app_secret = metaAppSecret.trim();
+      }
 
       if (tokenEdited && accessToken !== MASKED_TOKEN && accessToken.trim()) {
         payload.access_token = accessToken.trim();
@@ -665,6 +679,42 @@ export function WhatsAppConfig() {
                   {t('tokenHidden')}
                 </p>
               )}
+            </div>
+
+            <div className="space-y-2">
+              <Label className="text-muted-foreground">{t('metaAppId')}</Label>
+              <Input
+                placeholder="e.g. 2214291822771907"
+                value={metaAppId}
+                onChange={(e) => setMetaAppId(e.target.value)}
+                className="bg-muted border-border text-foreground placeholder:text-muted-foreground"
+              />
+              <p className="text-xs text-muted-foreground">
+                {t('metaAppIdHint')}
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <Label className="text-muted-foreground">{t('metaAppSecret')}</Label>
+              <Input
+                type="password"
+                placeholder={t('metaAppSecretPlaceholder')}
+                value={metaAppSecret}
+                onChange={(e) => {
+                  setMetaAppSecret(e.target.value);
+                  setMetaSecretEdited(true);
+                }}
+                onFocus={() => {
+                  if (metaAppSecret === MASKED_TOKEN) {
+                    setMetaAppSecret('');
+                    setMetaSecretEdited(true);
+                  }
+                }}
+                className="bg-muted border-border text-foreground placeholder:text-muted-foreground"
+              />
+              <p className="text-xs text-muted-foreground">
+                {t('metaAppSecretHint')}
+              </p>
             </div>
 
             <div className="space-y-2">

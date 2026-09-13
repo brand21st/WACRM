@@ -18,16 +18,43 @@ import crypto from 'node:crypto'
  *   unsafe for a public template: anyone who forgets the env var would
  *   be running a fully spoofable webhook.
  */
+function signatureMatchesSecret(
+  rawBody: string,
+  signatureHeader: string,
+  secret: string,
+): boolean {
+  const expected =
+    'sha256=' +
+    crypto.createHmac('sha256', secret).update(rawBody).digest('hex')
+
+  const a = Buffer.from(signatureHeader)
+  const b = Buffer.from(expected)
+  if (a.length !== b.length) return false
+  return crypto.timingSafeEqual(a, b)
+}
+
+/**
+ * Verify an inbound Meta webhook HMAC. Tries the platform
+ * `META_APP_SECRET` and any additional tenant secrets passed in
+ * (bring-your-own-app clients each sign with their own App Secret).
+ */
 export function verifyMetaWebhookSignature(
   rawBody: string,
   signatureHeader: string | null,
+  secrets?: string[],
 ): boolean {
-  const secret = process.env.META_APP_SECRET
-  if (!secret) {
+  const candidates =
+    secrets?.length
+      ? secrets
+      : process.env.META_APP_SECRET
+        ? [process.env.META_APP_SECRET]
+        : []
+
+  if (!candidates.length) {
     console.error(
-      '[webhook] META_APP_SECRET is not set — rejecting request. ' +
-        'Configure the env var (Meta → App Settings → Basic → App Secret) ' +
-        'to enable signature verification.',
+      '[webhook] No Meta App Secret configured — rejecting request. ' +
+        'Set META_APP_SECRET (platform app) or save a per-tenant App Secret ' +
+        'in WhatsApp settings for bring-your-own-app clients.',
     )
     return false
   }
@@ -35,13 +62,7 @@ export function verifyMetaWebhookSignature(
   if (!signatureHeader) return false
   if (!signatureHeader.startsWith('sha256=')) return false
 
-  const expected =
-    'sha256=' +
-    crypto.createHmac('sha256', secret).update(rawBody).digest('hex')
-
-  const a = Buffer.from(signatureHeader)
-  const b = Buffer.from(expected)
-  // Bail if lengths differ — timingSafeEqual throws otherwise.
-  if (a.length !== b.length) return false
-  return crypto.timingSafeEqual(a, b)
+  return candidates.some((secret) =>
+    signatureMatchesSecret(rawBody, signatureHeader, secret),
+  )
 }
