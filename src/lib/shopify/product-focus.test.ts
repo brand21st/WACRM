@@ -116,6 +116,14 @@ describe('wantsProductOrder', () => {
     expect(wantsProductOrder('[Customer sent a voice note]')).toBe(false)
     expect(wantsProductOrder('how much is shipping?')).toBe(false)
     expect(wantsProductOrder('ഇത് വേണ്ട')).toBe(false)
+    expect(wantsProductOrder("I don't want this")).toBe(false)
+    expect(wantsProductOrder('I don’t want this')).toBe(false)
+    expect(wantsProductOrder('I do not want this')).toBe(false)
+    expect(
+      wantsProductOrder(
+        '[Replying to: "AG26Tulip is out of stock in that option."]\nI don\'t want this',
+      ),
+    ).toBe(false)
     expect(wantsProductOrder('നല്ലതാണ്')).toBe(false)
     expect(wantsProductOrder('how much?')).toBe(false)
     expect(wantsProductOrder('available?')).toBe(false)

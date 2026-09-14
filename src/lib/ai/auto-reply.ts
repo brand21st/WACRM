@@ -1068,7 +1068,9 @@ export async function dispatchInboundToAiReply(
     ) {
       try {
         if (shopping.categoryHint) {
-          await shopifyTools.executeTool('search_products', { query: queryText })
+          await shopifyTools.executeTool('search_products', {
+            query: shopping.categoryHint,
+          })
         } else {
           await shopifyTools.executeTool('list_new_arrivals', {})
         }

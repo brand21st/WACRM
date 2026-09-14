@@ -1,6 +1,10 @@
 import { parseBudget } from './rank'
 import { parseShoppingRequirements } from '@/lib/catalog/intelligence/requirements'
-import { wantsProductOrder } from './product-focus'
+import {
+  rejectsCurrentProduct,
+  salesCustomerAsk,
+  wantsProductOrder,
+} from './product-focus'
 import type { SalesNextAction } from '@/lib/catalog/intelligence/types'
 
 export type SalesTurnKind =
@@ -33,7 +37,11 @@ const GREETING_ONLY =
   /^(hi+|hii|hello|hey|ok|okay|thanks|thank you|hai|ഹായ്|നന്ദി)[.!?]*$/i
 
 const REJECT_CURRENT =
-  /\b(?:not (?:this|that|it)|don'?t want (?:this|that|it)|not interested(?: in (?:this|that))?|show (?:me )?(?:another|something else)|something else|different (?:one|product|model|saree|sari|kurti|dress))\b|ഇത്\s*വേണ്ട|ഇതല്ല|വേറെ\s+(?:saree|sari|kurti|dress|model|one)|മറ്റൊരു/i
+  /\b(?:not (?:this|that|it)|don['’]?t want (?:this|that|it)|do not want (?:this|that|it)|not interested(?: in (?:this|that))?|no thanks?|show (?:me )?(?:another|something else)|something else|different (?:one|product|model|saree|sari|kurti|dress))\b|ഇത്\s*വേണ്ട|ഇതല്ല|വേറെ\s+(?:saree|sari|kurti|dress|model|one)|മറ്റൊരു|മറ്റൊന്ന്/i
+
+/** Bare “Another?” / “വേറെ?” while a product is pinned = show something else. */
+const ANOTHER_PRODUCT =
+  /^(?:another|else|other(?: one)?|next|something else|different(?: one)?|വേറെ|മറ്റൊന്ന്|മറ്റൊന്നു|ഇനി(?:\s*വേറെ)?)\??[.!]*$/i
 
 const PRODUCT_NOUN =
   /\b(sarees?|saris?|kurtis?|kurtas?|dresses?|shirts?|bags?|blouses?|shoes?|models?|products?|items?|arrivals?|collections?|options?|ones?)\b|സാരി|കുര്‍ത്തി|കുര്ത്തി/i
@@ -95,13 +103,18 @@ export function classifySalesTurn(
   text: string | null | undefined,
   opts?: { hasFocus?: boolean; moreOptions?: boolean },
 ): SalesTurn {
-  const raw = (text ?? '').trim()
+  const raw = salesCustomerAsk(text)
   if (!raw) return turn('stay')
   if (SHOW_MORE.test(raw)) return turn('stay')
   if (opts?.moreOptions || MORE_OPTIONS.test(raw)) return turn('product_switch')
   if (GREETING_ONLY.test(raw) || POSITIVE_FEEDBACK.test(raw)) return turn('stay')
 
-  if (MALAYALAM_REJECT.test(raw) || REJECT_CURRENT.test(raw)) {
+  if (
+    MALAYALAM_REJECT.test(raw) ||
+    REJECT_CURRENT.test(raw) ||
+    rejectsCurrentProduct(raw) ||
+    (opts?.hasFocus && ANOTHER_PRODUCT.test(raw))
+  ) {
     if (ANOTHER_VARIANT.test(raw) && !SWITCH_WITH_CATEGORY.test(raw)) {
       return turn('variant_change')
     }

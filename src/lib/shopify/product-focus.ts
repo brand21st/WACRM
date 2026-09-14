@@ -41,6 +41,11 @@ const NATIVE_CART_TALK =
 const ORDER_INTENT =
   /\b(order|buy(?:ing)?|bought|purchase|checkout|cart|book(?:ing)?|wanna buy|cheyanam|cheyyanam|want(?:s)? to (?:buy|order|purchase)|want this|need this|need to (?:buy|order)|take (?:this|it|one)|i(?:'|’)?ll (?:take|buy)|i will (?:take|buy)|can i (?:buy|order)|add to cart|send (?:me )?(?:the )?(?:link|checkout)|i want (?:this|it|one|to (?:order|buy|purchase)))\b|ഇത്\s*വേണം|(?:ഇത്\s*)?എടുക്കാം|എടുക്കട്ടെ|വാങ്ങ|ഓർഡർ|खरीद|ऑर्डर|வாங்க/i
 
+const REJECT_CURRENT_PRODUCT =
+  /\b(?:do(?:n['’]?t| not)|not)\s+(?:want|need|take)\b|\bnot (?:this|that|it)\b|\bnot interested\b|ഇത്\s*വേണ്ട|ഇതല്ല/i
+
+const SWIPE_REPLY_ASK = /^\[Replying to: "[\s\S]*?"\]\s*/i
+
 export function parseProductFocus(raw: unknown): ProductFocus | null {
   if (!raw || typeof raw !== 'object') return null
   const row = raw as Record<string, unknown>
@@ -132,9 +137,19 @@ export function titleFromCardText(text: string): string | undefined {
   return undefined
 }
 
+/** Customer text only — ignore the swipe-quoted parent prepended for the model. */
+export function salesCustomerAsk(text: string | null | undefined): string {
+  return (text ?? '').replace(SWIPE_REPLY_ASK, '').trim()
+}
+
+export function rejectsCurrentProduct(text: string | null | undefined): boolean {
+  return REJECT_CURRENT_PRODUCT.test(salesCustomerAsk(text))
+}
+
 export function wantsProductOrder(text: string | null | undefined): boolean {
-  const raw = (text ?? '').trim()
+  const raw = salesCustomerAsk(text)
   if (!raw) return false
+  if (rejectsCurrentProduct(raw)) return false
   if (raw.includes('wacrm:confirm_order')) return true
   return ORDER_INTENT.test(raw)
 }

@@ -28,7 +28,32 @@ describe('classifySalesTurn', () => {
   it('does not treat ഇത് വേണ്ട as purchase', () => {
     expect(classifySalesTurn('ഇത് വേണ്ട').kind).toBe('product_switch')
     expect(classifySalesTurn("don't want this").kind).toBe('product_switch')
+    expect(classifySalesTurn("I don't want this").kind).toBe('product_switch')
+    expect(classifySalesTurn('I don’t want this').kind).toBe('product_switch')
+    expect(classifySalesTurn('I do not want this').kind).toBe('product_switch')
     expect(classifySalesTurn('not this').kind).toBe('product_switch')
+    expect(
+      classifySalesTurn(
+        '[Replying to: "AG26Tulip is out of stock in that option."]\nI don\'t want this',
+        { hasFocus: true },
+      ).kind,
+    ).toBe('product_switch')
+  })
+
+  it('treats a bare another/else ask as a switch while a product is pinned', () => {
+    expect(classifySalesTurn('Another?', { hasFocus: true }).kind).toBe(
+      'product_switch',
+    )
+    expect(classifySalesTurn('another', { hasFocus: true }).kind).toBe(
+      'product_switch',
+    )
+    expect(classifySalesTurn('വേറെ?', { hasFocus: true }).kind).toBe(
+      'product_switch',
+    )
+    expect(classifySalesTurn('മറ്റൊന്ന്', { hasFocus: true }).kind).toBe(
+      'product_switch',
+    )
+    expect(unlocksCatalogBrowse('product_switch')).toBe(true)
   })
 
   it('classifies category + another as product switch', () => {
