@@ -578,7 +578,7 @@ async function importShopifyCatalogBestEffort(run: () => Promise<void>): Promise
   }
 }
 
-async function knowledgeBestEffort(run: () => Promise<void>): Promise<void> {
+async function knowledgeBestEffort(run: () => Promise<unknown>): Promise<void> {
   try {
     await run()
   } catch (err) {

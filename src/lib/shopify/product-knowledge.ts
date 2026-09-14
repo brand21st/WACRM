@@ -86,6 +86,7 @@ export async function upsertShopifyProductKnowledge(
     if (error || !inserted?.id) throw error ?? new Error('insert failed')
     documentId = inserted.id
   }
+  if (!documentId) throw new Error('document id missing')
 
   const { key: embeddingsApiKey } = await loadEmbeddingsKey(db, accountId)
   await ingestDocument(
