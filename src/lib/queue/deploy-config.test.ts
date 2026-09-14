@@ -12,12 +12,20 @@ describe('deploy nginx', () => {
   const main = readFileSync(join(root, 'deploy/nginx/nginx.conf'), 'utf8')
 
   it('proxies the app and does not buffer Meta webhooks', () => {
-    expect(conf).toContain('server app:3000')
+    expect(conf).toContain('http://app:3000')
     expect(conf).toContain('location /api/whatsapp/webhook')
     expect(conf).toContain('proxy_buffering off')
     expect(conf).toContain('proxy_request_buffering off')
     expect(main).toContain('client_max_body_size 20m')
     expect(main).toContain('server_tokens off')
+  })
+
+  it('avoids IPv6 and oversized-header 502s after Coolify recreates', () => {
+    expect(conf).toContain('resolver 127.0.0.11')
+    expect(conf).toContain('ipv6=off')
+    expect(conf).toContain('set $wacrm_upstream http://app:3000')
+    expect(conf).toMatch(/proxy_buffer_size\s+32k/)
+    expect(conf).toMatch(/proxy_buffers\s+8\s+32k/)
   })
 
   it('forwards proto from an upstream TLS terminator', () => {
