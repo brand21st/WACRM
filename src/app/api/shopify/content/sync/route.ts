@@ -1,9 +1,37 @@
 import { NextResponse } from 'next/server'
-import { requireRole, toErrorResponse } from '@/lib/auth/account'
+import { getCurrentAccount, requireRole, toErrorResponse } from '@/lib/auth/account'
 import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rate-limit'
 import { loadShopifyConfig } from '@/lib/shopify/config'
 import { syncStoreContent } from '@/lib/shopify/store-content'
 import { ShopifyError } from '@/lib/shopify/client'
+
+/**
+ * GET /api/shopify/content/sync  (any member)
+ *
+ * Lists synced Shopify policies and pages for the Knowledge panel.
+ */
+export async function GET() {
+  try {
+    const { supabase, accountId } = await getCurrentAccount()
+    const { data, error } = await supabase
+      .from('shopify_store_content')
+      .select('id, kind, title, handle, page_url, synced_at')
+      .eq('account_id', accountId)
+      .order('kind', { ascending: true })
+      .order('title', { ascending: true })
+      .limit(100)
+    if (error) {
+      console.error('[shopify/content/sync GET]', error)
+      return NextResponse.json({ items: [], count: 0 })
+    }
+    return NextResponse.json({
+      items: data ?? [],
+      count: data?.length ?? 0,
+    })
+  } catch (err) {
+    return toErrorResponse(err)
+  }
+}
 
 /**
  * POST /api/shopify/content/sync  (admin+)

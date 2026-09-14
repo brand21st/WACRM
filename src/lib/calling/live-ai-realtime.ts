@@ -3,7 +3,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { supabaseAdmin } from '@/lib/ai/admin-client'
 import { loadAiConfig } from '@/lib/ai/config'
 import { synthesizeSpeech } from '@/lib/ai/speech'
-import { retrieveKnowledge } from '@/lib/ai/knowledge'
+import { mergeKnowledgeSources, retrieveKnowledge } from '@/lib/ai/knowledge'
 import {
   emptyContactMemory,
   formatCustomerMemoryBlock,
@@ -246,7 +246,7 @@ export async function buildLiveAiRealtimeContext(args: {
       ? retrieveShopifyStoreContent(db, args.accountId, queryText, 5)
       : Promise.resolve([] as string[]),
   ])
-  const knowledge = [...storeContent, ...manualKnowledge].slice(0, 8)
+  const knowledge = mergeKnowledgeSources(queryText, storeContent, manualKnowledge)
 
   const { data: contactRow } = await db
     .from('contacts')

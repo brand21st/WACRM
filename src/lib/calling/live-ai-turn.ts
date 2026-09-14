@@ -2,7 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { supabaseAdmin } from '@/lib/ai/admin-client'
 import { loadAiConfig } from '@/lib/ai/config'
 import { buildConversationContext } from '@/lib/ai/context'
-import { retrieveKnowledge } from '@/lib/ai/knowledge'
+import { mergeKnowledgeSources, retrieveKnowledge } from '@/lib/ai/knowledge'
 import { buildSystemPrompt, FULL_AGENT_FALLBACK_REPLY } from '@/lib/ai/defaults'
 import { speakableFirstName } from '@/lib/ai/customer-name'
 import { latestUserMessage } from '@/lib/ai/query'
@@ -197,7 +197,7 @@ export async function runLiveAiTurn(args: {
       ? retrieveShopifyStoreContent(db, args.accountId, queryText, 5)
       : Promise.resolve([] as string[]),
   ])
-  const knowledge = [...storeContent, ...manualKnowledge].slice(0, 8)
+  const knowledge = mergeKnowledgeSources(queryText, storeContent, manualKnowledge)
 
   const { data: contactRow } = await db
     .from('contacts')

@@ -481,6 +481,17 @@ describe('buildSystemPrompt', () => {
     expect(prompt).not.toMatch(/Welcome them to Aurimo/)
     expect(prompt).toMatch(/Use it only if it naturally fits/)
   })
+
+  it('requires the model to answer from retrieved knowledge excerpts', () => {
+    const prompt = buildSystemPrompt({
+      userPrompt: null,
+      mode: 'auto_reply',
+      knowledge: ['Customer Care: 95441 61100'],
+    })
+    expect(prompt).toMatch(/MUST use those facts/)
+    expect(prompt).toMatch(/Never say you do not have the information/)
+    expect(prompt).toMatch(/95441 61100/)
+  })
 })
 
 describe('FULL_AGENT_FALLBACK_REPLY', () => {

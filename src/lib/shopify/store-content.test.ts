@@ -218,6 +218,13 @@ describe('syncStoreContent', () => {
             body: '<p>Nope</p>',
             isPublished: false,
           },
+          {
+            id: 'gid://shopify/Page/3',
+            handle: 'contact',
+            title: 'Contact',
+            body: '',
+            isPublished: true,
+          },
         ],
       },
     })
@@ -247,7 +254,7 @@ describe('syncStoreContent', () => {
 
     const { syncStoreContent } = await import('./store-content')
     const result = await syncStoreContent(db, STORE)
-    expect(result.count).toBe(2)
+    expect(result.count).toBe(3)
     expect(insert).toHaveBeenCalledWith(
       expect.arrayContaining([
         expect.objectContaining({
@@ -260,6 +267,11 @@ describe('syncStoreContent', () => {
           handle: 'about',
           title: 'About',
         }),
+        expect.objectContaining({
+          kind: 'page',
+          handle: 'contact',
+          title: 'Contact',
+        }),
       ]),
     )
     const inserted = insert.mock.calls[0][0] as { handle?: string }[]
@@ -270,6 +282,7 @@ describe('syncStoreContent', () => {
 function mockSearchDb(opts: {
   rpc?: { data?: unknown; error?: { code?: string; message?: string } | null }
   tableRows?: Record<string, unknown>[]
+  businessRows?: Record<string, unknown>[]
   tableError?: { code: string; message: string }
   kbDocs?: { title: string; content: string }[]
 }) {
@@ -281,6 +294,11 @@ function mockSearchDb(opts: {
     opts.tableError
       ? { data: null, error: opts.tableError }
       : { data: opts.tableRows ?? [], error: null },
+  )
+  const businessLimit = vi.fn().mockResolvedValue(
+    opts.tableError
+      ? { data: null, error: opts.tableError }
+      : { data: opts.businessRows ?? [], error: null },
   )
   const kbLimit = vi.fn().mockResolvedValue({
     data: opts.kbDocs ?? [],
@@ -300,6 +318,9 @@ function mockSearchDb(opts: {
       select: vi.fn().mockReturnValue({
         eq: vi.fn().mockReturnValue({
           ilike: vi.fn().mockReturnValue({ limit: tableLimit }),
+          or: vi.fn().mockReturnValue({
+            order: vi.fn().mockReturnValue({ limit: businessLimit }),
+          }),
         }),
       }),
     }
@@ -315,6 +336,12 @@ describe('storeContentSearchNeedles', () => {
     expect(isDeliveryOrShippingIntent('product delivery time')).toBe(true)
     expect(storeContentSearchNeedles('how long for delivery')).toEqual(
       expect.arrayContaining(['how long for delivery', 'shipping', 'delivery']),
+    )
+  })
+
+  it('adds contact synonyms for a phone-number question', () => {
+    expect(storeContentSearchNeedles('Give your contact number')).toEqual(
+      expect.arrayContaining(['contact', 'phone', 'whatsapp']),
     )
   })
 })
@@ -403,5 +430,22 @@ describe('searchStoreContent', () => {
     expect(hits[0]?.kind).toBe('policy')
     expect(hits[0]?.body).toMatch(/5 to 10 business days/)
     expect(hits.map((h) => h.title)).not.toContain('Privacy policy')
+  })
+
+  it('returns about/policy pages for a company question when FTS is empty', async () => {
+    const db = mockSearchDb({
+      businessRows: [
+        {
+          kind: 'page',
+          title: 'About us',
+          handle: 'about',
+          body: 'Acme makes handmade bags.',
+          page_url: 'https://shop.example/pages/about',
+        },
+      ],
+    })
+    const hits = await searchStoreContent(db, 'account-1', 'tell me about the company', 5)
+    expect(hits[0]?.title).toBe('About us')
+    expect(hits[0]?.body).toMatch(/handmade bags/)
   })
 })

@@ -76,22 +76,46 @@ export async function PATCH(request: Request, { params }: Params) {
     }
     if (!updated) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
-    if (content !== undefined) {
+    const { data: current } = await supabase
+      .from('ai_knowledge_documents')
+      .select('title, content')
+      .eq('account_id', accountId)
+      .eq('id', id)
+      .maybeSingle()
+    const ingestTitle = title ?? (current?.title as string | undefined)
+    const ingestContent = content ?? (current?.content as string | undefined)
+    if (ingestContent !== undefined) {
       const { key: embeddingsApiKey, corrupt } = await loadEmbeddingsKey(
         supabase,
         accountId,
       )
       try {
-        await ingestDocument(supabase, accountId, { embeddingsApiKey }, id, content)
+        await ingestDocument(
+          supabase,
+          accountId,
+          { embeddingsApiKey },
+          id,
+          ingestContent,
+          ingestTitle,
+        )
       } catch (err) {
         const message = err instanceof AiError ? err.message : 'indexing failed'
         console.error('[ai/knowledge/[id] PATCH] ingest error:', err)
+        if (err instanceof AiError && err.code === 'embed_failed') {
+          return NextResponse.json(
+            {
+              success: true,
+              warning: `Updated, but semantic indexing failed (${message}). Lexical search still works; use Reindex to retry.`,
+            },
+            { status: 200 },
+          )
+        }
         return NextResponse.json(
           {
-            success: true,
-            warning: `Updated, but semantic indexing failed (${message}). Lexical search still works; use Reindex to retry.`,
+            success: false,
+            error: `Updated the document, but could not index it (${message}).`,
           },
-          { status: 200 },
+          { status: 500 },
         )
       }
       if (corrupt) {

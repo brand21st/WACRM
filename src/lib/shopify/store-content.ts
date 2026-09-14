@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { shopifyGraphql } from './client'
 import { loadShopifyConfig } from './config'
+import { isContactIntent } from '@/lib/ai/knowledge'
 import { htmlToText } from './html-to-text'
 import { numericIdFromGid } from './map-product'
 import { storePageUrl } from './permalinks'
@@ -278,6 +279,13 @@ export function isDeliveryOrShippingIntent(query: string): boolean {
   return DELIVERY_INTENT_RE.test(query)
 }
 
+const BUSINESS_INFO_INTENT_RE =
+  /\b(about(\s+us)?|company|who are you|hours|contact|address|location|what do you (do|sell)|shipping|returns?|refunds?|privacy|terms|faq)\b/i
+
+export function isStoreBusinessIntent(query: string): boolean {
+  return BUSINESS_INFO_INTENT_RE.test(query) || isDeliveryOrShippingIntent(query)
+}
+
 /** Original query plus synonyms so “delivery time” still hits a Shipping policy. */
 export function storeContentSearchNeedles(query: string): string[] {
   const q = sanitizeSearch(query)
@@ -285,6 +293,11 @@ export function storeContentSearchNeedles(query: string): string[] {
   const needles = [q]
   if (isDeliveryOrShippingIntent(q)) {
     for (const extra of ['shipping', 'delivery', 'dispatch']) {
+      if (!needles.some((n) => n.toLowerCase() === extra)) needles.push(extra)
+    }
+  }
+  if (isContactIntent(q)) {
+    for (const extra of ['contact', 'phone', 'whatsapp', 'customer care']) {
       if (!needles.some((n) => n.toLowerCase() === extra)) needles.push(extra)
     }
   }
@@ -347,7 +360,7 @@ async function persistAsKnowledgeDocuments(
       continue
     }
     try {
-      await ingestDocument(db, accountId, { embeddingsApiKey: null }, doc.id, content)
+      await ingestDocument(db, accountId, { embeddingsApiKey: null }, doc.id, content, title)
     } catch (err) {
       console.warn('[shopify/store-content] knowledge ingest failed:', err)
     }
@@ -477,6 +490,7 @@ export async function searchStoreContent(
   const picked = new Map<string, ShopifyStoreContentHit>()
   const addHit = (hit: ShopifyStoreContentHit | null) => {
     if (!hit) return
+    if (!hit.body.trim()) return
     const key = `${hit.kind}:${hit.title}`
     if (picked.has(key)) return
     picked.set(key, hit)
@@ -559,7 +573,55 @@ export async function searchStoreContent(
     }
   }
 
+  if (
+    (picked.size === 0 || (isStoreBusinessIntent(query) && picked.size < limit)) &&
+    !tableMissing
+  ) {
+    for (const hit of await searchStoreBusinessFallback(db, accountId, limit)) {
+      addHit(hit)
+      if (picked.size >= limit) break
+    }
+  }
+
   return Array.from(picked.values()).slice(0, limit)
+}
+
+async function searchStoreBusinessFallback(
+  db: SupabaseClient,
+  accountId: string,
+  limit: number,
+): Promise<ShopifyStoreContentHit[]> {
+  try {
+    const { data, error } = await db
+      .from('shopify_store_content')
+      .select('kind, title, handle, body, page_url')
+      .eq('account_id', accountId)
+      .or(
+        [
+          'kind.eq.policy',
+          'title.ilike.%about%',
+          'title.ilike.%faq%',
+          'title.ilike.%contact%',
+          'handle.ilike.%about%',
+          'handle.ilike.%faq%',
+          'handle.ilike.%contact%',
+          'handle.ilike.%shipping%',
+        ].join(','),
+      )
+      .order('kind', { ascending: true })
+      .limit(limit)
+    if (error) {
+      if (isMissingDbRelation(error, 'shopify_store_content')) return []
+      console.error('[shopify/store-content] business fallback failed:', error)
+      return []
+    }
+    return ((data ?? []) as StoreContentRow[])
+      .map(rowToHit)
+      .filter((hit): hit is ShopifyStoreContentHit => hit != null)
+  } catch (err) {
+    console.error('[shopify/store-content] business fallback failed:', err)
+    return []
+  }
 }
 
 async function searchShopifyKnowledgeFallback(

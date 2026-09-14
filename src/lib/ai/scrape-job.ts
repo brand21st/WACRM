@@ -7,13 +7,16 @@ import {
   canonicalizeUrl,
   depthLimitForMode,
   fetchScrapedPage,
+  isYoutubeUrl,
   pageLimitForMode,
   parsePublicHttpUrl,
   prioritizeKnowledgeLinks,
   scrapeModeForUrl,
+  SCRAPE_MIN_BODY,
   type PendingPage,
   type ScrapeMode,
 } from './scrape'
+import { fetchYoutubeKnowledgePage } from './youtube-transcript'
 import { AiError } from './types'
 
 export interface KnowledgeScrapeJobRow {
@@ -31,10 +34,24 @@ export interface KnowledgeScrapeJobRow {
   visited_urls: string[]
 }
 
+export function currentLearningUrl(row: {
+  start_url: string
+  pending_urls?: PendingPage[]
+  visited_urls?: string[]
+}): string {
+  const pending = row.pending_urls?.[0]?.url?.trim()
+  if (pending) return pending
+  const visited = row.visited_urls ?? []
+  const lastVisited = visited[visited.length - 1]?.trim()
+  if (lastVisited) return lastVisited
+  return row.start_url
+}
+
 export function publicScrapeJob(row: KnowledgeScrapeJobRow) {
   return {
     id: row.id,
     start_url: row.start_url,
+    current_url: currentLearningUrl(row),
     mode: row.mode,
     status: row.status,
     pages_found: row.pages_found,
@@ -146,9 +163,26 @@ export async function upsertScrapedDocument(
   if (!documentId) throw new Error('insert failed')
 
   try {
-    await ingestDocument(db, accountId, { embeddingsApiKey }, documentId, page.content)
+    await ingestDocument(
+      db,
+      accountId,
+      { embeddingsApiKey },
+      documentId,
+      page.content,
+      page.title,
+    )
   } catch (err) {
-    console.error('[ai scrape] ingest warning:', err)
+    const message = err instanceof Error ? err.message : 'indexing failed'
+    await db
+      .from('ai_knowledge_documents')
+      .update({ scrape_error: message })
+      .eq('id', documentId)
+      .eq('account_id', accountId)
+    if (err instanceof AiError && err.code === 'embed_failed') {
+      console.error('[ai scrape] ingest warning:', err)
+      return documentId
+    }
+    throw err
   }
   return documentId
 }
@@ -158,24 +192,54 @@ export async function scrapeStartPage(
   job: KnowledgeScrapeJobRow,
 ): Promise<KnowledgeScrapeJobRow> {
   const { key: embeddingsApiKey } = await loadEmbeddingsKey(db, job.account_id)
+  if (isYoutubeUrl(job.start_url)) {
+    const page = await fetchYoutubeKnowledgePage(job.start_url)
+    await upsertScrapedDocument(
+      db,
+      job.account_id,
+      job.created_by,
+      embeddingsApiKey,
+      page,
+    )
+    return saveJob(db, job.id, {
+      status: 'done',
+      pages_found: 1,
+      pages_saved: 1,
+      pages_failed: 0,
+      pending_urls: [],
+      visited_urls: [page.url],
+      error: null,
+    })
+  }
+
   const page = await fetchScrapedPage(job.start_url)
-  await upsertScrapedDocument(
-    db,
-    job.account_id,
-    job.created_by,
-    embeddingsApiKey,
-    page,
-  )
+  let saved = 0
+  if (page.content.length >= SCRAPE_MIN_BODY) {
+    await upsertScrapedDocument(
+      db,
+      job.account_id,
+      job.created_by,
+      embeddingsApiKey,
+      page,
+    )
+    saved = 1
+  }
   const visited = [page.url]
-  const remaining = pageLimitForMode(job.mode) - 1
+  const remaining = pageLimitForMode(job.mode) - saved
   const follow = prioritizeKnowledgeLinks(page.links)
     .filter((url) => url !== page.url)
     .slice(0, remaining)
   const pending: PendingPage[] = follow.map((url) => ({ url, depth: 1 }))
+  if (saved === 0 && pending.length === 0) {
+    throw new AiError('That page did not have enough readable text.', {
+      code: 'empty_page',
+      status: 422,
+    })
+  }
   return saveJob(db, job.id, {
     status: pending.length > 0 ? 'running' : 'done',
-    pages_found: 1 + pending.length,
-    pages_saved: 1,
+    pages_found: saved + pending.length,
+    pages_saved: saved,
     pages_failed: 0,
     pending_urls: pending,
     visited_urls: visited,
@@ -211,17 +275,28 @@ export async function continueKnowledgeScrapeJob(jobId: string): Promise<void> {
     if (!next) break
     const url = next.url
     if (visited.has(url)) continue
+    await saveJob(db, job.id, {
+      status: 'running',
+      pages_found: found,
+      pages_saved: saved,
+      pages_failed: failed,
+      pending_urls: [next, ...pending],
+      visited_urls: [...visited],
+      error: null,
+    })
     visited.add(url)
     try {
       const page = await fetchScrapedPage(url)
-      await upsertScrapedDocument(
-        db,
-        job.account_id,
-        job.created_by,
-        embeddingsApiKey,
-        page,
-      )
-      saved += 1
+      if (page.content.length >= SCRAPE_MIN_BODY) {
+        await upsertScrapedDocument(
+          db,
+          job.account_id,
+          job.created_by,
+          embeddingsApiKey,
+          page,
+        )
+        saved += 1
+      }
       if (next.depth < maxDepth && saved + failed + pending.length < maxPages) {
         const extra = prioritizeKnowledgeLinks(page.links).slice(
           0,
@@ -241,6 +316,15 @@ export async function continueKnowledgeScrapeJob(jobId: string): Promise<void> {
         err instanceof Error ? err.message : err,
       )
     }
+    await saveJob(db, job.id, {
+      status: 'running',
+      pages_found: found,
+      pages_saved: saved,
+      pages_failed: failed,
+      pending_urls: pending,
+      visited_urls: [...visited],
+      error: null,
+    })
   }
 
   const done = pending.length === 0 || saved + failed >= maxPages

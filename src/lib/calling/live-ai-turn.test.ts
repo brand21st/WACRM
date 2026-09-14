@@ -80,7 +80,10 @@ vi.mock('@/lib/shopify/commerce-config', () => ({
 vi.mock('@/lib/ai/context', () => ({
   buildConversationContext: h.buildConversationContext,
 }))
-vi.mock('@/lib/ai/knowledge', () => ({ retrieveKnowledge: h.retrieveKnowledge }))
+vi.mock('@/lib/ai/knowledge', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/ai/knowledge')>()
+  return { ...actual, retrieveKnowledge: h.retrieveKnowledge }
+})
 vi.mock('@/lib/ai/chat-memory', () => ({
   loadContactMemory: (...args: unknown[]) => h.loadContactMemory(...args),
   persistLanguageLock: async ({ existing, lock }: { existing: { facts: Record<string, unknown> }; lock: { name: string; code: string; script: string } }) => ({

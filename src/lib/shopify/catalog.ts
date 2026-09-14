@@ -35,6 +35,11 @@ import {
 import { lookupCatalogProduct } from '@/lib/catalog/search/lookup'
 import { catalogProductToHit } from '@/lib/catalog/search/map-hit'
 import { isShopifyStoreConnected } from './catalog-config'
+import {
+  removeShopifyProductKnowledge,
+  syncShopifyProductKnowledge,
+  upsertShopifyProductKnowledge,
+} from './product-knowledge'
 
 export { SHOPIFY_CATALOG_WEBHOOK_TOPICS }
 export const MAX_CATALOG_PRODUCTS = 500
@@ -432,6 +437,10 @@ export async function syncCatalog(
     .eq('account_id', config.accountId)
   if (updErr) throw updErr
 
+  await knowledgeBestEffort(() =>
+    syncShopifyProductKnowledge(db, config.accountId, hits),
+  )
+
   await importShopifyCatalogBestEffort(async () => {
     const { replaceImportedShopifyProducts } = await import(
       '@/lib/catalog/adapters/shopify-import'
@@ -479,6 +488,10 @@ export async function removeCatalogProduct(
   } else if (raw.startsWith('gid://')) {
     ids.add(numericIdFromGid(raw))
   }
+
+  await knowledgeBestEffort(() =>
+    removeShopifyProductKnowledge(db, accountId, { productIds: [...ids] }),
+  )
 
   const { error, count } = await db
     .from('shopify_catalog_products')
@@ -551,6 +564,9 @@ export async function upsertCatalogProduct(
       publishedAt: node.publishedAt || node.createdAt || null,
     })
   })
+  await knowledgeBestEffort(() =>
+    upsertShopifyProductKnowledge(db, config.accountId, hit),
+  )
   return true
 }
 
@@ -559,6 +575,14 @@ async function importShopifyCatalogBestEffort(run: () => Promise<void>): Promise
     await run()
   } catch (err) {
     console.warn('[catalog import] shopify dual-write failed:', err)
+  }
+}
+
+async function knowledgeBestEffort(run: () => Promise<void>): Promise<void> {
+  try {
+    await run()
+  } catch (err) {
+    console.warn('[shopify/product-knowledge] catalog hook failed:', err)
   }
 }
 

@@ -2,11 +2,14 @@ import { describe, expect, it } from 'vitest'
 
 import {
   canonicalizeUrl,
+  extractJsonLdText,
+  extractMetaDescription,
   extractPageTitle,
   extractSameHostLinks,
   isBlockedHostname,
   isHomepageUrl,
   isPrivateIp,
+  pageTextFromHtml,
   parsePublicHttpUrl,
   prioritizeKnowledgeLinks,
   scrapeModeForUrl,
@@ -77,6 +80,13 @@ describe('homepage vs deep page mode', () => {
     expect(isHomepageUrl(new URL('https://shop.example.com/'))).toBe(true)
   })
 
+  it('treats YouTube videos as page mode, not site crawls', () => {
+    expect(scrapeModeForUrl(new URL('https://www.youtube.com/watch?v=dQw4w9WgXcQ'))).toBe(
+      'page',
+    )
+    expect(scrapeModeForUrl(new URL('https://youtu.be/dQw4w9WgXcQ'))).toBe('page')
+  })
+
   it('treats product and blog URLs as page mode', () => {
     expect(scrapeModeForUrl(new URL('https://shop.example.com/products/hat'))).toBe(
       'page',
@@ -124,6 +134,20 @@ describe('HTML extract + same-host links', () => {
     ])
     expect(ranked[0]).toContain('/products/hat')
     expect(ranked[1]).toContain('/blogs/news')
+  })
+
+  it('pulls meta description and JSON-LD organization text', () => {
+    const html = `
+      <html><head>
+        <meta name="description" content="We ship bags worldwide." />
+        <script type="application/ld+json">
+          {"@type":"Organization","name":"Acme Bags","description":"Handmade bags from Kerala."}
+        </script>
+      </head><body><p>Welcome</p></body></html>
+    `
+    expect(extractMetaDescription(html)).toBe('We ship bags worldwide.')
+    expect(extractJsonLdText(html)).toContain('Acme Bags')
+    expect(pageTextFromHtml(html)).toMatch(/Handmade bags/)
   })
 
   it('canonicalizes trailing slashes', () => {

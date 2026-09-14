@@ -28,14 +28,28 @@ function knowledgeDb() {
       rpcArgs.push({ name, params });
       return Promise.resolve({ data: [], error: null });
     },
-    from: () => ({
-      select: () => ({
-        eq: (col: string, val: unknown) => {
-          eqCalls.push([col, val]);
-          return Promise.resolve({ count: 2, error: null });
-        },
-      }),
-    }),
+    from: (table?: string) => {
+      if (table === 'ai_knowledge_documents') {
+        return {
+          select: () => ({
+            eq: (col: string, val: unknown) => {
+              eqCalls.push([col, val]);
+              return {
+                limit: () => Promise.resolve({ data: [], error: null }),
+              };
+            },
+          }),
+        };
+      }
+      return {
+        select: () => ({
+          eq: (col: string, val: unknown) => {
+            eqCalls.push([col, val]);
+            return Promise.resolve({ count: 2, error: null });
+          },
+        }),
+      };
+    },
   };
   return { db: db as unknown as SupabaseClient, rpcArgs, eqCalls };
 }

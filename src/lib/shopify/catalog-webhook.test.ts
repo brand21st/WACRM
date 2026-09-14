@@ -7,6 +7,9 @@ const replaceImportedShopifyProducts = vi.fn().mockResolvedValue(undefined)
 
 const pushProductToMetaCatalog = vi.fn().mockResolvedValue(undefined)
 const deleteProductFromMetaCatalog = vi.fn().mockResolvedValue(undefined)
+const upsertShopifyProductKnowledge = vi.fn().mockResolvedValue('doc-1')
+const removeShopifyProductKnowledge = vi.fn().mockResolvedValue(undefined)
+const syncShopifyProductKnowledge = vi.fn().mockResolvedValue(undefined)
 
 vi.mock('@/lib/catalog/adapters/shopify-import', () => ({
   importShopifyProduct: (...args: unknown[]) => importShopifyProduct(...args),
@@ -21,6 +24,15 @@ vi.mock('./meta-catalog-sync', () => ({
     pushProductToMetaCatalog(...args),
   deleteProductFromMetaCatalog: (...args: unknown[]) =>
     deleteProductFromMetaCatalog(...args),
+}))
+
+vi.mock('./product-knowledge', () => ({
+  upsertShopifyProductKnowledge: (...args: unknown[]) =>
+    upsertShopifyProductKnowledge(...args),
+  removeShopifyProductKnowledge: (...args: unknown[]) =>
+    removeShopifyProductKnowledge(...args),
+  syncShopifyProductKnowledge: (...args: unknown[]) =>
+    syncShopifyProductKnowledge(...args),
 }))
 
 import {
@@ -90,6 +102,9 @@ describe('catalog product webhooks', () => {
     replaceImportedShopifyProducts.mockReset().mockResolvedValue(undefined)
     pushProductToMetaCatalog.mockReset().mockResolvedValue(undefined)
     deleteProductFromMetaCatalog.mockReset().mockResolvedValue(undefined)
+    upsertShopifyProductKnowledge.mockReset().mockResolvedValue('doc-1')
+    removeShopifyProductKnowledge.mockReset().mockResolvedValue(undefined)
+    syncShopifyProductKnowledge.mockReset().mockResolvedValue(undefined)
     vi.restoreAllMocks()
   })
 
@@ -140,6 +155,31 @@ describe('catalog product webhooks', () => {
     )
     expect(pushProductToMetaCatalog).not.toHaveBeenCalled()
     expect(deleteProductFromMetaCatalog).not.toHaveBeenCalled()
+    expect(upsertShopifyProductKnowledge).toHaveBeenCalledWith(
+      expect.anything(),
+      STORE.accountId,
+      expect.objectContaining({ title: 'Red Bag' }),
+    )
+  })
+
+  it('ingests knowledge on products/create webhook', async () => {
+    vi.spyOn(configModule, 'loadShopifyConfig').mockResolvedValue(STORE)
+    vi.spyOn(client, 'shopifyGraphql').mockResolvedValue({
+      product: {
+        id: 'gid://shopify/Product/42',
+        handle: 'red-bag',
+        title: 'Red Bag',
+        status: 'ACTIVE',
+        description: 'Leather tote',
+        variants: { nodes: [] },
+      },
+    })
+    const { db } = mockDb()
+    await handleShopifyProductWebhook(db, STORE.accountId, 'products/create', {
+      admin_graphql_api_id: 'gid://shopify/Product/42',
+      status: 'active',
+    })
+    expect(upsertShopifyProductKnowledge).toHaveBeenCalled()
   })
 
   it('removes non-active products on update webhook', async () => {
@@ -165,6 +205,7 @@ describe('catalog product webhooks', () => {
     expect(deleteFn).toHaveBeenCalled()
     expect(deleteProductFromMetaCatalog).not.toHaveBeenCalled()
     expect(pushProductToMetaCatalog).not.toHaveBeenCalled()
+    expect(removeShopifyProductKnowledge).toHaveBeenCalled()
   })
 
   it('retries catalog upsert without body when the column is missing', async () => {
@@ -296,6 +337,11 @@ describe('catalog product webhooks', () => {
     expect(result.count).toBe(1)
     expect(insert).toHaveBeenCalled()
     expect(replaceImportedShopifyProducts).toHaveBeenCalled()
+    expect(syncShopifyProductKnowledge).toHaveBeenCalledWith(
+      expect.anything(),
+      STORE.accountId,
+      expect.arrayContaining([expect.objectContaining({ title: 'Red Bag' })]),
+    )
     warn.mockRestore()
   })
 })

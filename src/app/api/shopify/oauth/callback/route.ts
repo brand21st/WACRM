@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server'
+import { after, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
 import { normalizeShopDomain } from '@/lib/shopify/domain'
@@ -129,7 +129,7 @@ export async function GET(request: Request) {
       return redirectSettings(request, 'shopify_error=save_failed')
     }
 
-    void bootstrapShopifyCatalog(supabase, accountId)
+    after(() => bootstrapShopifyCatalog(supabase, accountId))
 
     return redirectSettings(request, 'shopify_installed=1')
   } catch (err) {

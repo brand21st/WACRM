@@ -18,6 +18,7 @@ import { useTranslations } from 'next-intl';
 import { useAuth } from '@/hooks/use-auth';
 import { canEditSettings } from '@/lib/auth/roles';
 import { extractHttpUrl } from '@/lib/ai/scrape-url';
+import { SHOPIFY_PRODUCT_KB_PREFIX } from '@/lib/shopify/product-knowledge-prefix';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -39,11 +40,21 @@ interface DocSummary {
   source_type?: 'manual' | 'url';
   source_url?: string | null;
   last_scraped_at?: string | null;
+  scrape_error?: string | null;
+}
+
+interface StoreItem {
+  id: string;
+  kind: 'policy' | 'page';
+  title: string;
+  handle?: string | null;
+  page_url?: string | null;
 }
 
 interface ScrapeJob {
   id: string;
   start_url: string;
+  current_url?: string;
   mode: 'page' | 'site';
   status: 'queued' | 'running' | 'done' | 'failed';
   pages_found: number;
@@ -73,9 +84,11 @@ export function KnowledgeBasePanel() {
   const [hasEmbeddingsKey, setHasEmbeddingsKey] = useState(false);
   const [shopifyConnected, setShopifyConnected] = useState(false);
   const [shopifySyncing, setShopifySyncing] = useState(false);
+  const [storeItems, setStoreItems] = useState<StoreItem[]>([]);
   const lastStartedRef = useRef('');
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const loadedAccountIdRef = useRef<string | null>(null);
+  const shopifyAutoRef = useRef(false);
 
   const fetchDocs = useCallback(async () => {
     setLoading(true);
@@ -97,6 +110,43 @@ export function KnowledgeBasePanel() {
     void fetchDocs();
   }, [accountId, fetchDocs]);
 
+  const fetchStoreItems = useCallback(async () => {
+    try {
+      const res = await fetch('/api/shopify/content/sync');
+      const data = await res.json();
+      if (res.ok) setStoreItems(data.items ?? []);
+    } catch {
+      /* list is optional */
+    }
+  }, []);
+
+  const syncShopify = useCallback(
+    async (opts?: { silent?: boolean }) => {
+      setShopifySyncing(true);
+      try {
+        const res = await fetch('/api/shopify/catalog/sync', { method: 'POST' });
+        const data = await res.json();
+        if (res.ok) {
+          if (!opts?.silent) {
+            toast.success(
+              t('shopifySynced', {
+                count: (data.count ?? 0) + (data.content_count ?? 0),
+              }),
+            );
+          }
+          await Promise.all([fetchStoreItems(), fetchDocs()]);
+        } else if (!opts?.silent) {
+          toast.error(data.error ?? t('shopifySyncFailed'));
+        }
+      } catch {
+        if (!opts?.silent) toast.error(t('shopifySyncFailed'));
+      } finally {
+        setShopifySyncing(false);
+      }
+    },
+    [fetchDocs, fetchStoreItems, t],
+  );
+
   useEffect(() => {
     let cancelled = false;
     void fetch('/api/ai/config')
@@ -108,15 +158,27 @@ export function KnowledgeBasePanel() {
     void fetch('/api/shopify/config')
       .then((r) => r.json())
       .then((data) => {
-        if (!cancelled) {
-          setShopifyConnected(Boolean(data.configured) && data.is_active !== false);
+        if (cancelled) return;
+        const connected = Boolean(data.configured) && data.is_active !== false;
+        setShopifyConnected(connected);
+        if (!connected) return;
+        const neverSynced =
+          !data.last_content_sync_at ||
+          !Number(data.content_item_count) ||
+          !data.last_catalog_sync_at ||
+          !Number(data.catalog_product_count);
+        if (neverSynced && canEdit && !shopifyAutoRef.current) {
+          shopifyAutoRef.current = true;
+          void syncShopify({ silent: true });
+        } else {
+          void fetchStoreItems();
         }
       })
       .catch(() => undefined);
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [canEdit, fetchStoreItems, syncShopify]);
 
   const pollJob = useCallback(
     async (id: string) => {
@@ -129,7 +191,7 @@ export function KnowledgeBasePanel() {
         setScraping(false);
         lastStartedRef.current = '';
         await fetchDocs();
-        if (next.status === 'failed') {
+        if (next.status === 'failed' || next.pages_saved <= 0) {
           toast.error(next.error ?? t('scrapeFailed'));
         } else if (next.pages_failed > 0) {
           toast.success(
@@ -207,8 +269,9 @@ export function KnowledgeBasePanel() {
           setScraping(false);
           lastStartedRef.current = '';
           await fetchDocs();
-          if (next.status === 'failed') toast.error(next.error ?? t('scrapeFailed'));
-          else {
+          if (next.status === 'failed' || next.pages_saved <= 0) {
+            toast.error(next.error ?? t('scrapeFailed'));
+          } else {
             let host = next.start_url;
             try {
               host = new URL(next.start_url).hostname;
@@ -274,14 +337,15 @@ export function KnowledgeBasePanel() {
 
   const save = async () => {
     if (editing === 'new') {
-      const maybeUrl = extractHttpUrl(title) ?? extractHttpUrl(content);
-      const titleIsUrl = Boolean(extractHttpUrl(title) && title.trim() === extractHttpUrl(title));
-      const contentIsUrl = Boolean(
-        extractHttpUrl(content) && content.trim() === extractHttpUrl(content),
-      );
-      if (maybeUrl && (titleIsUrl || contentIsUrl)) {
+      const titleUrl = extractHttpUrl(title);
+      const contentUrl = extractHttpUrl(content);
+      const titleIsUrl = Boolean(titleUrl && title.trim() === titleUrl);
+      const contentIsUrl = Boolean(contentUrl && content.trim() === contentUrl);
+      const titleEmpty = !title.trim();
+      const contentEmpty = !content.trim();
+      if ((titleIsUrl && contentEmpty) || (contentIsUrl && titleEmpty)) {
         cancelEdit();
-        void startScrape(maybeUrl);
+        void startScrape((titleUrl ?? contentUrl) as string);
         return;
       }
     }
@@ -348,31 +412,27 @@ export function KnowledgeBasePanel() {
     }
   };
 
-  const syncShopify = async () => {
-    setShopifySyncing(true);
-    try {
-      const res = await fetch('/api/shopify/content/sync', { method: 'POST' });
-      const data = await res.json();
-      if (res.ok) {
-        toast.success(t('shopifySynced', { count: data.count ?? 0 }));
-      } else {
-        toast.error(data.error ?? t('shopifySyncFailed'));
-      }
-    } catch {
-      toast.error(t('shopifySyncFailed'));
-    } finally {
-      setShopifySyncing(false);
-    }
-  };
-
-  let learningHost = '';
-  if (job?.start_url) {
-    try {
-      learningHost = new URL(job.start_url).hostname;
-    } catch {
-      learningHost = job.start_url;
-    }
-  }
+  const learningUrl = job?.current_url || url || job?.start_url || '…';
+  const productDocs = docs.filter((doc) =>
+    (doc.title ?? '').startsWith(SHOPIFY_PRODUCT_KB_PREFIX),
+  );
+  const manualDocs = docs.filter(
+    (doc) => !(doc.title ?? '').startsWith(SHOPIFY_PRODUCT_KB_PREFIX),
+  );
+  const shopifyRows = [
+    ...storeItems.map((item) => ({
+      id: item.id,
+      title: item.title,
+      url: item.page_url ?? null,
+      kind: item.kind,
+    })),
+    ...productDocs.map((doc) => ({
+      id: doc.id,
+      title: doc.title.slice(SHOPIFY_PRODUCT_KB_PREFIX.length) || doc.title,
+      url: doc.source_url ?? null,
+      kind: 'product' as const,
+    })),
+  ];
 
   return (
     <div>
@@ -399,10 +459,11 @@ export function KnowledgeBasePanel() {
               inputMode="url"
             />
             {scraping || job?.status === 'running' || job?.status === 'queued' ? (
-              <p className="flex items-center gap-2 text-sm text-muted-foreground">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                {t('learning', { host: learningHost || '…' })}
-                {job ? ` ${job.pages_saved}/${Math.max(job.pages_found, 1)}` : null}
+              <p className="flex items-start gap-2 text-sm text-muted-foreground">
+                <Loader2 className="mt-0.5 h-4 w-4 shrink-0 animate-spin" />
+                <span className="min-w-0 break-all">
+                  {t('learning', { url: learningUrl })}
+                </span>
               </p>
             ) : null}
           </CardContent>
@@ -416,7 +477,7 @@ export function KnowledgeBasePanel() {
               </CardTitle>
               <CardDescription>{t('shopifyDesc')}</CardDescription>
             </CardHeader>
-            <CardContent>
+            <CardContent className="space-y-3">
               <Button
                 variant="outline"
                 size="sm"
@@ -428,6 +489,42 @@ export function KnowledgeBasePanel() {
                 ) : null}
                 {t('shopifySync')}
               </Button>
+              {shopifyRows.length > 0 ? (
+                <ul className="divide-y divide-border rounded-md border border-border">
+                  {shopifyRows.map((item) => (
+                    <li
+                      key={item.id}
+                      className="flex items-center justify-between gap-2 px-3 py-2"
+                    >
+                      <span className="min-w-0">
+                        <span className="block truncate text-sm text-foreground">
+                          {item.title}
+                        </span>
+                        {item.url ? (
+                          <a
+                            href={item.url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex items-center gap-1 truncate text-xs text-muted-foreground hover:text-foreground"
+                          >
+                            <ExternalLink className="h-3 w-3" />
+                            {safeHost(item.url)}
+                          </a>
+                        ) : null}
+                      </span>
+                      <Badge variant="secondary">
+                        {item.kind === 'policy'
+                          ? t('shopifyKindPolicy')
+                          : item.kind === 'page'
+                            ? t('shopifyKindPage')
+                            : t('shopifyKindProduct')}
+                      </Badge>
+                    </li>
+                  ))}
+                </ul>
+              ) : shopifySyncing ? null : (
+                <p className="text-sm text-muted-foreground">{t('shopifyItemsEmpty')}</p>
+              )}
             </CardContent>
           </Card>
         ) : null}
@@ -452,13 +549,13 @@ export function KnowledgeBasePanel() {
               </div>
             ) : (
               <>
-                {docs.length === 0 && editing === null ? (
+                {manualDocs.length === 0 && editing === null ? (
                   <p className="text-sm text-muted-foreground">{tk('noDocs')}</p>
                 ) : null}
 
-                {docs.length > 0 ? (
+                {manualDocs.length > 0 ? (
                   <ul className="divide-y divide-border rounded-md border border-border">
-                    {docs.map((doc) => (
+                    {manualDocs.map((doc) => (
                       <li
                         key={doc.id}
                         className="flex items-center justify-between gap-2 px-3 py-2"
@@ -482,6 +579,11 @@ export function KnowledgeBasePanel() {
                                 <ExternalLink className="h-3 w-3" />
                                 {safeHost(doc.source_url)}
                               </a>
+                            ) : null}
+                            {doc.scrape_error ? (
+                              <span className="block truncate text-xs text-destructive">
+                                {doc.scrape_error}
+                              </span>
                             ) : null}
                           </span>
                         </span>

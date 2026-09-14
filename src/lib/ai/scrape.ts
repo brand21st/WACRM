@@ -2,10 +2,13 @@ import { lookup } from 'node:dns/promises'
 import { isIP } from 'node:net'
 
 import { htmlToText } from '@/lib/shopify/html-to-text'
-import { extractHttpUrl } from './scrape-url'
+import { extractHttpUrl, isYoutubeUrl } from './scrape-url'
 import { AiError } from './types'
 
-export { extractHttpUrl } from './scrape-url'
+export { extractHttpUrl, isYoutubeUrl } from './scrape-url'
+
+export const SCRAPE_BROWSER_UA =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
 
 export const SCRAPE_PAGE_CAP_SITE = 15
 export const SCRAPE_PAGE_CAP_PAGE = 6
@@ -160,6 +163,7 @@ export function isHomepageUrl(url: URL): boolean {
 }
 
 export function scrapeModeForUrl(url: URL): ScrapeMode {
+  if (isYoutubeUrl(url.href)) return 'page'
   return isHomepageUrl(url) ? 'site' : 'page'
 }
 
@@ -185,7 +189,7 @@ export function extractPageTitle(html: string): string {
   return ''
 }
 
-function decodeEntities(value: string): string {
+export function decodeEntities(value: string): string {
   return value
     .replace(/&nbsp;/gi, ' ')
     .replace(/&amp;/gi, '&')
@@ -193,6 +197,110 @@ function decodeEntities(value: string): string {
     .replace(/&gt;/gi, '>')
     .replace(/&quot;/gi, '"')
     .replace(/&#39;|&apos;/gi, "'")
+}
+
+function metaContent(html: string, attr: 'name' | 'property', key: string): string {
+  const re = new RegExp(
+    `<meta[^>]+(?:${attr}=["']${key}["'][^>]+content=["']([^"']+)["']|content=["']([^"']+)["'][^>]+${attr}=["']${key}["'])`,
+    'i',
+  )
+  const match = html.match(re)
+  const raw = match?.[1] || match?.[2] || ''
+  return decodeEntities(raw).trim()
+}
+
+export function extractMetaDescription(html: string): string {
+  return (
+    metaContent(html, 'property', 'og:description') ||
+    metaContent(html, 'name', 'description') ||
+    ''
+  )
+}
+
+function extractJsonObject(html: string, start: number): unknown {
+  let depth = 0
+  for (let i = start; i < html.length; i++) {
+    const ch = html[i]
+    if (ch === '{') depth += 1
+    else if (ch === '}') {
+      depth -= 1
+      if (depth === 0) {
+        try {
+          return JSON.parse(html.slice(start, i + 1)) as unknown
+        } catch {
+          return null
+        }
+      }
+    }
+  }
+  return null
+}
+
+function collectJsonLdText(value: unknown, into: string[]): void {
+  if (!value) return
+  if (typeof value === 'string') {
+    const t = value.trim()
+    if (t) into.push(t)
+    return
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) collectJsonLdText(item, into)
+    return
+  }
+  if (typeof value !== 'object') return
+  const rec = value as Record<string, unknown>
+  const type = String(rec['@type'] ?? '')
+  if (
+    /Organization|WebSite|LocalBusiness|FAQPage|AboutPage|Store/i.test(type)
+  ) {
+    for (const key of ['name', 'description', 'slogan', 'telephone', 'email', 'url']) {
+      collectJsonLdText(rec[key], into)
+    }
+    if (rec.address) collectJsonLdText(rec.address, into)
+    if (Array.isArray(rec.mainEntity)) {
+      for (const item of rec.mainEntity) collectJsonLdText(item, into)
+    }
+  }
+  if (type === 'Question' || type === 'Answer') {
+    collectJsonLdText(rec.name, into)
+    collectJsonLdText(rec.text, into)
+    collectJsonLdText(rec.acceptedAnswer, into)
+  }
+  if (rec.streetAddress || rec.addressLocality) {
+    const parts = [rec.streetAddress, rec.addressLocality, rec.addressRegion, rec.postalCode]
+      .map((p) => (typeof p === 'string' ? p.trim() : ''))
+      .filter(Boolean)
+    if (parts.length) into.push(parts.join(', '))
+  }
+}
+
+export function extractJsonLdText(html: string): string {
+  const chunks: string[] = []
+  const re = /<script[^>]+type=["']application\/ld\+json["'][^>]*>/gi
+  let match: RegExpExecArray | null
+  while ((match = re.exec(html))) {
+    const start = html.indexOf('{', match.index + match[0].length)
+    if (start < 0) continue
+    collectJsonLdText(extractJsonObject(html, start), chunks)
+  }
+  return chunks.join('\n')
+}
+
+export function pageTextFromHtml(html: string, max = SCRAPE_BODY_MAX): string {
+  const parts = [htmlToText(html, max), extractMetaDescription(html), extractJsonLdText(html)]
+    .map((p) => p.trim())
+    .filter(Boolean)
+  const seen = new Set<string>()
+  const unique: string[] = []
+  for (const part of parts) {
+    const key = part.slice(0, 80).toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    unique.push(part)
+  }
+  let text = unique.join('\n\n').trim()
+  if (text.length > max) text = `${text.slice(0, max - 1)}…`
+  return text
 }
 
 export function sameHost(a: URL, b: URL): boolean {
@@ -254,8 +362,9 @@ export async function fetchScrapedPage(rawUrl: string): Promise<ScrapedPage> {
   const html = await fetchHtmlFollowingRedirects(start)
   const url = canonicalizeUrl(start)
   const title = extractPageTitle(html) || fallbackTitle(start)
-  const content = htmlToText(html, SCRAPE_BODY_MAX)
-  if (content.length < SCRAPE_MIN_BODY) {
+  const content = pageTextFromHtml(html, SCRAPE_BODY_MAX)
+  const links = extractSameHostLinks(html, start)
+  if (content.length < SCRAPE_MIN_BODY && links.length === 0) {
     throw new AiError('That page did not have enough readable text.', {
       code: 'empty_page',
       status: 422,
@@ -265,7 +374,7 @@ export async function fetchScrapedPage(rawUrl: string): Promise<ScrapedPage> {
     url,
     title,
     content,
-    links: extractSameHostLinks(html, start),
+    links,
   }
 }
 
@@ -285,7 +394,7 @@ async function fetchHtmlFollowingRedirects(start: URL): Promise<string> {
       redirect: 'manual',
       headers: {
         Accept: 'text/html,application/xhtml+xml',
-        'User-Agent': 'waCRM-knowledge-scrape/1.0',
+        'User-Agent': SCRAPE_BROWSER_UA,
       },
       signal: AbortSignal.timeout(SCRAPE_FETCH_TIMEOUT_MS),
     })

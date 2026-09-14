@@ -150,7 +150,10 @@ vi.mock('./chat-memory', () => ({
   formatCustomerMemoryBlock: h.formatCustomerMemoryBlock,
   emptyContactMemory: h.emptyContactMemory,
 }))
-vi.mock('./knowledge', () => ({ retrieveKnowledge: h.retrieveKnowledge }))
+vi.mock('./knowledge', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./knowledge')>()
+  return { ...actual, retrieveKnowledge: h.retrieveKnowledge }
+})
 vi.mock('./generate', () => ({ generateReply: h.generateReply }))
 vi.mock('./catalog-card-queue', () => ({
   loadCatalogCardQueue: h.loadCatalogCardQueue,

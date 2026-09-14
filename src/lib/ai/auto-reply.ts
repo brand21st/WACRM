@@ -27,7 +27,7 @@ import {
   languageWelcomeHi,
   priorCustomerQuestion,
 } from './language-picker'
-import { retrieveKnowledge } from './knowledge'
+import { mergeKnowledgeSources, retrieveKnowledge } from './knowledge'
 import { generateReply } from './generate'
 import { buildSystemPrompt, FULL_AGENT_FALLBACK_REPLY } from './defaults'
 import { speakableFirstName } from './customer-name'
@@ -474,7 +474,7 @@ export async function dispatchInboundToAiReply(
         ? retrieveShopifyStoreContent(db, accountId, retrieveText, 5)
         : Promise.resolve([] as string[]),
     ])
-    const knowledge = [...storeContent, ...manualKnowledge].slice(0, 8)
+    const knowledge = mergeKnowledgeSources(retrieveText, storeContent, manualKnowledge)
 
     if (nativeCommerce && queryText.trim()) {
       const handledEmail = await tryCompleteCommerceEmail({

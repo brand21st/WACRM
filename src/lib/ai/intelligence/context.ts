@@ -17,7 +17,7 @@ import {
 } from '@/lib/ai/chat-memory';
 import { loadAiConfig } from '@/lib/ai/config';
 import { buildConversationContext } from '@/lib/ai/context';
-import { retrieveKnowledge } from '@/lib/ai/knowledge';
+import { mergeKnowledgeSources, retrieveKnowledge } from '@/lib/ai/knowledge';
 import { latestUserMessage } from '@/lib/ai/query';
 import type { AiConfig, ChatMessage } from '@/lib/ai/types';
 import {
@@ -154,7 +154,7 @@ export async function buildAIContext(
     ).catch(() => emptyBusinessKnowledgeSnapshot(accountId, retrieveText, contactId)),
   ]);
 
-  const knowledge = [...storeContent, ...manualKnowledge].slice(0, 8);
+  const knowledge = mergeKnowledgeSources(retrieveText, storeContent, manualKnowledge);
 
   return {
     accountId,

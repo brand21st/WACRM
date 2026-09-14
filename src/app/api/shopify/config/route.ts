@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server'
+import { after, NextResponse } from 'next/server'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 import {
@@ -322,7 +322,7 @@ export async function POST(request: Request) {
       )
     }
 
-    void bootstrapShopifyCatalog(supabase, accountId)
+    after(() => bootstrapShopifyCatalog(supabase, accountId))
 
     return NextResponse.json({
       success: true,
@@ -352,6 +352,10 @@ export async function DELETE() {
       .from('shopify_store_content')
       .delete()
       .eq('account_id', accountId)
+    const { removeAllShopifyProductKnowledge } = await import(
+      '@/lib/shopify/product-knowledge'
+    )
+    await removeAllShopifyProductKnowledge(supabase, accountId)
     const { error } = await supabase
       .from('shopify_configs')
       .delete()
