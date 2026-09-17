@@ -187,7 +187,7 @@ export async function PATCH(request: Request) {
         if (!usesLiveTtsVoice(config)) {
           return NextResponse.json(
             {
-              error: 'Add a Voice Agent key to use ElevenLabs v3 on live calls.',
+              error: 'Add a Voice Agent key to use a custom voice on live calls.',
               code: 'tts_not_ready',
             },
             { status: 400 },
