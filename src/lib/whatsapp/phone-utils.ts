@@ -3,7 +3,7 @@
  * Meta requires digits only — no + prefix, no spaces, no dashes.
  * e.g. "+370 63949836" → "37063949836"
  */
-export function sanitizePhoneForMeta(phone: string): string {
+export function sanitizePhoneForMeta(phone: string | null | undefined): string {
   if (!phone) return ''
   return phone.replace(/\D/g, '')
 }
@@ -12,7 +12,7 @@ export function sanitizePhoneForMeta(phone: string): string {
  * Normalize phone number by removing all non-digit characters.
  * Used for comparing phone numbers in different formats.
  */
-export function normalizePhone(phone: string): string {
+export function normalizePhone(phone: string | null | undefined): string {
   if (!phone) return ''
   return phone.replace(/\D/g, '')
 }

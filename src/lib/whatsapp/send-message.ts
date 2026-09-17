@@ -262,6 +262,13 @@ export async function sendMessageToConversation(
       replyToMid = parent?.message_id ?? null;
     }
     if (messageType === 'template') {
+      if (!templateName) {
+        throw new SendMessageError(
+          'bad_request',
+          'template_name is required for template messages',
+          400,
+        );
+      }
       const resolved = await resolveTemplateRow(
         db,
         accountId,
