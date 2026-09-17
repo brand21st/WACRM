@@ -1,9 +1,11 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState, type ClipboardEvent } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ClipboardEvent } from 'react';
 import { toast } from 'sonner';
 import {
   BookOpen,
+  ChevronsDownUp,
+  ChevronsUpDown,
   ExternalLink,
   Link2,
   Loader2,
@@ -43,12 +45,25 @@ interface DocSummary {
   scrape_error?: string | null;
 }
 
+interface StoreVariant {
+  title: string;
+  price?: string | null;
+  available?: boolean;
+  sku?: string | null;
+}
+
 interface StoreItem {
   id: string;
-  kind: 'policy' | 'page';
+  kind: 'policy' | 'page' | 'product';
   title: string;
   handle?: string | null;
   page_url?: string | null;
+  image_url?: string | null;
+  body?: string | null;
+  price_min?: string | null;
+  price_max?: string | null;
+  currency?: string | null;
+  variants?: StoreVariant[];
 }
 
 interface ScrapeJob {
@@ -85,6 +100,7 @@ export function KnowledgeBasePanel() {
   const [shopifyConnected, setShopifyConnected] = useState(false);
   const [shopifySyncing, setShopifySyncing] = useState(false);
   const [storeItems, setStoreItems] = useState<StoreItem[]>([]);
+  const [storeProducts, setStoreProducts] = useState<StoreItem[]>([]);
   const lastStartedRef = useRef('');
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const loadedAccountIdRef = useRef<string | null>(null);
@@ -114,7 +130,14 @@ export function KnowledgeBasePanel() {
     try {
       const res = await fetch('/api/shopify/content/sync');
       const data = await res.json();
-      if (res.ok) setStoreItems(data.items ?? []);
+      if (res.ok) {
+        setStoreItems(Array.isArray(data.items) ? data.items : []);
+        setStoreProducts(
+          Array.isArray(data.products)
+            ? data.products.map((row: StoreItem) => ({ ...row, kind: 'product' as const }))
+            : [],
+        );
+      }
     } catch {
       /* list is optional */
     }
@@ -416,23 +439,23 @@ export function KnowledgeBasePanel() {
   const productDocs = docs.filter((doc) =>
     (doc.title ?? '').startsWith(SHOPIFY_PRODUCT_KB_PREFIX),
   );
-  const manualDocs = docs.filter(
-    (doc) => !(doc.title ?? '').startsWith(SHOPIFY_PRODUCT_KB_PREFIX),
-  );
-  const shopifyRows = [
-    ...storeItems.map((item) => ({
-      id: item.id,
-      title: item.title,
-      url: item.page_url ?? null,
-      kind: item.kind,
-    })),
-    ...productDocs.map((doc) => ({
-      id: doc.id,
-      title: doc.title.slice(SHOPIFY_PRODUCT_KB_PREFIX.length) || doc.title,
-      url: doc.source_url ?? null,
-      kind: 'product' as const,
-    })),
-  ];
+  const manualDocs = docs.filter((doc) => {
+    const title = doc.title ?? '';
+    return (
+      !title.startsWith(SHOPIFY_PRODUCT_KB_PREFIX) && !title.startsWith('[Shopify] ')
+    );
+  });
+  const products: StoreItem[] =
+    storeProducts.length > 0
+      ? storeProducts
+      : productDocs.map((doc) => ({
+          id: doc.id,
+          title: doc.title.slice(SHOPIFY_PRODUCT_KB_PREFIX.length) || doc.title,
+          page_url: doc.source_url ?? null,
+          kind: 'product' as const,
+        }));
+  const policies = storeItems.filter((item) => item.kind === 'policy');
+  const pages = storeItems.filter((item) => item.kind === 'page');
 
   return (
     <div>
@@ -489,39 +512,41 @@ export function KnowledgeBasePanel() {
                 ) : null}
                 {t('shopifySync')}
               </Button>
-              {shopifyRows.length > 0 ? (
-                <ul className="divide-y divide-border rounded-md border border-border">
-                  {shopifyRows.map((item) => (
-                    <li
-                      key={item.id}
-                      className="flex items-center justify-between gap-2 px-3 py-2"
-                    >
-                      <span className="min-w-0">
-                        <span className="block truncate text-sm text-foreground">
-                          {item.title}
-                        </span>
-                        {item.url ? (
-                          <a
-                            href={item.url}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="inline-flex items-center gap-1 truncate text-xs text-muted-foreground hover:text-foreground"
-                          >
-                            <ExternalLink className="h-3 w-3" />
-                            {safeHost(item.url)}
-                          </a>
-                        ) : null}
-                      </span>
-                      <Badge variant="secondary">
-                        {item.kind === 'policy'
-                          ? t('shopifyKindPolicy')
-                          : item.kind === 'page'
-                            ? t('shopifyKindPage')
-                            : t('shopifyKindProduct')}
-                      </Badge>
-                    </li>
-                  ))}
-                </ul>
+              {policies.length + pages.length + products.length > 0 ? (
+                <div className="space-y-4">
+                  <p className="text-sm text-muted-foreground">
+                    {t('shopifyIndexed', {
+                      policies: policies.length,
+                      pages: pages.length,
+                      products: products.length,
+                    })}
+                  </p>
+                  <ShopifyGroup
+                    title={t('shopifyGroupPolicies', { count: policies.length })}
+                    items={policies}
+                    emptyBody={t('shopifyEmptyBody')}
+                    kindLabel={t('shopifyKindPolicy')}
+                  />
+                  <ShopifyGroup
+                    title={t('shopifyGroupPages', { count: pages.length })}
+                    items={pages}
+                    emptyBody={t('shopifyEmptyBody')}
+                    kindLabel={t('shopifyKindPage')}
+                  />
+                  <ShopifyGroup
+                    title={t('shopifyGroupProducts', { count: products.length })}
+                    items={products}
+                    emptyBody={t('shopifyEmptyBody')}
+                    kindLabel={t('shopifyKindProduct')}
+                    showPrice
+                    defaultOpen
+                    collapseLabel={t('shopifyCollapse')}
+                    expandLabel={t('shopifyExpand')}
+                    inStockLabel={t('shopifyInStock')}
+                    outOfStockLabel={t('shopifyOutOfStock')}
+                    variantsLabel={t('shopifyVariants')}
+                  />
+                </div>
               ) : shopifySyncing ? null : (
                 <p className="text-sm text-muted-foreground">{t('shopifyItemsEmpty')}</p>
               )}
@@ -693,6 +718,141 @@ export function KnowledgeBasePanel() {
           </CardContent>
         </Card>
       </div>
+    </div>
+  );
+}
+
+function formatStorePrice(item: StoreItem): string | null {
+  const min = String(item.price_min ?? '').trim();
+  const max = String(item.price_max ?? '').trim();
+  if (!min && !max) return null;
+  const amount = min && max && min !== max ? `${min}–${max}` : min || max;
+  const currency = String(item.currency ?? '').trim();
+  return currency ? `${amount} ${currency}` : amount;
+}
+
+function ShopifyGroup({
+  title,
+  items,
+  emptyBody,
+  kindLabel,
+  showPrice = false,
+  defaultOpen = false,
+  collapseLabel,
+  expandLabel,
+  inStockLabel,
+  outOfStockLabel,
+  variantsLabel,
+}: {
+  title: string;
+  items: StoreItem[];
+  emptyBody: string;
+  kindLabel: string;
+  showPrice?: boolean;
+  defaultOpen?: boolean;
+  collapseLabel?: string;
+  expandLabel?: string;
+  inStockLabel?: string;
+  outOfStockLabel?: string;
+  variantsLabel?: string;
+}) {
+  const [allOpen, setAllOpen] = useState(defaultOpen);
+  const listRef = useRef<HTMLUListElement>(null);
+  useLayoutEffect(() => {
+    const root = listRef.current;
+    if (!root) return;
+    root.querySelectorAll('details').forEach((node) => {
+      node.open = allOpen;
+    });
+  }, [allOpen, items.length]);
+  if (items.length === 0) return null;
+  const showToggle = Boolean(collapseLabel && expandLabel);
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-sm font-medium text-foreground">{title}</p>
+        {showToggle ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => setAllOpen((open) => !open)}
+          >
+            {allOpen ? <ChevronsDownUp /> : <ChevronsUpDown />}
+            {allOpen ? collapseLabel : expandLabel}
+          </Button>
+        ) : null}
+      </div>
+      <ul ref={listRef} className="divide-y divide-border rounded-md border border-border">
+        {items.map((item) => {
+          const price = showPrice ? formatStorePrice(item) : null;
+          const body = item.body?.trim() ?? '';
+          const variants = item.variants ?? [];
+          return (
+            <li key={item.id}>
+              <details className="group px-3 py-2">
+                <summary className="flex cursor-pointer list-none items-start justify-between gap-2 [&::-webkit-details-marker]:hidden">
+                  <span className="flex min-w-0 items-start gap-3">
+                    {item.image_url ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={item.image_url}
+                        alt=""
+                        className="mt-0.5 size-12 shrink-0 rounded-md object-cover"
+                      />
+                    ) : null}
+                    <span className="min-w-0">
+                      <span className="block text-sm text-foreground">{item.title}</span>
+                      {price ? (
+                        <span className="block text-xs text-muted-foreground">{price}</span>
+                      ) : null}
+                      {item.page_url ? (
+                        <a
+                          href={item.page_url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex items-center gap-1 truncate text-xs text-muted-foreground hover:text-foreground"
+                          onClick={(event) => event.stopPropagation()}
+                        >
+                          <ExternalLink className="h-3 w-3" />
+                          {safeHost(item.page_url)}
+                        </a>
+                      ) : null}
+                    </span>
+                  </span>
+                  <Badge variant="secondary">{kindLabel}</Badge>
+                </summary>
+                <div className="mt-2 space-y-2 rounded-md bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
+                  {body ? (
+                    <p className="whitespace-pre-wrap break-words">{body}</p>
+                  ) : (
+                    <p>{emptyBody}</p>
+                  )}
+                  {variants.length > 0 ? (
+                    <div>
+                      <p className="font-medium text-foreground">
+                        {variantsLabel} ({variants.length})
+                      </p>
+                      <ul className="mt-1 space-y-0.5">
+                        {variants.map((variant, index) => (
+                          <li key={`${item.id}-v-${index}`}>
+                            {variant.title}
+                            {variant.price ? ` · ${variant.price}` : ''}
+                            {item.currency ? ` ${item.currency}` : ''}
+                            {variant.sku ? ` · ${variant.sku}` : ''}
+                            {' · '}
+                            {variant.available === false ? outOfStockLabel : inStockLabel}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+                </div>
+              </details>
+            </li>
+          );
+        })}
+      </ul>
     </div>
   );
 }

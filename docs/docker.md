@@ -60,7 +60,8 @@ Locally without Docker: `npm run dev` in one terminal and
   `docker-compose.yml`. If you change any of them, rebuild:
   `docker compose --env-file .env.local -f docker-compose.yml -f docker-compose.local.yml up --build -d`.
 - Everything else (`SUPABASE_SERVICE_ROLE_KEY`, `ENCRYPTION_KEY`,
-  `META_APP_SECRET`, …) is read at **runtime** from the environment
+  `META_APP_SECRET`, `META_FACEBOOK_LOGIN_CONFIG_ID`,
+  `META_WEBHOOK_VERIFY_TOKEN`, …) is read at **runtime** from the environment
   and is never baked into the image — safe to change with a container
   restart. Compose overwrites `REDIS_URL` to the sidecar.
 

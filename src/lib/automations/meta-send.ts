@@ -1,3 +1,7 @@
+import { resolveTransport } from '@/lib/meta/channel-transport'
+import { pageTextMessage } from '@/lib/meta/page-send'
+import { sendPageMessage } from '@/lib/meta/graph'
+import { sessionWindowUrgency } from '@/lib/inbox/session-window'
 import { sendTextMessage, sendTemplateMessage } from '@/lib/whatsapp/meta-api'
 import type { InteractiveMessagePayload } from '@/lib/whatsapp/interactive'
 import {
@@ -125,6 +129,75 @@ type SendInput =
 
 async function sendViaMeta(input: SendInput): Promise<{ whatsapp_message_id: string }> {
   const db = supabaseAdmin()
+  const transport = await resolveTransport(db, input.accountId, input.contactId)
+  if (transport.channel !== 'whatsapp') {
+    const templateRow =
+      input.kind === 'template'
+        ? (
+            await resolveTemplateRow(
+              db,
+              input.accountId,
+              input.templateName,
+              input.language,
+            )
+          ).row
+        : null
+    const text =
+      input.kind === 'text'
+        ? input.text
+        : templateContentText(templateRow, input.params ?? [])
+    if (input.kind === 'template') {
+      const { data: conv } = await db
+        .from('conversations')
+        .select('customer_service_expires_at')
+        .eq('id', input.conversationId)
+        .maybeSingle()
+      const expires = conv?.customer_service_expires_at
+      const expired =
+        !expires ||
+        sessionWindowUrgency(new Date(expires).getTime() - Date.now()) ===
+          'expired'
+      if (expired || !text?.trim()) {
+        console.info(
+          '[automations] send_template skipped on',
+          transport.channel,
+          input.conversationId,
+        )
+        return { whatsapp_message_id: '' }
+      }
+    }
+    if (!text?.trim()) {
+      throw new Error('message text is required')
+    }
+    const sent = await sendPageMessage({
+      pageId: transport.pageId,
+      pageAccessToken: transport.accessToken,
+      recipientId: transport.recipientId,
+      message: pageTextMessage(text),
+    })
+    const content_type = input.kind === 'template' ? 'template' : 'text'
+    const { error: pageMsgErr } = await db.from('messages').insert({
+      conversation_id: input.conversationId,
+      sender_type: 'bot',
+      content_type,
+      content_text: text,
+      template_name: input.kind === 'template' ? input.templateName : null,
+      message_id: sent.messageId,
+      status: 'sent',
+    })
+    if (pageMsgErr) {
+      throw new Error(`sent to Meta but DB insert failed: ${pageMsgErr.message}`)
+    }
+    await db
+      .from('conversations')
+      .update({
+        last_message_text: text,
+        last_message_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', input.conversationId)
+    return { whatsapp_message_id: sent.messageId }
+  }
 
   // Scope the contact + config lookups by account_id, not user_id.
   // The engine uses the service-role client (bypassing RLS); without

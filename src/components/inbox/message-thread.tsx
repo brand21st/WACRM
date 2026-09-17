@@ -34,6 +34,7 @@ import { useTranslations } from "next-intl";
 import { customerServiceExpiresAt } from "@/lib/inbox/session-window";
 import { SessionWindowBadge } from "./session-window-badge";
 import { CustomerPaidBadges } from "./customer-paid-badges";
+import { ChannelBadge, channelDisplayName } from "./channel-badge";
 import { ContactAvatar } from "@/components/contacts/contact-avatar";
 import {
   DropdownMenu,
@@ -508,7 +509,9 @@ export function MessageThread({
       setReplyTo(null);
 
       try {
-        const res = await fetch("/api/whatsapp/send", {
+        const res = await fetch(conversation.channel && conversation.channel !== "whatsapp"
+              ? "/api/meta/send"
+              : "/api/whatsapp/send", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -572,7 +575,9 @@ export function MessageThread({
       setReplyTo(null);
 
       try {
-        const res = await fetch("/api/whatsapp/send", {
+        const res = await fetch(conversation.channel && conversation.channel !== "whatsapp"
+              ? "/api/meta/send"
+              : "/api/whatsapp/send", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -636,7 +641,9 @@ export function MessageThread({
       onNewMessage(optimisticMsg);
 
       try {
-        const res = await fetch("/api/whatsapp/send", {
+        const res = await fetch(conversation.channel && conversation.channel !== "whatsapp"
+              ? "/api/meta/send"
+              : "/api/whatsapp/send", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -714,7 +721,9 @@ export function MessageThread({
       onNewMessage(optimisticMsg);
 
       try {
-        const res = await fetch("/api/whatsapp/send", {
+        const res = await fetch(conversation.channel && conversation.channel !== "whatsapp"
+              ? "/api/meta/send"
+              : "/api/whatsapp/send", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -930,7 +939,9 @@ export function MessageThread({
     );
   }
 
-  const displayName = contact.name || contact.phone;
+  const displayName = channelDisplayName(contact, t("unknown"));
+  const channel = conversation.channel ?? contact.channel ?? "whatsapp";
+  const isWhatsAppChannel = channel === "whatsapp";
   const messageGroups = groupMessagesByDate(messages);
   const currentStatus = STATUS_OPTIONS.find(
     (s) => s.value === conversation.status
@@ -950,7 +961,14 @@ export function MessageThread({
     // clipped and the hover toolbar overlaps the Tags panel. Letting the
     // root shrink lets the bubbles' break-words / max-w caps apply.
     // Issue #257.
-    <div className={cn("flex min-w-0 flex-1 flex-col", DOODLE_BG_CLASSES)}>
+    <div
+      className={cn(
+        "flex min-w-0 flex-1 flex-col",
+        DOODLE_BG_CLASSES,
+        channel === "instagram" && "bg-pink-50/40 dark:bg-pink-950/10",
+        channel === "messenger" && "bg-sky-50/40 dark:bg-sky-950/10",
+      )}
+    >
       {/* Header — solid card surface sits on top of the doodle so the
           name/avatar/dropdowns stay legible. */}
       <div className="flex items-center justify-between gap-2 border-b border-border bg-card px-3 py-2 sm:px-4 lg:py-3">
@@ -976,14 +994,29 @@ export function MessageThread({
             className="flex-shrink-0"
           />
           <div className="min-w-0">
-            <h2 className="truncate text-sm font-semibold text-foreground">{displayName}</h2>
-            <p className="hidden truncate text-xs text-muted-foreground lg:block">{contact.phone}</p>
+            <h2 className="flex min-w-0 items-center gap-1.5 truncate text-sm font-semibold text-foreground">
+              <span className="truncate">{displayName}</span>
+              <ChannelBadge channel={channel} />
+            </h2>
+            {contact.phone ? (
+              <p className="hidden truncate text-xs text-muted-foreground lg:block">{contact.phone}</p>
+            ) : (
+              <p className="hidden truncate text-xs text-muted-foreground lg:block">
+                {channel === "instagram"
+                  ? "Instagram"
+                  : channel === "messenger"
+                    ? "Messenger"
+                    : ""}
+              </p>
+            )}
           </div>
+          {isWhatsAppChannel && (
           <CustomerPaidBadges
             waCommercePaidAt={contact.wa_commerce_paid_at}
             shopifyPaidAt={contact.shopify_paid_at}
             className="hidden shrink-0 lg:inline-flex"
           />
+          )}
           {messages.length > 0 && (
             <SessionWindowBadge
               expiresAt={expiresAt}
@@ -1272,9 +1305,11 @@ export function MessageThread({
         ) : messages.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-12">
             <p className="text-sm text-muted-foreground">{t("noMessagesYet")}</p>
+            {isWhatsAppChannel && (
             <p className="text-xs text-muted-foreground">
               {t("sendTemplateHint")}
             </p>
+            )}
           </div>
         ) : (
           <div className="space-y-4">
@@ -1350,6 +1385,7 @@ export function MessageThread({
         onSendMedia={handleSendMedia}
         onSendInteractive={handleSendInteractive}
         onOpenTemplates={handleOpenTemplates}
+        hideWhatsAppTools={!isWhatsAppChannel}
         replyTo={replyTo}
         onClearReply={handleClearReply}
       />

@@ -1,9 +1,13 @@
 export type ConversationStatus = 'open' | 'pending' | 'closed';
 
+export type ChannelType = 'whatsapp' | 'messenger' | 'instagram';
+
 export type MobileConversationContact = {
   id: string;
-  phone: string;
+  phone: string | null;
   name: string | null;
+  channel?: ChannelType;
+  channel_user_id?: string | null;
   email: string | null;
   company: string | null;
   avatar_url: string | null;
@@ -12,6 +16,7 @@ export type MobileConversationContact = {
 
 export type MobileConversation = {
   id: string;
+  channel?: ChannelType;
   status: ConversationStatus;
   assigned_agent_id: string | null;
   last_message_text: string | null;

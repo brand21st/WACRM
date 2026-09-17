@@ -35,6 +35,7 @@ export function serializeMobileConversation(
   const c = conv.contact;
   return {
     id: conv.id,
+    channel: conv.channel ?? conv.contact?.channel ?? 'whatsapp',
     status: conv.status,
     assigned_agent_id: conv.assigned_agent_id ?? null,
     last_message_text: conv.last_message_text ?? null,
@@ -48,6 +49,8 @@ export function serializeMobileConversation(
       ? {
           id: c.id,
           phone: c.phone,
+          channel: c.channel ?? conv.channel ?? 'whatsapp',
+          channel_user_id: c.channel_user_id ?? null,
           name: c.name ?? null,
           email: c.email ?? null,
           company: c.company ?? null,

@@ -56,18 +56,53 @@ vi.mock('@supabase/supabase-js', () => ({
         case 'whatsapp_config':
           return {
             select: () => ({
-              eq: () =>
-                Promise.resolve({
-                  data: [
-                    {
-                      account_id: 'acc-1',
-                      user_id: 'user-1',
-                      access_token: 'enc',
-                      mirror_inbound_media: h.state.mirrorInboundMedia,
-                    },
-                  ],
-                  error: null,
+              eq: () => {
+                const rows = [
+                  {
+                    account_id: 'acc-1',
+                    user_id: 'user-1',
+                    access_token: 'enc',
+                    phone_number_id: 'PNID-1',
+                    mirror_inbound_media: h.state.mirrorInboundMedia,
+                  },
+                ]
+                return {
+                  then: (
+                    resolve: (value: { data: typeof rows; error: null }) => unknown,
+                  ) => Promise.resolve({ data: rows, error: null }).then(resolve),
+                  single: () =>
+                    Promise.resolve({ data: rows[0], error: null }),
+                }
+              },
+              not: () => Promise.resolve({ data: [], error: null }),
+            }),
+          }
+        case 'meta_page_connections':
+          return {
+            select: () => ({
+              not: () => Promise.resolve({ data: [], error: null }),
+              eq: () => ({
+                maybeSingle: () => Promise.resolve({ data: null, error: null }),
+              }),
+            }),
+          }
+        case 'contacts':
+          return {
+            select: () => ({
+              eq: () => ({
+                eq: () => ({
+                  maybeSingle: () =>
+                    Promise.resolve({
+                      data: {
+                        id: 'contact-1',
+                        phone: '+15551234567',
+                        channel: 'whatsapp',
+                        channel_user_id: '15551234567',
+                      },
+                      error: null,
+                    }),
                 }),
+              }),
             }),
           }
         case 'conversations':
@@ -161,6 +196,7 @@ vi.mock('@supabase/supabase-js', () => ({
             update: () => ({
               eq: () => Promise.resolve({ error: null }),
             }),
+            insert: () => Promise.resolve({ error: null }),
           }
         default:
           throw new Error(`unexpected table: ${table}`)
@@ -199,6 +235,7 @@ vi.mock('@/lib/whatsapp/encryption', () => ({
 vi.mock('@/lib/whatsapp/meta-api', () => ({
   getMediaUrl: vi.fn(),
   downloadMedia: vi.fn(),
+  sendTextMessage: vi.fn(async () => ({ messageId: 'wamid.ACK' })),
 }))
 vi.mock('@/lib/contacts/dedupe', () => ({
   findExistingContact: vi.fn(async () => ({

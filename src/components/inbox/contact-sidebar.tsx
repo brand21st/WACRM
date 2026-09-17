@@ -16,6 +16,7 @@ import {
   Plus,
 } from "lucide-react";
 import { CustomerPaidBadges } from "./customer-paid-badges";
+import { ChannelBadge, channelDisplayName } from "./channel-badge";
 import { ContactAvatarEditor } from "@/components/contacts/contact-avatar";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -141,7 +142,8 @@ export function ContactSidebar({
     );
   }
 
-  const displayName = contact.name || contact.phone;
+  const displayName = channelDisplayName(contact, tThread("unknown"));
+  const channel = contact.channel ?? "whatsapp";
   const lockedLanguage =
     typeof aiMemory?.facts?.language === "string"
       ? aiMemory.facts.language.trim()
@@ -172,16 +174,18 @@ export function ContactSidebar({
                 })
               }
             />
-            <h3 className="mt-3 text-sm font-semibold text-foreground">
-              {displayName}
+            <h3 className="mt-3 flex items-center justify-center gap-1.5 text-sm font-semibold text-foreground">
+              <span className="truncate">{displayName}</span>
+              <ChannelBadge channel={channel} />
             </h3>
             {contact.company && (
               <p className="text-xs text-muted-foreground">{contact.company}</p>
             )}
           </div>
 
-          {/* Phone */}
+          {/* Phone / channel identity */}
           <div className="mt-4 space-y-2">
+            {contact.phone ? (
             <button
               onClick={handleCopyPhone}
               className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted"
@@ -194,6 +198,13 @@ export function ContactSidebar({
                 <Copy className="h-3 w-3 text-muted-foreground" />
               )}
             </button>
+            ) : (
+              <div className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-muted-foreground">
+                <span className="flex-1 text-left">
+                  {channel === "instagram" ? "Instagram" : channel === "messenger" ? "Messenger" : ""}
+                </span>
+              </div>
+            )}
 
             {contact.email && (
               <div className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-muted-foreground">

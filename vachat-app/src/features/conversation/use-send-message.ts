@@ -3,14 +3,15 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { sendWhatsAppMessage } from '@/api/whatsapp';
 import { messagesQueryKey } from '@/features/conversation/use-messages';
 import { stampOptimisticMessageId } from '@/features/realtime/patch-messages';
+import type { ChannelType } from '@/types/conversations';
 import type { Message, SendMessageBody } from '@/types/messages';
 
-export function useSendMessage(conversationId: string) {
+export function useSendMessage(conversationId: string, channel: ChannelType = 'whatsapp') {
   const queryClient = useQueryClient();
 
   return useMutation({
     mutationFn: (body: Omit<SendMessageBody, 'conversation_id'>) =>
-      sendWhatsAppMessage({ ...body, conversation_id: conversationId }),
+      sendWhatsAppMessage({ ...body, conversation_id: conversationId }, channel),
     onMutate: async (body) => {
       await queryClient.cancelQueries({ queryKey: messagesQueryKey(conversationId) });
       const previous = queryClient.getQueryData<Message[]>(messagesQueryKey(conversationId));

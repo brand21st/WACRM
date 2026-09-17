@@ -51,6 +51,24 @@ export async function getWebhookAppSecrets(): Promise<string[]> {
         }
       }
     }
+
+    const { data: pageRows, error: pageErr } = await supabaseAdmin()
+      .from('meta_page_connections')
+      .select('meta_app_secret')
+      .not('meta_app_secret', 'is', null)
+    if (pageErr) {
+      console.warn('[webhook] failed to load page app secrets:', pageErr.message)
+    } else {
+      for (const row of pageRows ?? []) {
+        if (!row.meta_app_secret) continue
+        try {
+          const decrypted = decrypt(row.meta_app_secret)
+          if (decrypted) secrets.add(decrypted)
+        } catch {
+          // skip bad tenant secrets
+        }
+      }
+    }
   } catch (err) {
     console.warn('[webhook] app-secret lookup failed:', err)
   }

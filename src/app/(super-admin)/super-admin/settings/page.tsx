@@ -40,6 +40,14 @@ type GooglePayload = {
   redirect_uri: string;
 };
 
+type MetaPayload = {
+  facebook_app_id: string;
+  facebook_login_config_id: string;
+  has_facebook_app_secret: boolean;
+  configured: boolean;
+  source: Source;
+};
+
 export default function SuperAdminSettingsPage() {
   const t = useTranslations("SuperAdmin.settings");
   const appearanceT = useTranslations("SuperAdmin.appearance");
@@ -61,6 +69,14 @@ export default function SuperAdminSettingsPage() {
   const [googleSecret, setGoogleSecret] = useState("");
   const [googleSecretEdited, setGoogleSecretEdited] = useState(false);
   const [clearGoogleSecret, setClearGoogleSecret] = useState(false);
+  const [metaLoading, setMetaLoading] = useState(true);
+  const [metaSaving, setMetaSaving] = useState(false);
+  const [metaPayload, setMetaPayload] = useState<MetaPayload | null>(null);
+  const [metaAppId, setMetaAppId] = useState("");
+  const [metaConfigId, setMetaConfigId] = useState("");
+  const [metaSecret, setMetaSecret] = useState("");
+  const [metaSecretEdited, setMetaSecretEdited] = useState(false);
+  const [clearMetaSecret, setClearMetaSecret] = useState(false);
 
   const origin = typeof window !== "undefined" ? window.location.origin : "";
   const webhookUrl = origin ? `${origin}/api/billing/razorpay/webhook` : "";
@@ -120,6 +136,32 @@ export default function SuperAdminSettingsPage() {
   useEffect(() => {
     void loadGoogle().finally(() => setGoogleLoading(false));
   }, [loadGoogle]);
+
+  const applyMeta = useCallback((d: MetaPayload) => {
+    setMetaPayload(d);
+    setMetaAppId(d.facebook_app_id ?? "");
+    setMetaConfigId(d.facebook_login_config_id ?? "");
+    setMetaSecret("");
+    setMetaSecretEdited(false);
+    setClearMetaSecret(false);
+  }, []);
+
+  const loadMeta = useCallback(async () => {
+    const res = await fetch("/api/super-admin/meta");
+    const d = (await res.json().catch(() => ({}))) as MetaPayload & {
+      error?: string;
+    };
+    if (!res.ok) {
+      toast.error(d.error ?? t("metaLoadFailed"));
+      return false;
+    }
+    applyMeta(d);
+    return true;
+  }, [applyMeta, t]);
+
+  useEffect(() => {
+    void loadMeta().finally(() => setMetaLoading(false));
+  }, [loadMeta]);
 
   async function save() {
     setSaving(true);
@@ -215,6 +257,36 @@ export default function SuperAdminSettingsPage() {
     if (!googleRedirect) return;
     await navigator.clipboard.writeText(googleRedirect);
     toast.success(t("googleCopied"));
+  }
+
+  async function saveMeta() {
+    setMetaSaving(true);
+    try {
+      const res = await fetch("/api/super-admin/meta", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          facebook_app_id: metaAppId,
+          facebook_login_config_id: metaConfigId,
+          facebook_app_secret: clearMetaSecret
+            ? null
+            : metaSecretEdited
+              ? metaSecret
+              : undefined,
+        }),
+      });
+      const data = (await res.json().catch(() => ({}))) as MetaPayload & {
+        error?: string;
+      };
+      if (!res.ok) {
+        toast.error(data.error ?? t("metaSaveFailed"));
+        return;
+      }
+      toast.success(t("metaSaved"));
+      applyMeta(data);
+    } finally {
+      setMetaSaving(false);
+    }
   }
 
   const source = payload?.source ?? "none";
@@ -440,6 +512,89 @@ export default function SuperAdminSettingsPage() {
 
             <Button onClick={() => void saveGoogle()} disabled={googleSaving}>
               {googleSaving ? t("saving") : t("save")}
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {metaLoading ? (
+        <p className="text-muted-foreground">{t("loading")}</p>
+      ) : (
+        <Card>
+          <CardHeader>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <CardTitle className="text-base">{t("metaTitle")}</CardTitle>
+                <CardDescription>{t("metaDesc")}</CardDescription>
+              </div>
+              <StatusBadge
+                configured={Boolean(metaPayload?.configured)}
+                source={metaPayload?.source ?? "none"}
+                mode={null}
+                configuredLabel={t("statusConfigured")}
+                envLabel={t("statusEnv")}
+                missingLabel={t("statusMissing")}
+                testLabel={t("modeTest")}
+                liveLabel={t("modeLive")}
+              />
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-xs text-muted-foreground">{t("metaHint")}</p>
+            {metaPayload?.source === "env" ? (
+              <p className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+                {t("metaEnvFallback")}
+              </p>
+            ) : null}
+
+            <div className="space-y-2">
+              <Label htmlFor="meta-app-id">{t("metaAppId")}</Label>
+              <Input
+                id="meta-app-id"
+                value={metaAppId}
+                onChange={(e) => setMetaAppId(e.target.value)}
+                placeholder="2367862230404408"
+                autoComplete="off"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="meta-config-id">{t("metaConfigId")}</Label>
+              <Input
+                id="meta-config-id"
+                value={metaConfigId}
+                onChange={(e) => setMetaConfigId(e.target.value)}
+                placeholder=""
+                autoComplete="off"
+              />
+            </div>
+
+            <SecretField
+              id="meta-app-secret"
+              label={t("metaAppSecret")}
+              saved={Boolean(metaPayload?.has_facebook_app_secret)}
+              pendingClear={clearMetaSecret}
+              value={metaSecret}
+              savedLabel={t("savedStatus")}
+              notSetLabel={t("notSet")}
+              willClearLabel={t("willClear")}
+              keepPlaceholder={t("keepPlaceholder")}
+              pastePlaceholder={t("pastePlaceholder")}
+              clearLabel={t("clear")}
+              onChange={(v) => {
+                setMetaSecret(v);
+                setMetaSecretEdited(true);
+                setClearMetaSecret(false);
+              }}
+              onClear={() => {
+                setMetaSecret("");
+                setMetaSecretEdited(false);
+                setClearMetaSecret(true);
+              }}
+            />
+
+            <Button onClick={() => void saveMeta()} disabled={metaSaving}>
+              {metaSaving ? t("saving") : t("save")}
             </Button>
           </CardContent>
         </Card>

@@ -46,6 +46,6 @@ describe('getWebhookAppSecrets', () => {
   it('returns cached secrets within the TTL', async () => {
     await getWebhookAppSecrets()
     await getWebhookAppSecrets()
-    expect(mockFrom).toHaveBeenCalledTimes(1)
+    expect(mockFrom).toHaveBeenCalledTimes(2)
   })
 })

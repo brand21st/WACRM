@@ -6,6 +6,7 @@ import { ContactAvatar } from '@/components/contact-avatar';
 import { ThemedText } from '@/components/themed-text';
 import { Spacing } from '@/constants/theme';
 import {
+  conversationChannel,
   conversationDisplayName,
   isManualConversation,
   isAiConversation,
@@ -23,6 +24,7 @@ type ConversationRowProps = {
 function ConversationRowComponent({ conversation, fullAgentOn, onPress }: ConversationRowProps) {
   const theme = useTheme();
   const name = conversationDisplayName(conversation);
+  const channel = conversationChannel(conversation);
   const showManual = isManualConversation(conversation, fullAgentOn);
   const showAi = isAiConversation(conversation, fullAgentOn);
   const unread = conversation.unread_count > 0 ? Math.min(conversation.unread_count, 99) : 0;
@@ -57,6 +59,18 @@ function ConversationRowComponent({ conversation, fullAgentOn, onPress }: Conver
             <ThemedText numberOfLines={1} style={[styles.name, { color: theme.text }]}>
               {name}
             </ThemedText>
+            {channel !== 'whatsapp' && (
+              <ThemedText
+                style={[
+                  styles.channelBadge,
+                  {
+                    color: channel === 'instagram' ? '#DB2777' : '#0284C7',
+                    backgroundColor: channel === 'instagram' ? '#FCE7F3' : '#E0F2FE',
+                  },
+                ]}>
+                {channel === 'instagram' ? 'IG' : 'MS'}
+              </ThemedText>
+            )}
             {isVip && (
               <SymbolView name={{ android: 'verified', ios: 'checkmark.seal.fill', web: 'verified' }} size={14} tintColor={theme.accent} style={styles.vip} />
             )}
@@ -143,6 +157,15 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '600',
     flexShrink: 1,
+  },
+  channelBadge: {
+    borderRadius: 4,
+    flexShrink: 0,
+    fontSize: 10,
+    fontWeight: '700',
+    overflow: 'hidden',
+    paddingHorizontal: 4,
+    paddingVertical: 1,
   },
   vip: {
     flexShrink: 0,

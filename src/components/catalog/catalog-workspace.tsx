@@ -7,6 +7,8 @@ import { useTranslations } from 'next-intl';
 import { toast } from 'sonner';
 import {
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   Circle,
   Loader2,
   Package,
@@ -16,7 +18,7 @@ import {
 import { useCan } from '@/hooks/use-can';
 import { GatedButton } from '@/components/ui/gated-button';
 import { Badge } from '@/components/ui/badge';
-import { buttonVariants } from '@/components/ui/button';
+import { Button, buttonVariants } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import {
@@ -61,6 +63,8 @@ interface CatalogSetup {
 }
 
 type StatusFilter = 'all' | 'active' | 'draft' | 'archived';
+
+const PRODUCT_PAGE_SIZE = 20;
 
 interface CatalogSetListItem {
   id: string;
@@ -108,6 +112,7 @@ export function CatalogWorkspace({
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [status, setStatus] = useState<StatusFilter>('all');
+  const [page, setPage] = useState(0);
   const [importing, setImporting] = useState(false);
   const [savingMeta, setSavingMeta] = useState(false);
   const [syncingMeta, setSyncingMeta] = useState(false);
@@ -130,6 +135,10 @@ export function CatalogWorkspace({
     const timer = window.setTimeout(() => setDebouncedSearch(search.trim()), 300);
     return () => window.clearTimeout(timer);
   }, [search]);
+
+  useEffect(() => {
+    setPage(0);
+  }, [debouncedSearch, status]);
 
   const applySetup = useCallback((data: CatalogSetup) => {
     setSetup(data);
@@ -173,7 +182,8 @@ export function CatalogWorkspace({
       const params = new URLSearchParams();
       if (debouncedSearch) params.set('q', debouncedSearch);
       if (status !== 'all') params.set('status', status);
-      params.set('limit', '100');
+      params.set('limit', String(PRODUCT_PAGE_SIZE));
+      params.set('offset', String(page * PRODUCT_PAGE_SIZE));
       const res = await fetch(`/api/catalog?${params.toString()}`, {
         cache: 'no-store',
       });
@@ -188,13 +198,16 @@ export function CatalogWorkspace({
         throw new Error(typeof data.error === 'string' ? data.error : t('loadFailed'));
       }
       setProducts(Array.isArray(data.products) ? data.products : []);
-      setTotal(typeof data.total === 'number' ? data.total : 0);
+      const nextTotal = typeof data.total === 'number' ? data.total : 0;
+      setTotal(nextTotal);
+      const lastPage = Math.max(0, Math.ceil(nextTotal / PRODUCT_PAGE_SIZE) - 1);
+      if (page > lastPage) setPage(lastPage);
     } catch (err) {
       setLoadError(err instanceof Error ? err.message : t('loadFailed'));
     } finally {
       setListLoading(false);
     }
-  }, [debouncedSearch, status, t]);
+  }, [debouncedSearch, page, status, t]);
 
   const loadMetaCatalogs = useCallback(async () => {
     setMetaCatalogsLoading(true);
@@ -252,6 +265,7 @@ export function CatalogWorkspace({
         return;
       }
       toast.success(t('imported', { count: data.count ?? 0 }));
+      setPage(0);
       await Promise.all([loadSetup(), loadProducts(), loadSets()]);
     } catch {
       toast.error(t('importFailed'));
@@ -331,6 +345,9 @@ export function CatalogWorkspace({
 
   const shopifyReady = setup?.shopify_connected === true;
   const hasProducts = (setup?.product_count ?? total) > 0;
+  const pageCount = Math.max(1, Math.ceil(total / PRODUCT_PAGE_SIZE));
+  const showingFrom = total === 0 ? 0 : page * PRODUCT_PAGE_SIZE + 1;
+  const showingTo = Math.min(total, (page + 1) * PRODUCT_PAGE_SIZE);
   const metaSelection = selectionFromPicker({
     catalogs: metaCatalogs,
     selectedIds: metaCatalogIds,
@@ -757,6 +774,40 @@ export function CatalogWorkspace({
                 ))}
               </TableBody>
             </Table>
+            <div className="flex flex-wrap items-center justify-between gap-2 border-t px-4 py-3 text-sm text-muted-foreground">
+              <p>
+                {t('showingPagination', {
+                  start: showingFrom,
+                  end: showingTo,
+                  total,
+                })}
+              </p>
+              <div className="flex items-center gap-1">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon-sm"
+                  disabled={page <= 0 || listLoading}
+                  onClick={() => setPage((p) => Math.max(0, p - 1))}
+                  aria-label={t('prevPage')}
+                >
+                  <ChevronLeft />
+                </Button>
+                <span className="min-w-16 text-center tabular-nums">
+                  {t('pageCount', { page: page + 1, total: pageCount })}
+                </span>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon-sm"
+                  disabled={page >= pageCount - 1 || listLoading}
+                  onClick={() => setPage((p) => p + 1)}
+                  aria-label={t('nextPage')}
+                >
+                  <ChevronRight />
+                </Button>
+              </div>
+            </div>
           </div>
         )}
       </div>

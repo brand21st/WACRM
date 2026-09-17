@@ -94,7 +94,20 @@ export function SettingsRail({
                   )}
                 >
                   <Icon className="size-4 shrink-0" />
-                  <span className="flex-1">{t(`sections.${s}`)}</span>
+                  <span className="flex min-w-0 flex-1 items-center gap-1.5">
+                    <span className="truncate">{t(`sections.${s}`)}</span>
+                    {meta.beta ? (
+                      <span
+                        aria-label={t('beta')}
+                        className={cn(
+                          'shrink-0 rounded-full border px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider',
+                          'border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300',
+                        )}
+                      >
+                        {t('beta')}
+                      </span>
+                    ) : null}
+                  </span>
                   {hints?.[s] != null ? (
                     <span
                       className={cn(

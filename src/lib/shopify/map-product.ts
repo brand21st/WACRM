@@ -1,4 +1,5 @@
 import { checkoutPermalink, cartPermalink, productPageUrl } from './permalinks'
+import { jsonSafeText } from './json-safe'
 import type { ShopifyCollectionHit, ShopifyProductHit, ShopifyVariantHit } from './types'
 
 export interface ShopifyGqlVariant {
@@ -32,8 +33,8 @@ export function mapGqlProduct(
   primaryDomain: string | null,
   currency: string | null,
 ): ShopifyProductHit | null {
-  const handle = (node.handle || '').trim()
-  const title = (node.title || '').trim()
+  const handle = jsonSafeText(node.handle || '').trim()
+  const title = jsonSafeText(node.title || '').trim()
   if (!node.id || !handle || !title) return null
 
   const variants: ShopifyVariantHit[] = (node.variants?.nodes ?? [])
@@ -52,7 +53,7 @@ export function mapGqlProduct(
     id: node.id,
     handle,
     title,
-    description: (node.description || '').trim(),
+    description: jsonSafeText(node.description || '').trim(),
     imageUrl: node.featuredImage?.url?.trim() || imageUrls[0] || null,
     imageUrls: imageUrls.length > 0 ? imageUrls : undefined,
     productUrl,
@@ -103,14 +104,17 @@ function mapGqlVariant(v: ShopifyGqlVariant): ShopifyVariantHit | null {
   return {
     id: v.id || variantId,
     variantId: variantId || numericIdFromGid(v.id || ''),
-    title: (v.title || '').trim() || 'Default',
-    sku: v.sku?.trim() || null,
+    title: jsonSafeText(v.title || '').trim() || 'Default',
+    sku: jsonSafeText(v.sku || '').trim() || null,
     price: v.price != null ? String(v.price) : null,
     compareAtPrice: v.compareAtPrice != null ? String(v.compareAtPrice) : null,
     available: v.availableForSale !== false,
     options: (v.selectedOptions ?? [])
       .filter((o) => o?.name && o?.value)
-      .map((o) => ({ name: o.name!, value: o.value! })),
+      .map((o) => ({
+        name: jsonSafeText(o.name!),
+        value: jsonSafeText(o.value!),
+      })),
   }
 }
 

@@ -22,6 +22,7 @@ const PUBLIC_API_PREFIXES = [
   '/api/health',
   '/api/geo/country',
   '/api/whatsapp/webhook',
+  '/api/meta/webhook',
   '/api/shopify/webhook',
   '/api/whatsapp/broadcast/cron',
   '/api/automations/cron',

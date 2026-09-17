@@ -314,15 +314,20 @@ describe('catalog product webhooks', () => {
         ],
       },
     })
-    const insert = vi.fn().mockResolvedValue({ error: null })
+    const upsert = vi.fn().mockResolvedValue({ error: null })
     const db = {
       from: vi.fn((table: string) => {
         if (table === 'shopify_catalog_products') {
           return {
-            delete: vi.fn().mockReturnValue({
-              eq: vi.fn().mockResolvedValue({ error: null }),
+            upsert,
+            select: vi.fn().mockReturnValue({
+              eq: vi.fn().mockResolvedValue({ data: [], error: null }),
             }),
-            insert,
+            delete: vi.fn().mockReturnValue({
+              eq: vi.fn().mockReturnValue({
+                in: vi.fn().mockResolvedValue({ error: null }),
+              }),
+            }),
           }
         }
         return {
@@ -335,7 +340,7 @@ describe('catalog product webhooks', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const result = await syncCatalog(db, STORE)
     expect(result.count).toBe(1)
-    expect(insert).toHaveBeenCalled()
+    expect(upsert).toHaveBeenCalled()
     expect(replaceImportedShopifyProducts).toHaveBeenCalled()
     expect(syncShopifyProductKnowledge).toHaveBeenCalledWith(
       expect.anything(),

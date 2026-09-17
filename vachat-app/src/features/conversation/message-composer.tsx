@@ -28,6 +28,7 @@ type MessageComposerProps = {
   replyTo: Message | null;
   onClearReply: () => void;
   sending: boolean;
+  hideWhatsAppTools?: boolean;
   onOpenCatalog: () => void;
   onSend: (payload: {
     message_type: SendMessageType;
@@ -55,6 +56,7 @@ export function MessageComposer({
   replyTo,
   onClearReply,
   sending,
+  hideWhatsAppTools = false,
   onOpenCatalog,
   onSend,
 }: MessageComposerProps) {
@@ -126,11 +128,11 @@ export function MessageComposer({
   async function onPick(choice: AttachmentChoice) {
     setAttachOpen(false);
     if (choice === 'catalog') {
-      onOpenCatalog();
+      if (!hideWhatsAppTools) onOpenCatalog();
       return;
     }
     if (choice === 'quick-replies') {
-      setTemplatesOpen(true);
+      if (!hideWhatsAppTools) setTemplatesOpen(true);
       return;
     }
     if (locked || windowExpired) return;
@@ -252,25 +254,29 @@ export function MessageComposer({
     return (
       <View style={[styles.lockedCol, { backgroundColor: theme.surface, borderTopColor: theme.separator }]}>
         <ThemedText type="small" style={{ color: theme.manual }}>
-          24h window expired
+          The customer needs to message you again
         </ThemedText>
-        <Pressable
-          accessibilityRole="button"
-          disabled={busy}
-          onPress={() => setTemplatesOpen(true)}
-          style={({ pressed }) => [
-            styles.templateBtn,
-            { backgroundColor: theme.accent, opacity: pressed || busy ? 0.75 : 1 },
-          ]}>
-          <ThemedText type="smallBold" style={{ color: theme.unreadOnAccent }}>
-            Send template
-          </ThemedText>
-        </Pressable>
-        <TemplateSheet
-          visible={templatesOpen}
-          onClose={() => setTemplatesOpen(false)}
-          onSend={sendTemplate}
-        />
+        {!hideWhatsAppTools && (
+          <>
+            <Pressable
+              accessibilityRole="button"
+              disabled={busy}
+              onPress={() => setTemplatesOpen(true)}
+              style={({ pressed }) => [
+                styles.templateBtn,
+                { backgroundColor: theme.accent, opacity: pressed || busy ? 0.75 : 1 },
+              ]}>
+              <ThemedText type="smallBold" style={{ color: theme.unreadOnAccent }}>
+                Send template
+              </ThemedText>
+            </Pressable>
+            <TemplateSheet
+              visible={templatesOpen}
+              onClose={() => setTemplatesOpen(false)}
+              onSend={sendTemplate}
+            />
+          </>
+        )}
       </View>
     );
   }
@@ -375,10 +381,17 @@ export function MessageComposer({
               </>
             )}
           </View>
-          {attachOpen ? <AttachmentSheet onPick={(choice) => void onPick(choice)} /> : null}
+          {attachOpen ? (
+            <AttachmentSheet
+              hideWhatsAppTools={hideWhatsAppTools}
+              onPick={(choice) => void onPick(choice)}
+            />
+          ) : null}
         </Animated.View>
       )}
-      <TemplateSheet visible={templatesOpen} onClose={() => setTemplatesOpen(false)} onSend={sendTemplate} />
+      {!hideWhatsAppTools && (
+        <TemplateSheet visible={templatesOpen} onClose={() => setTemplatesOpen(false)} onSend={sendTemplate} />
+      )}
     </View>
   );
 }

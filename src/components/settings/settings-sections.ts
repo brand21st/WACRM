@@ -6,6 +6,7 @@ import {
   KeyRound,
   LayoutGrid,
   Palette,
+  MessageCircle,
   PlugZap,
   Shield,
   ShoppingBag,
@@ -31,6 +32,7 @@ export const SETTINGS_SECTIONS = [
   'security',
   'appearance',
   'whatsapp',
+  'instagram',
   'shopify',
   'integrations',
   'knowledge',
@@ -54,6 +56,8 @@ export interface SectionMeta {
   icon: LucideIcon;
   group: 'top' | 'account' | 'workspace';
   adminOnly?: boolean;
+  /** Informational chip on the rail / overview tile. */
+  beta?: boolean;
 }
 
 export const SECTION_META: Record<SettingsSection, SectionMeta> = {
@@ -62,6 +66,13 @@ export const SECTION_META: Record<SettingsSection, SectionMeta> = {
   security: { id: 'security', label: 'Login & security', icon: Shield, group: 'account' },
   appearance: { id: 'appearance', label: 'Appearance', icon: Palette, group: 'account' },
   whatsapp: { id: 'whatsapp', label: 'WhatsApp', icon: PlugZap, group: 'workspace' },
+  instagram: {
+    id: 'instagram',
+    label: 'Instagram & Messenger',
+    icon: MessageCircle,
+    group: 'workspace',
+    beta: true,
+  },
   shopify: { id: 'shopify', label: 'Shopify', icon: ShoppingBag, group: 'workspace' },
   integrations: { id: 'integrations', label: 'Integrations', icon: Blocks, group: 'workspace' },
   knowledge: { id: 'knowledge', label: 'Knowledge base', icon: BookOpen, group: 'workspace' },

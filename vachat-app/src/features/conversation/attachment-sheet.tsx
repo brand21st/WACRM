@@ -90,14 +90,18 @@ export const ATTACH_TILES: AttachTile[] = [
 
 type AttachmentSheetProps = {
   onPick: (choice: AttachmentChoice) => void;
+  hideWhatsAppTools?: boolean;
 };
 
-export function AttachmentSheet({ onPick }: AttachmentSheetProps) {
+export function AttachmentSheet({ onPick, hideWhatsAppTools = false }: AttachmentSheetProps) {
   const theme = useTheme();
+  const tiles = hideWhatsAppTools
+    ? ATTACH_TILES.filter((tile) => tile.id !== 'catalog')
+    : ATTACH_TILES;
 
   return (
     <View style={styles.grid}>
-      {ATTACH_TILES.map((tile) => (
+      {tiles.map((tile) => (
         <Pressable
           key={tile.id}
           accessibilityLabel={tile.label}

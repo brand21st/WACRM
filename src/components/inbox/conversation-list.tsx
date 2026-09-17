@@ -10,6 +10,7 @@ import {
 } from "@/lib/inbox/conversations";
 import { cn } from "@/lib/utils";
 import type { Conversation, ConversationStatus, Tag } from "@/types";
+import Link from "next/link";
 import { Search, ChevronDown, X } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { useTranslations } from "next-intl";
@@ -27,6 +28,8 @@ import { CustomerPaidBadges } from "./customer-paid-badges";
 import { useInboxAiAccountStatus } from "./use-inbox-ai-account-status";
 import { callListPreview } from "@/lib/calls/preview";
 import { ContactAvatar } from "@/components/contacts/contact-avatar";
+import { ChannelBadge, channelDisplayName } from "@/components/inbox/channel-badge";
+import type { ChannelType } from "@/types";
 
 interface ConversationListProps {
   activeConversationId: string | null;
@@ -50,7 +53,7 @@ const STATUS_COLORS: Record<ConversationStatus, string> = {
 
 
 
-type InboxFilter = ConversationStatus | "all" | "unread";
+type InboxFilter = ConversationStatus | "all" | "unread" | ChannelType;
 
 export function ConversationList({
   activeConversationId,
@@ -68,6 +71,9 @@ export function ConversationList({
     { label: t("filterOpen"), value: "open" },
     { label: t("filterPending"), value: "pending" },
     { label: t("filterClosed"), value: "closed" },
+    { label: t("filterWhatsapp"), value: "whatsapp" },
+    { label: t("filterInstagram"), value: "instagram" },
+    { label: t("filterMessenger"), value: "messenger" },
   ], [t]);
 
   const [search, setSearch] = useState("");
@@ -171,6 +177,8 @@ export function ConversationList({
 
     if (filter === "unread") {
       result = result.filter((c) => c.unread_count > 0);
+    } else if (filter === "whatsapp" || filter === "instagram" || filter === "messenger") {
+      result = result.filter((c) => (c.channel ?? c.contact?.channel ?? "whatsapp") === filter);
     } else if (filter !== "all") {
       result = result.filter((c) => c.status === filter);
     }
@@ -190,8 +198,9 @@ export function ConversationList({
       result = result.filter((c) => {
         const name = c.contact?.name?.toLowerCase() ?? "";
         const phone = c.contact?.phone?.toLowerCase() ?? "";
+        const handle = c.contact?.channel_user_id?.toLowerCase() ?? "";
         const lastMsg = c.last_message_text?.toLowerCase() ?? "";
-        return name.includes(q) || phone.includes(q) || lastMsg.includes(q);
+        return name.includes(q) || phone.includes(q) || handle.includes(q) || lastMsg.includes(q);
       });
     }
 
@@ -414,7 +423,21 @@ export function ConversationList({
           </div>
         ) : filtered.length === 0 ? (
           <div className="px-4 py-12 text-center">
-            <p className="text-sm text-muted-foreground">{t("noConversations")}</p>
+            <p className="text-sm text-muted-foreground">
+              {filter === "instagram"
+                ? t("noInstagram")
+                : filter === "messenger"
+                  ? t("noMessenger")
+                  : t("noConversations")}
+            </p>
+            {(filter === "instagram" || filter === "messenger") && (
+              <Link
+                href="/settings?tab=instagram"
+                className="mt-2 inline-block text-xs text-primary underline"
+              >
+                {t("connectMeta")}
+              </Link>
+            )}
           </div>
         ) : (
           <div className="flex flex-col">
@@ -452,7 +475,8 @@ function ConversationItem({
   t,
 }: ConversationItemProps) {
   const contact = conversation.contact;
-  const displayName = contact?.name || contact?.phone || t("unknown");
+  const displayName = channelDisplayName(contact ?? null, t("unknown"));
+  const channel = conversation.channel ?? contact?.channel ?? "whatsapp";
 
   const handleClick = useCallback(() => {
     onSelect(conversation);
@@ -487,11 +511,14 @@ function ConversationItem({
             <span className="truncate text-sm font-medium text-foreground">
               {displayName}
             </span>
+            <ChannelBadge channel={channel} />
+            {channel === "whatsapp" && (
             <CustomerPaidBadges
               waCommercePaidAt={contact?.wa_commerce_paid_at}
               shopifyPaidAt={contact?.shopify_paid_at}
               className="shrink-0"
             />
+            )}
             {fullAgentOn &&
               (conversation.ai_autoreply_disabled ||
                 conversation.assigned_agent_id) && (
@@ -504,15 +531,17 @@ function ConversationItem({
         </div>
         <div className="mt-0.5 flex items-center justify-between gap-2">
           <p className="truncate text-xs text-muted-foreground">
-            {callListPreview(conversation.last_message_text, {
-              incoming: t("callIncoming"),
-              missed: t("callMissed"),
-              completed: (duration) => t("callCompleted", { duration }),
-              completedUnknown: t("callCompletedUnknown"),
-              rejected: t("callRejected"),
-              failed: t("callFailed"),
-              inProgress: t("callInProgress"),
-            }) ||
+            {(channel === "whatsapp"
+              ? callListPreview(conversation.last_message_text, {
+                  incoming: t("callIncoming"),
+                  missed: t("callMissed"),
+                  completed: (duration) => t("callCompleted", { duration }),
+                  completedUnknown: t("callCompletedUnknown"),
+                  rejected: t("callRejected"),
+                  failed: t("callFailed"),
+                  inProgress: t("callInProgress"),
+                })
+              : null) ||
               conversation.last_message_text ||
               t("noMessagesYet")}
           </p>

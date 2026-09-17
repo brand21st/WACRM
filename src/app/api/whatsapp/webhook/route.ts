@@ -1,4 +1,4 @@
-import { NextResponse, after } from 'next/server'
+﻿import { NextResponse, after } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { decrypt, encrypt, isLegacyFormat } from '@/lib/whatsapp/encryption'
 import { getMediaUrl, downloadMedia } from '@/lib/whatsapp/meta-api'
@@ -6,28 +6,11 @@ import { mirrorInboundMedia } from '@/lib/whatsapp/mirror-inbound-media'
 import { MEDIA_MAX_BYTES } from '@/lib/storage/upload-media'
 import { normalizePhone } from '@/lib/whatsapp/phone-utils'
 import { findExistingContact, isUniqueViolation } from '@/lib/contacts/dedupe'
-import { reopenClosedConversation } from '@/lib/conversations/reopen'
 import { getWebhookAppSecrets } from '@/lib/whatsapp/webhook-app-secrets'
 import { verifyMetaWebhookSignature } from '@/lib/whatsapp/webhook-signature'
-import { runAutomationsForTrigger } from '@/lib/automations/engine'
-import { dispatchInboundToFlows } from '@/lib/flows/engine'
-import { dispatchInboundToAiReply } from '@/lib/ai/auto-reply'
-import { cancelConversationFollowUp } from '@/lib/ai/follow-up'
-import { isLanguagePickerReply } from '@/lib/ai/language-picker'
-import { loadAiConfig } from '@/lib/ai/config'
 import { loadAccountPlatformFlags } from '@/lib/ai/platform-settings'
-import { describeInboundImage } from '@/lib/ai/describe-inbound-image'
-import { sendPhotoWaitAck } from '@/lib/ai/photo-wait-ack'
-import { engineSendTypingIndicator } from '@/lib/flows/meta-send'
-import { loadShopifyConfig } from '@/lib/shopify/config'
 import {
-  completeCommerceAddressFromForm,
-  handleAddressConfirmationReply,
   handleAddressFormDeliveryFailure,
-  handleDiscountCodeReply,
-  handleInboundWhatsAppOrder,
-  handleReceiptEmailReply,
-  handleSavedAddressPickerReply,
 } from '@/lib/commerce/checkout'
 import {
   addressFormPreviewText,
@@ -43,16 +26,6 @@ import {
   handleWhatsAppPaymentStatus,
   isPaymentStatus,
 } from '@/lib/commerce/payment'
-import { transcribeInboundVoiceNote } from '@/lib/ai/transcribe-inbound'
-import { INBOUND_VOICE_PLACEHOLDER } from '@/lib/ai/voice'
-import { enqueueVoiceInboundJob } from '@/lib/ai/voice-inbound-jobs'
-import { markConversationLearningPending } from '@/lib/ai/intelligence/trigger-learning'
-import {
-  enqueueAiChatReply,
-  enqueueAiConversationAnalyze,
-  enqueueAiVoiceInbound,
-} from '@/lib/queue/enqueue'
-import { aiChatReplyJob, aiConversationAnalyzeJob } from '@/lib/queue/jobs'
 import { dispatchWebhookEvent } from '@/lib/webhooks/deliver'
 import { mapPool } from '@/lib/concurrency'
 import {
@@ -60,7 +33,7 @@ import {
   isTemplateWebhookField,
 } from '@/lib/whatsapp/template-webhook'
 import { handleCallsWebhook } from '@/lib/whatsapp/call-webhook'
-import { notifyAccountDevicesOfIncomingMessage } from '@/lib/notifications/expo-push'
+import { dispatchInboundFanout } from '@/lib/inbox/inbound-fanout'
 
 // The `after()` callback in POST runs within this route's max duration.
 // Inbound processing can fan out to per-media Meta verification calls, so
@@ -97,7 +70,7 @@ interface WhatsAppMessage {
   /**
    * Set when the customer taps a button or list row on an interactive
    * message we sent. `button_reply.id` / `list_reply.id` is whatever id
-   * we put on the button/row when sending — the Flows engine uses this
+   * we put on the button/row when sending â€” the Flows engine uses this
    * to advance the per-contact run.
    */
   interactive?: {
@@ -113,7 +86,7 @@ interface WhatsAppMessage {
   }
   /**
    * Set when the customer taps a QUICK_REPLY button on a *template*
-   * message — a broadcast, or any template send. Meta uses a different
+   * message â€” a broadcast, or any template send. Meta uses a different
    * envelope from `interactive` above: `type: 'button'`, the label in
    * `button.text`, and the payload configured on the template's button
    * in `button.payload` (Meta's own template editor doesn't ask for a
@@ -204,7 +177,7 @@ export async function GET(request: Request) {
     // Env fallback so Meta can verify the callback even when the
     // service-role DB lookup is unavailable (missing key, empty
     // whatsapp_config, etc.). Must match the Verify Token set in
-    // Meta App Dashboard → WhatsApp → Configuration.
+    // Meta App Dashboard â†’ WhatsApp â†’ Configuration.
     const envVerifyToken = process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN
     if (envVerifyToken && envVerifyToken === verifyToken) {
       return new Response(challenge, {
@@ -239,7 +212,7 @@ export async function GET(request: Request) {
           break
         }
       } catch {
-        // Malformed / wrong-key token row — skip it and keep checking.
+        // Malformed / wrong-key token row â€” skip it and keep checking.
       }
     }
 
@@ -289,7 +262,7 @@ export async function POST(request: Request) {
 
   const appSecrets = await getWebhookAppSecrets()
   if (!verifyMetaWebhookSignature(rawBody, signature, appSecrets)) {
-    // 401 (not 200) — we want Meta's delivery dashboard to show failures
+    // 401 (not 200) â€” we want Meta's delivery dashboard to show failures
     // loudly if a misconfiguration causes signatures to stop matching,
     // rather than silently eating events.
     console.warn('[webhook] rejected request with invalid signature')
@@ -335,7 +308,7 @@ async function processWebhook(body: { entry?: WhatsAppWebhookEntry[] }) {
     for (const change of entry.changes) {
       // Template-lifecycle events (status / quality / components
       // updates from Meta) come in on a different change.field and
-      // have a different value shape — route them through the
+      // have a different value shape â€” route them through the
       // dedicated handler. Skip the messaging branches below so we
       // don't try to read message-shaped fields off a template event.
       if (isTemplateWebhookField(change.field)) {
@@ -392,8 +365,8 @@ async function processWebhook(body: { entry?: WhatsAppWebhookEntry[] }) {
       const phoneNumberId = value.metadata.phone_number_id
 
       // Find user's config by phone_number_id. `.single()` returns
-      // PGRST116 for both 0 rows AND ≥2 rows — distinguish them so
-      // operators see the real cause in logs. ≥2 rows shouldn't happen
+      // PGRST116 for both 0 rows AND â‰¥2 rows â€” distinguish them so
+      // operators see the real cause in logs. â‰¥2 rows shouldn't happen
       // post-migration 013 (UNIQUE constraint), but a row created
       // before the constraint, or a race, would still surface here.
       const { data: configRows, error: configError } = await supabaseAdmin()
@@ -419,7 +392,7 @@ async function processWebhook(body: { entry?: WhatsAppWebhookEntry[] }) {
         console.error(
           `Multiple configs (${configRows.length}) found for phone_number_id:`,
           phoneNumberId,
-          '— inbound message dropped. Resolve duplicates so each number maps to a single account.',
+          'â€” inbound message dropped. Resolve duplicates so each number maps to a single account.',
           'Account owners:',
           configRows.map((r: { account_id: string; user_id: string }) => `${r.account_id} (admin ${r.user_id})`)
         )
@@ -458,10 +431,10 @@ async function processWebhook(body: { entry?: WhatsAppWebhookEntry[] }) {
           await processMessage(
             message,
             contact,
-            // Tenancy — drives every contact / conversation lookup
+            // Tenancy â€” drives every contact / conversation lookup
             // and the engines' active-row dispatch.
             config.account_id,
-            // Audit / sender-of-record — used as the user_id on row
+            // Audit / sender-of-record â€” used as the user_id on row
             // inserts that need it for NOT NULL FK compliance. Always
             // the admin who saved the WhatsApp config.
             config.user_id,
@@ -483,12 +456,12 @@ async function processWebhook(body: { entry?: WhatsAppWebhookEntry[] }) {
   }
 }
 
-// The happy-path status ladder — pending → sent → delivered → read →
+// The happy-path status ladder â€” pending â†’ sent â†’ delivered â†’ read â†’
 // replied. Webhook replays must never regress a recipient back down
 // this ladder.
 //
 // `failed` is NOT on this ladder. It's a terminal side branch that is
-// only valid from the early states (pending / sent) — once Meta has
+// only valid from the early states (pending / sent) â€” once Meta has
 // delivered or the user has read or replied, a later "failed" status
 // event is a bug in Meta's pipeline or a spoof attempt and must be
 // ignored.
@@ -521,7 +494,7 @@ function isValidStatusTransition(current: string, incoming: string): boolean {
   const ci = ladderLevel(current)
   const ii = ladderLevel(incoming)
   if (ii < 0) return false // unknown incoming status
-  if (ci < 0) return true // unknown current — accept anything on the ladder
+  if (ci < 0) return true // unknown current â€” accept anything on the ladder
   return ii > ci
 }
 
@@ -531,9 +504,9 @@ async function handleStatusUpdate(status: {
   timestamp: string
   recipient_id: string
 }) {
-  // 1) Mirror onto messages (legacy behavior) — Meta's status values
+  // 1) Mirror onto messages (legacy behavior) â€” Meta's status values
   //    already match the CHECK constraint on messages.status. No
-  //    `.select()`: message_id is NOT unique (migration 009 — Meta ids
+  //    `.select()`: message_id is NOT unique (migration 009 â€” Meta ids
   //    repeat across numbers), so this updates 0..N rows and must not
   //    assume a single row.
   const { error: msgErr } = await supabaseAdmin()
@@ -565,7 +538,7 @@ async function handleStatusUpdate(status: {
     console.error('Error fetching broadcast recipient:', recFetchErr)
   } else if (
     recipient &&
-    // Guard transitions — forward-only on the success ladder, and
+    // Guard transitions â€” forward-only on the success ladder, and
     // `failed` only from pre-delivered states.
     isValidStatusTransition(recipient.status, status.status)
   ) {
@@ -618,40 +591,9 @@ async function handleStatusUpdate(status: {
  * broadcast_recipients row, flip it to `replied` so the reply count
  * advances on the parent broadcast.
  *
- * Runs on a best-effort basis — failures here must not break the
+ * Runs on a best-effort basis â€” failures here must not break the
  * main inbound-message flow, so errors are swallowed with a log.
  */
-async function flagBroadcastReplyIfAny(accountId: string, contactId: string) {
-  try {
-    // Most recent outbound broadcast in this account that hasn't
-    // been replied to yet. Account-scoped so a shared inbox reply
-    // marks the broadcast as replied regardless of which teammate
-    // sent it.
-    const { data: recs, error } = await supabaseAdmin()
-      .from('broadcast_recipients')
-      .select('id, status, broadcast_id, broadcasts!inner(account_id)')
-      .eq('contact_id', contactId)
-      .eq('broadcasts.account_id', accountId)
-      .in('status', ['sent', 'delivered', 'read'])
-      .order('created_at', { ascending: false })
-      .limit(1)
-
-    if (error || !recs || recs.length === 0) return
-
-    const row = recs[0]
-    const { error: updErr } = await supabaseAdmin()
-      .from('broadcast_recipients')
-      .update({ status: 'replied', replied_at: new Date().toISOString() })
-      .eq('id', row.id)
-
-    if (updErr) {
-      console.error('Error marking broadcast recipient replied:', updErr)
-    }
-  } catch (err) {
-    console.error('flagBroadcastReplyIfAny failed:', err)
-  }
-}
-
 /**
  * Resolve a Meta-side message_id into the matching internal UUID, scoped
  * to one conversation. Returns null when we never received the parent
@@ -675,7 +617,7 @@ async function lookupInternalIdByMetaId(
 }
 
 /**
- * Persist an inbound reaction. WhatsApp reactions are not new messages —
+ * Persist an inbound reaction. WhatsApp reactions are not new messages â€”
  * they're per-(target, actor) state. We upsert / delete on
  * `message_reactions`, never write a row into `messages`.
  *
@@ -771,8 +713,8 @@ async function processMessage(
   if (!convResult) return
   const conversation = convResult.conversation
 
-  // Emit conversation.created as soon as the thread is opened — BEFORE
-  // the reaction short-circuit below — so a conversation first opened by
+  // Emit conversation.created as soon as the thread is opened â€” BEFORE
+  // the reaction short-circuit below â€” so a conversation first opened by
   // a reaction still fires the event, and a subscriber always sees the
   // thread open before its first message.received.
   if (convResult.created) {
@@ -782,7 +724,7 @@ async function processMessage(
     })
   }
 
-  // Reactions short-circuit here — they aren't messages. We never insert
+  // Reactions short-circuit here â€” they aren't messages. We never insert
   // into `messages`, never bump unread_count, never update last_message_text.
   // Done before parseMessageContent so the media-URL fetch is skipped.
   if (message.type === 'reaction') {
@@ -818,7 +760,7 @@ async function processMessage(
     }
   }
 
-  // Resolve swipe-reply context if present. A missing parent is fine —
+  // Resolve swipe-reply context if present. A missing parent is fine â€”
   // we just store NULL and the UI renders the message without a quote.
   let replyToInternalId: string | null = null
   if (message.context?.id) {
@@ -834,7 +776,7 @@ async function processMessage(
     }
   }
 
-  // Insert message — field names MUST match the messages table schema
+  // Insert message â€” field names MUST match the messages table schema
   // (see supabase/migrations/001_initial_schema.sql):
   //   conversation_id, sender_type, content_type, content_text,
   //   media_url, media_type, template_name, message_id, status,
@@ -855,12 +797,12 @@ async function processMessage(
       ? 'image'         // stickers are images
       : message.type === 'button'
         ? 'interactive' // template quick-reply tap (issue #478)
-        : 'text'        // reaction, unknown → text fallback
+        : 'text'        // reaction, unknown â†’ text fallback
 
   // Determine whether this is the contact's very first inbound message
   // BEFORE we insert, so the count is accurate. Covers the case where
   // the contact row already exists (manual add / CSV import) but they've
-  // never messaged us before — which new_contact_created wouldn't catch.
+  // never messaged us before â€” which new_contact_created wouldn't catch.
   const { count: priorCustomerMsgCount } = await supabaseAdmin()
     .from('messages')
     .select('id', { count: 'exact', head: true })
@@ -873,7 +815,7 @@ async function processMessage(
   // unique index on (conversation_id, message_id) added in migration 037
   // makes a replay conflict; `ignoreDuplicates` turns that into an ON
   // CONFLICT DO NOTHING, and the `.select()` then returns the inserted row
-  // ONLY on a genuine first insert — an empty result means this delivery
+  // ONLY on a genuine first insert â€” an empty result means this delivery
   // was a replay. This is the single idempotency boundary that must sit
   // BEFORE the unread bump and all downstream fan-out below (issue #367).
   const { data: insertedRows, error: msgError } = await supabaseAdmin()
@@ -887,7 +829,7 @@ async function processMessage(
         media_url: mediaUrl,
         // Meta's MIME type for the attachment (migration 039). Was
         // discarded before, which forced the download path to guess an
-        // extension from the fetched blob — impossible to do until the
+        // extension from the fetched blob â€” impossible to do until the
         // bytes had already been fetched successfully.
         media_type: mediaType,
         message_id: message.id,
@@ -923,521 +865,36 @@ async function processMessage(
 
   const persistedMessageId = String(insertedRows[0].id)
 
-  if (contentType !== 'call') {
-    void notifyAccountDevicesOfIncomingMessage({
-      accountId,
-      conversationId: conversation.id,
-      contactName: contactRecord.name ?? contactName,
-      contactPhone: contactRecord.phone ?? senderPhone,
-      contentType,
-      contentText,
-    }).catch((err) => {
-      console.warn('[webhook] expo push failed:', err)
-    })
-  }
-
-  const shouldAnalyzeConversation =
-    (contentType !== 'audio' &&
-      contentType !== 'image' &&
-      Boolean(contentText?.trim())) ||
-    contentType === 'order' ||
-    contentType === 'interactive' ||
-    Boolean(interactiveReplyId)
-  if (shouldAnalyzeConversation) {
-    const trigger = { type: 'message' as const, messageId: persistedMessageId }
-    void (async () => {
-      await markConversationLearningPending(supabaseAdmin(), {
-        accountId,
-        conversationId: conversation.id,
-        trigger,
-      })
-      await enqueueAiConversationAnalyze(
-        aiConversationAnalyzeJob({
-          accountId,
-          conversationId: conversation.id,
-          contactId: contactRecord.id,
-          trigger,
-        }),
-      )
-    })().catch((err) => {
-      console.warn('[webhook] conversation analyze enqueue failed:', err)
-    })
-  }
-
-  // Update conversation. The unread bump is done DB-side (migration 037's
-  // bump_conversation_on_inbound) rather than as a read-modify-write of the
-  // snapshot loaded above: two inbound messages for the same conversation
-  // can process concurrently, and computing `snapshot + 1` in the app let
-  // both reads see the same value and write the same increment, losing one
-  // (issue #369). The RPC increments in a single UPDATE and refreshes the
-  // last-message summary in the same statement.
-  const { error: convError } = await supabaseAdmin().rpc(
-    'bump_conversation_on_inbound',
-    {
-      p_conversation_id: conversation.id,
-      p_last_message_text: contentText || `[${message.type}]`,
-    }
-  )
-
-  if (convError) {
-    console.error('Error updating conversation:', convError)
-  }
-
-  // A customer writing again re-opens the thread (issue #409). Kept as a
-  // separate conditional statement rather than a `status` field on the
-  // update above so the write can be gated on the row's CURRENT status in
-  // SQL — see the helper for why that matters.
-  await reopenClosedConversation(supabaseAdmin(), conversation)
-
-  await cancelConversationFollowUp({
-    accountId,
-    conversationId: conversation.id,
-  }).catch((err) => {
-    console.warn('[webhook] follow-up cancel failed:', err)
-  })
-
-  if (message.type === 'order') {
-    try {
-      await handleInboundWhatsAppOrder({
-        db: supabaseAdmin(),
-        accountId,
-        userId: configOwnerUserId,
-        conversationId: conversation.id,
-        contactId: contactRecord.id,
-        contactPhone: contactRecord.phone ?? senderPhone,
-        contactName: contactRecord.name ?? contactName,
-        message,
-      })
-    } catch (err) {
-      console.error('[webhook] inbound cart checkout failed:', err)
-    }
-  }
-
-  // Native address form submitted → store the address and ask the
-  // customer to confirm it. Handled here rather than in the AI path
-  // because the answer is structured, so there's nothing to interpret.
   const addressFormReply =
     message.type === 'interactive' &&
     message.interactive?.nfm_reply?.name === 'address_message'
       ? message.interactive.nfm_reply
       : null
-  let commerceReplyHandled = false
-  if (addressFormReply) {
-    commerceReplyHandled = await completeCommerceAddressFromForm({
-      db: supabaseAdmin(),
-      accountId,
-      userId: configOwnerUserId,
-      conversationId: conversation.id,
-      contactId: contactRecord.id,
-      responseJson: addressFormReply.response_json,
-    })
-  }
 
-  // Saved-address list tap. iPhone never showed Meta's native picker,
-  // so checkout offers a list message instead.
-  if (!commerceReplyHandled && interactiveReplyId) {
-    commerceReplyHandled = await handleSavedAddressPickerReply({
-      db: supabaseAdmin(),
-      accountId,
-      userId: configOwnerUserId,
-      conversationId: conversation.id,
-      contactId: contactRecord.id,
-      contactPhone: contactRecord.phone ?? senderPhone,
-      replyId: interactiveReplyId,
-    })
-  }
-
-  // Confirm / Change tap on the address confirmation message. Returns
-  // false for every other button, so normal menu taps still reach the
-  // flow runner and the interactive_reply trigger below.
-  if (!commerceReplyHandled && interactiveReplyId) {
-    commerceReplyHandled = await handleAddressConfirmationReply({
-      db: supabaseAdmin(),
-      accountId,
-      userId: configOwnerUserId,
-      conversationId: conversation.id,
-      contactId: contactRecord.id,
-      contactPhone: contactRecord.phone ?? senderPhone,
-      replyId: interactiveReplyId,
-    })
-  }
-  if (!commerceReplyHandled && interactiveReplyId) {
-    commerceReplyHandled = await handleReceiptEmailReply({
-      db: supabaseAdmin(),
-      accountId,
-      userId: configOwnerUserId,
-      conversationId: conversation.id,
-      contactId: contactRecord.id,
-      contactPhone: contactRecord.phone ?? senderPhone,
-      replyId: interactiveReplyId,
-    })
-  }
-  if (!commerceReplyHandled && interactiveReplyId) {
-    commerceReplyHandled = await handleDiscountCodeReply({
-      db: supabaseAdmin(),
-      accountId,
-      userId: configOwnerUserId,
-      conversationId: conversation.id,
-      contactId: contactRecord.id,
-      replyId: interactiveReplyId,
-    })
-  }
-
-  const aiConfig = await loadAiConfig(supabaseAdmin(), accountId).catch((err) => {
-    console.error('[webhook] loadAiConfig failed:', err)
-    return null
-  })
-
-  // Speech-to-text + spoken auto-reply. Full-agent runs inline in this
-  // `after()` block so a missing BullMQ worker cannot drop the note.
-  // Otherwise: Redis worker → Postgres `voice_inbound_jobs` cron →
-  // inline STT with the bytes already mirrored from Meta.
-  let queuedVoice = false
-  if (
-    contentType === 'audio' &&
-    message.audio?.id &&
-    insertedRows?.[0]?.id
-  ) {
-    const voicePayload = {
-      accountId,
-      conversationId: conversation.id,
-      contactId: contactRecord.id,
-      messageId: insertedRows[0].id,
-      userId: configOwnerUserId,
-      metaMessageId: message.id,
-      mediaId: message.audio.id,
-      mimeType: mediaType,
-    }
-    if (!aiConfig?.fullAgentEnabled) {
-      queuedVoice = await enqueueAiVoiceInbound(voicePayload)
-      if (!queuedVoice) {
-        queuedVoice = await enqueueVoiceInboundJob({
-          db: supabaseAdmin(),
-          ...voicePayload,
-        })
-      }
-    }
-    if (!queuedVoice) {
-      const transcript = await transcribeInboundVoiceNote({
-        accountId,
-        mediaId: message.audio.id,
-        accessToken,
-        mimeType: mediaType,
-        contentText,
-        contentType,
-        audio: mediaBuffer,
-      })
-      if (transcript) {
-        contentText = transcript
-        const { error: trErr } = await supabaseAdmin()
-          .from('messages')
-          .update({ content_text: transcript })
-          .eq('id', insertedRows[0].id)
-        if (trErr) {
-          console.error('[webhook] failed to persist audio transcript:', trErr)
-        } else {
-          await supabaseAdmin()
-            .from('conversations')
-            .update({ last_message_text: transcript })
-            .eq('id', conversation.id)
-        }
-      } else {
-        // Keep the turn alive so auto-reply can ask the customer to
-        // repeat instead of going silent when STT returns nothing.
-        contentText = contentText?.trim() || INBOUND_VOICE_PLACEHOLDER
-        const { error: phErr } = await supabaseAdmin()
-          .from('messages')
-          .update({ content_text: contentText })
-          .eq('id', insertedRows[0].id)
-        if (phErr) {
-          console.error('[webhook] failed to persist voice placeholder:', phErr)
-        } else {
-          await supabaseAdmin()
-            .from('conversations')
-            .update({ last_message_text: contentText })
-            .eq('id', conversation.id)
-        }
-      }
-    }
-  }
-
-  if (contentType === 'image' && aiConfig && insertedRows?.[0]?.id) {
-    const humanOwns = Boolean(
-      (conversation as { assigned_agent_id?: string | null }).assigned_agent_id,
-    )
-    const paused =
-      Boolean(
-        (conversation as { ai_autoreply_disabled?: boolean | null })
-          .ai_autoreply_disabled,
-      ) && !aiConfig.fullAgentEnabled
-    if (aiConfig.autoReplyEnabled && !humanOwns && !paused) {
-      const languageHint = [
-        contentText,
-        (conversation as { last_message_text?: string | null }).last_message_text,
-      ]
-        .filter((s): s is string => Boolean(s?.trim()))
-        .join(' ')
-      await sendPhotoWaitAck({
-        accountId,
-        userId: configOwnerUserId,
-        conversationId: conversation.id,
-        contactId: contactRecord.id,
-        languageHint,
-      }).catch((err) =>
-        console.error('[webhook] photo wait ack failed:', err),
-      )
-      if (aiConfig.typingIndicatorEnabled) {
-        await engineSendTypingIndicator({
-          accountId,
-          inboundMessageId: message.id,
-        }).catch((err) =>
-          console.warn('[webhook] typing after photo wait ack failed:', err),
-        )
-      }
-    }
-
-    // Vision + auto-reply run on the BullMQ `ai-chat-reply` worker so
-    // this request is not held open for gpt-4o-mini. Redis down →
-    // inline describe below, after flows, in the AI fallback.
-  }
-
-  // If this contact was a recent broadcast recipient, flag the reply
-  // so the broadcast's `replied_count` advances (via the aggregate
-  // trigger installed in migration 003).
-  await flagBroadcastReplyIfAny(accountId, contactRecord.id)
-
-  // ============================================================
-  // Flow runner dispatch.
-  //
-  // If the runner consumes the message (it either advanced an active
-  // run or started a new one), we suppress the `new_message_received`
-  // + `keyword_match` automation triggers for this inbound. Customer
-  // is navigating the bot menu, not sending a fresh trigger word
-  // that should fork into automations.
-  //
-  // The relationship-level triggers (`new_contact_created`,
-  // `first_inbound_message`) still fire even when consumed — those
-  // are about WHO is messaging, not what they said.
-  //
-  // Awaited (not fire-and-forget) because we need the `consumed`
-  // result before deciding whether to dispatch automations. The
-  // runner has its own try/catch and never throws. Accounts with
-  // no active flows take the runner's early-exit "no_match" path
-  // basically for free (one indexed SELECT for the active run).
-  // ============================================================
-  // Voice notes skip the flow runner. Full-agent mode skips it for
-  // everything else too — the LLM owns the thread. Interactive taps
-  // still run flows so menu navigation keeps working.
-  let flowConsumed = false
-  if (
-    contentType !== 'audio' &&
-    !commerceReplyHandled &&
-    !(aiConfig?.fullAgentEnabled && !interactiveReplyId)
-  ) {
-    const flowResult = await dispatchInboundToFlows({
-      accountId,
-      userId: configOwnerUserId,
-      contactId: contactRecord.id,
-      conversationId: conversation.id,
-      message:
-        interactiveReplyId
-          ? {
-              kind: 'interactive_reply',
-              reply_id: interactiveReplyId,
-              reply_title: contentText ?? '',
-              meta_message_id: message.id,
-            }
-          : {
-              kind: 'text',
-              text: contentText ?? message.text?.body ?? '',
-              meta_message_id: message.id,
-            },
-      isFirstInboundMessage,
-    })
-    flowConsumed = flowResult.consumed
-  }
-
-  const inboundText = contentText ?? message.text?.body ?? ''
-
-  // Fire any automations that react to this webhook event. All dispatches
-  // run here (not earlier) so the contact, conversation, and inbound
-  // message all exist before any step — including send_message — runs.
-  // Fire-and-forget: a slow or failing automation must not block the
-  // webhook's 200 OK response to Meta.
-  const automationTriggers: (
-    | 'new_contact_created'
-    | 'first_inbound_message'
-    | 'new_message_received'
-    | 'keyword_match'
-    | 'interactive_reply'
-  )[] = []
-  // Content-level triggers are suppressed when a flow consumed the
-  // message — or when full-agent mode owns the thread.
-  if (
-    !flowConsumed &&
-    !commerceReplyHandled &&
-    contentType !== 'audio' &&
-    !aiConfig?.fullAgentEnabled
-  ) {
-    automationTriggers.push('new_message_received', 'keyword_match')
-    // Interactive tap → fire the interactive_reply trigger too (only
-    // meaningful when a button/list reply actually arrived). Enables
-    // automation-only chained menus; when a Flow owns the menu it will
-    // have consumed the reply and this is skipped.
-    if (interactiveReplyId) {
-      automationTriggers.push('interactive_reply')
-    }
-  }
-  // new_contact_created fires only when the webhook just auto-created the
-  // contact row. first_inbound_message fires whenever this is the contact's
-  // first-ever customer-sent message — a superset that also catches
-  // manually-imported contacts sending for the first time. We dispatch both
-  // so users can pick whichever semantic they want; an automation that
-  // listens to only one trigger runs only when that trigger matches.
-  if (contactOutcome.wasCreated) automationTriggers.unshift('new_contact_created')
-  if (isFirstInboundMessage) automationTriggers.unshift('first_inbound_message')
-  // Awaited — not fire-and-forget. We're inside the route's `after()`
-  // block, which only keeps the function alive for promises it can see, so
-  // a detached dispatch can be frozen part-way through: the log row is
-  // inserted, then the steps never run. That is issue #301's failure mode
-  // recurring one level down, and it's what issue #409 reported as runs
-  // logging zero steps. `runAutomationsForTrigger` owns its own try/catch
-  // and never throws; the `.catch` is belt-and-braces so one trigger
-  // type's failure can't skip the rest of the loop.
-  for (const triggerType of automationTriggers) {
-    await runAutomationsForTrigger({
-      accountId,
-      triggerType,
-      contactId: contactRecord.id,
-      context: {
-        message_text: inboundText,
-        conversation_id: conversation.id,
-        // Only set on interactive taps; drives the interactive_reply
-        // trigger's exact-id match.
-        interactive_reply_id: interactiveReplyId ?? undefined,
-      },
-    }).catch((err) => console.error('[automations] dispatch failed:', err))
-  }
-
-  // AI auto-reply. Full-agent mode bypasses flows/automations; images
-  // reach this path once vision (or a caption) filled `content_text`.
-  const inboundModality =
-    contentType === 'audio'
-      ? 'audio'
-      : contentType === 'image'
-        ? 'image'
-        : 'text'
-  const shouldAiReply =
-    contentType !== 'order' &&
-    !commerceReplyHandled &&
-    !queuedVoice &&
-    aiConfig?.autoReplyEnabled &&
-    (inboundText.trim() || contentType === 'image' || contentType === 'audio') &&
-    (!interactiveReplyId ||
-      aiConfig.fullAgentEnabled ||
-      isLanguagePickerReply(interactiveReplyId)) &&
-    (!flowConsumed ||
-      aiConfig.fullAgentEnabled ||
-      contentType === 'audio')
-  if (shouldAiReply && insertedRows?.[0]?.id) {
-    if (inboundModality === 'text' || inboundModality === 'image') {
-      const inboundContentType = inboundModality === 'image' ? 'image' : 'text'
-      const chatJob = aiChatReplyJob({
-        accountId,
-        conversationId: conversation.id,
-        contactId: contactRecord.id,
-        configOwnerUserId,
-        messageId: String(insertedRows[0].id),
-        inboundContentType,
-        inboundMetaMessageId: message.id,
-        isFirstInbound: isFirstInboundMessage,
-        inboundMediaUrl: mediaUrl,
-        inboundMediaId: message.image?.id ?? null,
-        inboundAccessToken: accessToken,
-      })
-      // Full-agent owns the turn in this `after()` block. Enqueue-only
-      // drops the reply when Redis is up but the worker is not.
-      const queuedChat = aiConfig.fullAgentEnabled
-        ? false
-        : await enqueueAiChatReply(chatJob)
-      if (!queuedChat) {
-        const visionConfig = aiConfig
-        if (contentType === 'image' && visionConfig) {
-          const shopifyConfig = await loadShopifyConfig(
-            supabaseAdmin(),
-            accountId,
-          ).catch(() => null)
-          const description = await describeInboundImage({
-            provider: visionConfig.provider,
-            apiKey: visionConfig.apiKey,
-            mediaUrl,
-            caption: contentText,
-            purpose: shopifyConfig ? 'shopping' : 'support',
-            mediaId: message.image?.id ?? null,
-            accessToken,
-          })
-          const nextText =
-            description ||
-            contentText?.trim() ||
-            '[Customer sent a product photo]'
-          if (nextText !== contentText) {
-            contentText = nextText
-            const { error: imgErr } = await supabaseAdmin()
-              .from('messages')
-              .update({ content_text: nextText })
-              .eq('id', insertedRows[0].id)
-            if (imgErr) {
-              console.error('[webhook] failed to persist image description:', imgErr)
-            } else {
-              await supabaseAdmin()
-                .from('conversations')
-                .update({ last_message_text: nextText })
-                .eq('id', conversation.id)
-            }
-          }
-        }
-        await dispatchInboundToAiReply({
-          accountId,
-          conversationId: conversation.id,
-          contactId: contactRecord.id,
-          configOwnerUserId,
-          inboundContentType,
-          inboundMetaMessageId: message.id,
-          inboundMediaUrl: inboundContentType === 'image' ? mediaUrl : null,
-          inboundMediaId:
-            inboundContentType === 'image' ? (message.image?.id ?? null) : null,
-          inboundAccessToken:
-            inboundContentType === 'image' ? accessToken : null,
-          isFirstInbound: isFirstInboundMessage,
-        })
-      }
-    } else if (inboundModality === 'audio') {
-      // Voice queues already failed and inline STT filled the transcript.
-      await dispatchInboundToAiReply({
-        accountId,
-        conversationId: conversation.id,
-        contactId: contactRecord.id,
-        configOwnerUserId,
-        inboundContentType: 'audio',
-        inboundMetaMessageId: message.id,
-        isFirstInbound: isFirstInboundMessage,
-      })
-    }
-  }
-
-  // message.received webhook (public API). Awaited — not fire-and-forget
-  // — because we're inside the route's `after()` block, which only keeps
-  // the function alive for promises it can see; a detached promise could
-  // be frozen before it delivers. `dispatchWebhookEvent` early-exits
-  // when the account has no matching endpoint and never throws.
-  // (conversation.created is emitted earlier, right after the thread is
-  // opened.)
-  await dispatchWebhookEvent(supabaseAdmin(), accountId, 'message.received', {
-    conversation_id: conversation.id,
-    contact_id: contactRecord.id,
-    whatsapp_message_id: message.id,
-    content_type: contentType,
-    text: contentText,
+  await dispatchInboundFanout({
+    accountId,
+    configOwnerUserId,
+    conversation,
+    contactRecord,
+    contactOutcome,
+    persistedMessageId,
+    metaMessageId: message.id,
+    contentType,
+    contentText,
+    mediaUrl,
+    mediaType,
+    interactiveReplyId,
+    isFirstInboundMessage,
+    accessToken,
+    channel: 'whatsapp',
+    contactDisplayName: contactName,
+    contactDisplayPhone: senderPhone,
+    inboundMediaId: message.image?.id ?? message.audio?.id ?? null,
+    imageMediaId: message.image?.id ?? null,
+    audioMediaId: message.audio?.id ?? null,
+    mediaBuffer,
+    whatsappOrderMessage: message.type === 'order' ? message : undefined,
+    addressFormReply,
   })
 }
 
@@ -1463,7 +920,7 @@ async function parseMessageContent(
   /** Inbound audio bytes from the mirror download, reused for STT. */
   mediaBuffer: Buffer | null
 }> {
-  // getMediaUrl signature is (mediaId, accessToken) — earlier code had
+  // getMediaUrl signature is (mediaId, accessToken) â€” earlier code had
   // the args swapped, so every verification hit an invalid Meta URL and
   // fell through to the catch block, leaving mediaUrl as null. That's
   // why images showed up as empty bubbles in the inbox.
@@ -1471,13 +928,13 @@ async function parseMessageContent(
   // Beyond verifying, this is where inbound media gets COPIED into the
   // `chat-media` bucket (issue #466). Meta deletes media ~30 days after
   // receipt, so the `/api/whatsapp/media/<id>` proxy URL we used to
-  // store is a pointer with an expiry date on it — every inbound
+  // store is a pointer with an expiry date on it â€” every inbound
   // attachment silently became "Photo unavailable" a month later.
   // Mirroring stores a durable public URL instead.
   //
   // The mirror is strictly best-effort. `mirrorInboundMedia` swallows
   // its own failures and returns null, and we fall back to the proxy
-  // URL — a webhook that throws would have Meta retry the delivery and
+  // URL â€” a webhook that throws would have Meta retry the delivery and
   // re-run everything downstream, which is a far worse outcome than an
   // attachment that expires.
   const verifyAndBuildUrl = async (
@@ -1534,7 +991,7 @@ async function parseMessageContent(
     }
   }
 
-  // Default shape — each case overrides only the fields it cares about.
+  // Default shape â€” each case overrides only the fields it cares about.
   // Keeps the new `interactiveReplyId` field DRY across every return site.
   const empty = {
     contentText: null,
@@ -1640,7 +1097,7 @@ async function parseMessageContent(
       // renders the tap legibly ("Existing customer"), and stash the
       // stable id separately so the Flows engine can route on it.
       // Native form submission (the India address form). There's no
-      // stable reply id to route on — the answer itself is the payload,
+      // stable reply id to route on â€” the answer itself is the payload,
       // handled after insert by the commerce checkout.
       const formReply = message.interactive?.nfm_reply
       if (formReply?.name === 'address_message') {
@@ -1670,7 +1127,7 @@ async function parseMessageContent(
       // their own `button` envelope rather than `interactive` above, so
       // without this case they fell through to `default` and landed in
       // the inbox as "[Unsupported message type: button]" with a null
-      // interactiveReplyId — which also meant the Flows engine and the
+      // interactiveReplyId â€” which also meant the Flows engine and the
       // `interactive_reply` automation trigger never saw the tap, so
       // nothing chained off a broadcast reply (issue #478).
       //
@@ -1752,7 +1209,7 @@ async function findOrCreateContact(
 
   // Create new contact. account_id is the tenancy column;
   // user_id is the NOT NULL FK audit column (no inbound message
-  // has a single "user who created" it — we attribute to the
+  // has a single "user who created" it â€” we attribute to the
   // WhatsApp config owner as a stable default).
   const { data: newContact, error: createError } = await supabaseAdmin()
     .from('contacts')
@@ -1789,9 +1246,9 @@ async function findOrCreateConversation(
   // Look for an existing conversation in this account, oldest-first.
   //
   // We deliberately do NOT use `.single()` here. `.single()` errors on
-  // *both* 0 rows and ≥2 rows, and the old code treated any error as
+  // *both* 0 rows and â‰¥2 rows, and the old code treated any error as
   // "none found" and inserted a new row. So once two conversations
-  // existed for a contact (from a race — Meta retries a delivery, or a
+  // existed for a contact (from a race â€” Meta retries a delivery, or a
   // batch fans out to concurrent runs), every subsequent inbound
   // message errored on the lookup and created yet another conversation,
   // snowballing into a wall of duplicate chats (issue #363).
@@ -1832,7 +1289,7 @@ async function findOrCreateConversation(
     // Lost a race: a concurrent inbound delivery created the
     // conversation between our lookup and insert, and the unique index
     // (migration 036) rejected the duplicate. Re-resolve the winning
-    // row instead of dropping the message — mirrors findOrCreateContact.
+    // row instead of dropping the message â€” mirrors findOrCreateContact.
     if (isUniqueViolation(createError)) {
       const { data: raced } = await supabaseAdmin()
         .from('conversations')

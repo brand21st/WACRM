@@ -15,6 +15,12 @@ export function conversationDisplayName(conversation: MobileConversation): strin
   return conversation.contact?.name || conversation.contact?.phone || 'Unknown';
 }
 
+export function conversationChannel(
+  conversation: MobileConversation,
+): NonNullable<MobileConversation['channel']> {
+  return conversation.channel ?? conversation.contact?.channel ?? 'whatsapp';
+}
+
 export function isManualConversation(conversation: MobileConversation, fullAgentOn: boolean): boolean {
   return Boolean(conversation.ai_autoreply_disabled || conversation.assigned_agent_id);
 }
@@ -28,8 +34,14 @@ export function matchesConversationSearch(conversation: MobileConversation, quer
   if (!needle) return true;
   const name = conversation.contact?.name?.toLowerCase() ?? '';
   const phone = conversation.contact?.phone?.toLowerCase() ?? '';
+  const handle = conversation.contact?.channel_user_id?.toLowerCase() ?? '';
   const last = conversation.last_message_text?.toLowerCase() ?? '';
-  return name.includes(needle) || phone.includes(needle) || last.includes(needle);
+  return (
+    name.includes(needle) ||
+    phone.includes(needle) ||
+    handle.includes(needle) ||
+    last.includes(needle)
+  );
 }
 
 export function filterConversations(

@@ -11,6 +11,7 @@ import type { MobileConversation } from '@/types/conversations';
 
 type ConversationHeaderProps = {
   conversation: MobileConversation;
+  hideWhatsAppTools?: boolean;
   onOpenCustomer: () => void;
   onOpenCatalog: () => void;
   onVoiceCall: () => void;
@@ -19,6 +20,7 @@ type ConversationHeaderProps = {
 
 export function ConversationHeader({
   conversation,
+  hideWhatsAppTools = false,
   onOpenCustomer,
   onOpenCatalog,
   onVoiceCall,
@@ -82,6 +84,7 @@ export function ConversationHeader({
           ) : null}
         </View>
       </Pressable>
+      {!hideWhatsAppTools && (
       <Pressable
         accessibilityLabel="Voice call"
         accessibilityRole="button"
@@ -94,6 +97,8 @@ export function ConversationHeader({
           tintColor={theme.text}
         />
       </Pressable>
+      )}
+      {!hideWhatsAppTools && (
       <Pressable
         accessibilityLabel="Catalog"
         accessibilityRole="button"
@@ -106,6 +111,7 @@ export function ConversationHeader({
           tintColor={theme.text}
         />
       </Pressable>
+      )}
       <Pressable
         accessibilityLabel="More"
         accessibilityRole="button"

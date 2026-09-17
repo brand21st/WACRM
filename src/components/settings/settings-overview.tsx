@@ -44,6 +44,7 @@ export function SettingsOverview({
     useAuth();
   const { mode, theme } = useTheme();
   const t = useTranslations('Settings.overview');
+  const tRoot = useTranslations('Settings');
   const tRoles = useTranslations('Settings.roles');
   const tSections = useTranslations('Settings.sections');
 
@@ -55,6 +56,10 @@ export function SettingsOverview({
   // from blanking the rest of the landing.
   const [whatsapp, setWhatsapp] = useState<WhatsAppStatus | null>(null);
   const [whatsappLoading, setWhatsappLoading] = useState(true);
+  const [meta, setMeta] = useState<{ configured: boolean; connected: boolean } | null>(
+    null,
+  );
+  const [metaLoading, setMetaLoading] = useState(true);
   const [shopify, setShopify] = useState<{ configured: boolean; active: boolean } | null>(
     null,
   );
@@ -150,6 +155,23 @@ export function SettingsOverview({
     })();
 
     (async () => {
+      setMetaLoading(true);
+      try {
+        const res = await fetch('/api/meta/connect', { cache: 'no-store' });
+        const data = await res.json();
+        if (cancelled) return;
+        setMeta({
+          configured: Boolean(data.connected || data.page_id),
+          connected: Boolean(data.connected),
+        });
+      } catch {
+        if (!cancelled) setMeta({ configured: false, connected: false });
+      } finally {
+        if (!cancelled) setMetaLoading(false);
+      }
+    })();
+
+    (async () => {
       setShopifyLoading(true);
       try {
         const res = await fetch('/api/shopify/config', { cache: 'no-store' });
@@ -217,6 +239,21 @@ export function SettingsOverview({
       subtitle: !whatsapp?.configured ? (
         t('notSetup')
       ) : whatsapp.connected ? (
+        <>
+          <StatusDot tone="ok" /> {t('connected')}
+        </>
+      ) : (
+        <>
+          <StatusDot tone="muted" /> {t('needsReconnecting')}
+        </>
+      ),
+    },
+    {
+      section: 'instagram',
+      loading: metaLoading,
+      subtitle: !meta?.configured ? (
+        t('notSetup')
+      ) : meta.connected ? (
         <>
           <StatusDot tone="ok" /> {t('connected')}
         </>
@@ -370,8 +407,13 @@ export function SettingsOverview({
                 <Icon className="size-4" />
               </span>
               <span className="min-w-0 flex-1">
-                <span className="block text-sm font-semibold text-foreground">
+                <span className="flex items-center gap-1.5 text-sm font-semibold text-foreground">
                   {tSections(section)}
+                  {meta.beta ? (
+                    <span className="rounded-full border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-amber-700 dark:text-amber-300">
+                      {tRoot('beta')}
+                    </span>
+                  ) : null}
                 </span>
                 <span className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
                   {loading ? (

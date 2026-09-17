@@ -32,7 +32,10 @@ import { useSendMessage } from '@/features/conversation/use-send-message';
 import { useToggleConversationAi } from '@/features/conversation/use-toggle-conversation-ai';
 import { RealtimeBanner } from '@/features/realtime/realtime-banner';
 import { useReactionRealtime } from '@/features/realtime/use-reaction-realtime';
-import { isManualConversation } from '@/features/conversations/conversation-filters';
+import {
+  conversationChannel,
+  isManualConversation,
+} from '@/features/conversations/conversation-filters';
 import { useTheme } from '@/hooks/use-theme';
 import { isApiError } from '@/lib/api-error';
 import { isFullAgentOn } from '@/types/ai';
@@ -62,7 +65,10 @@ export function ConversationScreen({ conversationId }: { conversationId?: string
   const messagesQuery = useMessages(conversationId);
   const reactionsQuery = useMessageReactions(conversationId);
   const aiConfig = useAiConfig();
-  const send = useSendMessage(conversationId ?? '');
+  const send = useSendMessage(
+    conversationId ?? '',
+    conversationQuery.data?.channel ?? conversationQuery.data?.contact?.channel ?? 'whatsapp',
+  );
   const react = useReactToMessage(conversationId ?? '');
   const toggleAi = useToggleConversationAi(conversationId ?? '');
 
@@ -212,6 +218,7 @@ export function ConversationScreen({ conversationId }: { conversationId?: string
           style={styles.fill}>
           <ConversationHeader
             conversation={conversation}
+            hideWhatsAppTools={conversationChannel(conversation) !== 'whatsapp'}
             onOpenCustomer={() => setInfoOpen(true)}
             onOpenCatalog={() => setCatalogOpen(true)}
             onVoiceCall={() => Alert.alert('Voice call', 'Calling is coming in a later phase.')}
@@ -281,6 +288,7 @@ export function ConversationScreen({ conversationId }: { conversationId?: string
             canCompose={agentPlus}
             windowExpired={expired}
             isViewer={isViewer}
+            hideWhatsAppTools={conversationChannel(conversation) !== 'whatsapp'}
             replyTo={replyTo}
             onClearReply={() => setReplyTo(null)}
             sending={send.isPending}

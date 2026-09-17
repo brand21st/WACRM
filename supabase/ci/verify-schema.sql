@@ -20,6 +20,9 @@ BEGIN
   IF to_regclass('public.whatsapp_config') IS NULL THEN
     RAISE EXCEPTION 'public.whatsapp_config is missing — migrations did not apply';
   END IF;
+  IF to_regclass('public.meta_page_connections') IS NULL THEN
+    RAISE EXCEPTION 'public.meta_page_connections is missing — migration 107 did not apply';
+  END IF;
 
   -- Supabase provides the storage schema; migrations 016/020/023 write
   -- to it. If it is absent the bucket migrations silently accomplish
@@ -90,6 +93,10 @@ BEGIN
 
   IF to_regclass('public.platform_google_settings') IS NULL THEN
     RAISE EXCEPTION 'public.platform_google_settings is missing — migration 090 did not apply';
+  END IF;
+
+  IF to_regclass('public.platform_meta_settings') IS NULL THEN
+    RAISE EXCEPTION 'public.platform_meta_settings is missing — migration 108 did not apply';
   END IF;
 
   IF to_regclass('public.sales_events') IS NULL THEN

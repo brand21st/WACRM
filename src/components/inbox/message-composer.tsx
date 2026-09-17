@@ -116,6 +116,7 @@ interface MessageComposerProps {
   onSendMedia: (payload: SendMediaPayload) => void;
   onSendInteractive: (payload: InteractiveMessagePayload, replyToId?: string) => void;
   onOpenTemplates: () => void;
+  hideWhatsAppTools?: boolean;
   replyTo?: ReplyDraft | null;
   onClearReply?: () => void;
 }
@@ -138,6 +139,7 @@ export function MessageComposer({
   onSendMedia,
   onSendInteractive,
   onOpenTemplates,
+  hideWhatsAppTools = false,
   replyTo,
   onClearReply,
 }: MessageComposerProps) {
@@ -662,19 +664,21 @@ export function MessageComposer({
         </div>
       )}
       {sessionExpired && (
-        <div className="mb-2 flex items-center justify-between rounded-lg bg-amber-500/10 px-3 py-2">
-          <p className="text-xs text-amber-400">
-            {t("sessionExpiredHint")}
+        <div className="mb-2 flex items-center justify-between rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2">
+          <p className="text-xs text-red-600 dark:text-red-400">
+            {hideWhatsAppTools ? t("sessionExpiredHintMeta") : t("sessionExpiredHint")}
           </p>
+          {!hideWhatsAppTools && (
           <Button
             variant="ghost"
             size="sm"
-            className="h-7 text-xs text-amber-400 hover:text-amber-300"
+            className="h-7 text-xs text-red-600 hover:text-red-500 dark:text-red-400 dark:hover:text-red-300"
             onClick={onOpenTemplates}
           >
             <LayoutTemplate className="mr-1 h-3 w-3" />
             {t("templates")}
           </Button>
+          )}
         </div>
       )}
 
@@ -830,6 +834,7 @@ export function MessageComposer({
                     <FileText className="mr-2 h-4 w-4" />
                     {t("document")}
                   </DropdownMenuItem>
+                  {!hideWhatsAppTools && (
                   <DropdownMenuItem
                     disabled={readOnly}
                     onClick={onOpenTemplates}
@@ -837,6 +842,7 @@ export function MessageComposer({
                     <LayoutTemplate className="mr-2 h-4 w-4" />
                     {t("sendTemplate")}
                   </DropdownMenuItem>
+                  )}
                   <DropdownMenuItem
                     disabled={readOnly || drafting}
                     onClick={() => void handleDraft()}
@@ -851,6 +857,7 @@ export function MessageComposer({
                   <DropdownMenuSeparator />
                 </>
               )}
+              {!hideWhatsAppTools && (
               <DropdownMenuItem
                 disabled={inputsDisabled}
                 onClick={() => openInteractiveBuilder()}
@@ -858,6 +865,7 @@ export function MessageComposer({
                 <MessageSquareDashed className="mr-2 h-4 w-4" />
                 {t("interactiveMessage")}
               </DropdownMenuItem>
+              )}
               <DropdownMenuItem
                 disabled={inputsDisabled}
                 onClick={() => setQuickReplyOpen(true)}
@@ -868,6 +876,7 @@ export function MessageComposer({
             </DropdownMenuContent>
           </DropdownMenu>
 
+          {!hideWhatsAppTools && (
           <span className="hidden lg:inline-flex">
             <GatedButton
               variant="ghost"
@@ -881,6 +890,7 @@ export function MessageComposer({
               <LayoutTemplate className="h-4 w-4" />
             </GatedButton>
           </span>
+          )}
 
           <span className="hidden lg:inline-flex">
             <GatedButton
@@ -910,7 +920,9 @@ export function MessageComposer({
               readOnly
                 ? t("readOnlyPlaceholder")
                 : sessionExpired
-                  ? t("sessionExpiredPlaceholder")
+                  ? hideWhatsAppTools
+                    ? t("sessionExpiredPlaceholderMeta")
+                    : t("sessionExpiredPlaceholder")
                   : isMobileComposer
                     ? t("typeMessagePlaceholderMobile")
                     : t("typeMessagePlaceholder")

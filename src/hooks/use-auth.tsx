@@ -23,6 +23,8 @@ import {
 
 interface Profile {
   id: string;
+  /** Sequential public ID (1001+). Distinct from auth UUID `user.id`. */
+  number_id: number | null;
   full_name: string | null;
   email: string;
   avatar_url: string | null;
@@ -147,6 +149,7 @@ function sleep(ms: number) {
 /** Shape of the `profiles` select below. */
 interface ProfileRow {
   id: string;
+  number_id: number | null;
   full_name: string | null;
   email: string;
   avatar_url: string | null;
@@ -195,7 +198,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const result = await supabase
           .from("profiles")
           .select(
-            "id, full_name, email, avatar_url, role, beta_features, account_id, account_role, whatsapp_number",
+            "id, number_id, full_name, email, avatar_url, role, beta_features, account_id, account_role, whatsapp_number",
           )
           .eq("user_id", userId)
           .maybeSingle();
@@ -272,6 +275,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         setProfile({
           id: data.id,
+          number_id: data.number_id ?? null,
           full_name: data.full_name,
           email: data.email,
           avatar_url: data.avatar_url,

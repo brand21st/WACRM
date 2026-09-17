@@ -81,6 +81,7 @@ describe("serializeMobileConversation", () => {
     const out = serializeMobileConversation(makeConversation());
     expect(out).toEqual({
       id: "conv-1",
+      channel: "whatsapp",
       status: "open",
       assigned_agent_id: "agent-1",
       last_message_text: "hi",
@@ -93,6 +94,8 @@ describe("serializeMobileConversation", () => {
       contact: {
         id: "c1",
         phone: "+15551234567",
+        channel: "whatsapp",
+        channel_user_id: null,
         name: "Jane",
         email: "jane@example.com",
         company: "Acme",

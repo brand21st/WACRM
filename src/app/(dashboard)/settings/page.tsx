@@ -12,6 +12,7 @@ import { ProfileForm } from '@/components/settings/profile-form';
 import { SecurityPanel } from '@/components/settings/security-panel';
 import { AppearancePanel } from '@/components/settings/appearance-panel';
 import { WhatsAppConfig } from '@/components/settings/whatsapp-config';
+import { MetaChannelsConfig } from '@/components/settings/meta-channels-config';
 import { ShopifyConfigPanel } from '@/components/settings/shopify-config';
 import { IntegrationsPanel } from '@/components/settings/integrations/integrations-panel';
 import { TemplateManager } from '@/components/settings/template-manager';
@@ -85,6 +86,7 @@ function SettingsPageInner() {
     security: <SecurityPanel />,
     appearance: <AppearancePanel />,
     whatsapp: <WhatsAppConfig />,
+    instagram: <MetaChannelsConfig />,
     shopify: <ShopifyConfigPanel />,
     integrations: <IntegrationsPanel />,
     knowledge: <KnowledgeBasePanel />,

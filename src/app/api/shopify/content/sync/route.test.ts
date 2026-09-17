@@ -42,16 +42,15 @@ beforeEach(() => {
 })
 
 describe('GET /api/shopify/content/sync', () => {
-  it('lists synced policies and pages for the account', async () => {
-    const order = vi.fn()
-    const chain = {
+  it('lists synced policies, pages, and products for the account', async () => {
+    const contentChain = {
       eq: vi.fn(),
-      order,
+      order: vi.fn(),
       limit: vi.fn(),
     }
-    chain.eq.mockReturnValue(chain)
-    chain.order.mockReturnValue(chain)
-    chain.limit.mockResolvedValue({
+    contentChain.eq.mockReturnValue(contentChain)
+    contentChain.order.mockReturnValue(contentChain)
+    contentChain.limit.mockResolvedValue({
       data: [
         {
           id: 'p1',
@@ -59,14 +58,46 @@ describe('GET /api/shopify/content/sync', () => {
           title: 'Refund',
           handle: 'refund-policy',
           page_url: 'https://shop.example/policies/refund',
+          body: 'Returns in 30 days.',
           synced_at: '2026-01-01T00:00:00.000Z',
+        },
+      ],
+      error: null,
+    })
+    const productChain = {
+      eq: vi.fn(),
+      order: vi.fn(),
+      limit: vi.fn(),
+    }
+    productChain.eq.mockReturnValue(productChain)
+    productChain.order.mockReturnValue(productChain)
+    productChain.limit.mockResolvedValue({
+      data: [
+        {
+          shopify_product_id: 'gid://shopify/Product/1',
+          handle: 'teddy',
+          title: 'Teddy Bear',
+          body: 'Soft plush toy.',
+          body_excerpt: 'Soft plush toy.',
+          price_min: '490',
+          price_max: '490',
+          currency: 'INR',
+          product_url: 'https://shop.example/products/teddy',
+          image_url: 'https://cdn.example/teddy.jpg',
+          variant_summary: [
+            { title: 'Default', price: '490', available: true, sku: 'TED-1' },
+          ],
         },
       ],
       error: null,
     })
     mocks.getCurrentAccount.mockResolvedValue({
       accountId: 'acct-1',
-      supabase: { from: () => ({ select: () => chain }) },
+      supabase: {
+        from: (table: string) => ({
+          select: () => (table === 'shopify_catalog_products' ? productChain : contentChain),
+        }),
+      },
     })
 
     const res = await GET()
@@ -74,6 +105,13 @@ describe('GET /api/shopify/content/sync', () => {
     expect(res.status).toBe(200)
     expect(json.count).toBe(1)
     expect(json.items[0].title).toBe('Refund')
+    expect(json.items[0].body).toBe('Returns in 30 days.')
+    expect(json.product_count).toBe(1)
+    expect(json.products[0].title).toBe('Teddy Bear')
+    expect(json.products[0].body).toBe('Soft plush toy.')
+    expect(json.products[0].variants).toEqual([
+      { title: 'Default', price: '490', available: true, sku: 'TED-1' },
+    ])
   })
 })
 

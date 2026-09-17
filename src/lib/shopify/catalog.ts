@@ -35,6 +35,7 @@ import {
 import { lookupCatalogProduct } from '@/lib/catalog/search/lookup'
 import { catalogProductToHit } from '@/lib/catalog/search/map-hit'
 import { isShopifyStoreConnected } from './catalog-config'
+import { jsonSafeValue } from './json-safe'
 import {
   removeShopifyProductKnowledge,
   syncShopifyProductKnowledge,
@@ -378,6 +379,7 @@ export async function syncCatalog(
   const rows: Record<string, unknown>[] = []
   const hits: ShopifyProductHit[] = []
   const publishedAtByProductId: Record<string, string | null> = {}
+  const ids: string[] = []
   let after: string | null = null
 
   while (rows.length < MAX_CATALOG_PRODUCTS) {
@@ -394,22 +396,25 @@ export async function syncCatalog(
       if (!hit) continue
       hits.push(hit)
       publishedAtByProductId[hit.id] = node.publishedAt || node.createdAt || null
-      rows.push({
-        account_id: config.accountId,
-        shopify_product_id: hit.id,
-        handle: hit.handle,
-        title: hit.title,
-        body: hit.description || null,
-        body_excerpt: excerpt(hit.description),
-        price_min: hit.priceMin != null ? Number(hit.priceMin) : null,
-        price_max: hit.priceMax != null ? Number(hit.priceMax) : null,
-        currency: hit.currency,
-        variant_summary: hit.variants.map(variantToSummary),
-        image_url: hit.imageUrl,
-        product_url: hit.productUrl,
-        published_at: node.publishedAt || node.createdAt || null,
-        synced_at: syncedAt,
-      })
+      rows.push(
+        jsonSafeValue({
+          account_id: config.accountId,
+          shopify_product_id: hit.id,
+          handle: hit.handle,
+          title: hit.title,
+          body: hit.description || null,
+          body_excerpt: excerpt(hit.description),
+          price_min: hit.priceMin != null ? Number(hit.priceMin) : null,
+          price_max: hit.priceMax != null ? Number(hit.priceMax) : null,
+          currency: hit.currency,
+          variant_summary: hit.variants.map(variantToSummary),
+          image_url: hit.imageUrl,
+          product_url: hit.productUrl,
+          published_at: node.publishedAt || node.createdAt || null,
+          synced_at: syncedAt,
+        }),
+      )
+      ids.push(hit.id)
       if (rows.length >= MAX_CATALOG_PRODUCTS) break
     }
     if (!data.products?.pageInfo?.hasNextPage || !data.products.pageInfo.endCursor) {
@@ -418,14 +423,35 @@ export async function syncCatalog(
     after = data.products.pageInfo.endCursor
   }
 
-  await db.from('shopify_catalog_products').delete().eq('account_id', config.accountId)
   if (rows.length > 0) {
-    let { error } = await db.from('shopify_catalog_products').insert(rows)
+    let { error } = await db
+      .from('shopify_catalog_products')
+      .upsert(rows, { onConflict: 'account_id,shopify_product_id' })
     if (error && isMissingDbColumn(error, 'body')) {
       const withoutBody = rows.map(({ body: _body, ...rest }) => rest)
-      ;({ error } = await db.from('shopify_catalog_products').insert(withoutBody))
+      ;({ error } = await db
+        .from('shopify_catalog_products')
+        .upsert(withoutBody, { onConflict: 'account_id,shopify_product_id' }))
     }
     if (error) throw error
+  }
+
+  const { data: existing, error: existingErr } = await db
+    .from('shopify_catalog_products')
+    .select('shopify_product_id')
+    .eq('account_id', config.accountId)
+  if (existingErr) throw existingErr
+  const keep = new Set(ids)
+  const stale = (existing ?? [])
+    .map((row) => String(row.shopify_product_id))
+    .filter((id) => !keep.has(id))
+  if (stale.length > 0) {
+    const { error: delErr } = await db
+      .from('shopify_catalog_products')
+      .delete()
+      .eq('account_id', config.accountId)
+      .in('shopify_product_id', stale)
+    if (delErr) throw delErr
   }
 
   const { error: updErr } = await db
@@ -632,7 +658,7 @@ function catalogRowFromHit(
   node: ShopifyGqlProduct,
   syncedAt: string,
 ): Record<string, unknown> {
-  return {
+  return jsonSafeValue({
     account_id: config.accountId,
     shopify_product_id: hit.id,
     handle: hit.handle,
@@ -647,7 +673,7 @@ function catalogRowFromHit(
     product_url: hit.productUrl,
     published_at: node.publishedAt || node.createdAt || null,
     synced_at: syncedAt,
-  }
+  })
 }
 
 function variantToSummary(v: ShopifyVariantHit): ShopifyCatalogVariant {

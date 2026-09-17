@@ -23,7 +23,7 @@ query ProductsSearch($first: Int!, $query: String, $sortKey: ProductSortKeys, $r
       featuredImage { url }
       images(first: 6) { nodes { url } }
       collections(first: 25) { nodes { handle title } }
-      variants(first: 20) {
+      variants(first: 50) {
         nodes {
           id
           legacyResourceId
@@ -54,7 +54,7 @@ query ProductById($id: ID!) {
     featuredImage { url }
     images(first: 6) { nodes { url } }
     collections(first: 25) { nodes { handle title } }
-    variants(first: 20) {
+    variants(first: 50) {
       nodes {
         id
         legacyResourceId
@@ -85,7 +85,7 @@ query ProductsSync($first: Int!, $after: String) {
       description
       featuredImage { url }
       collections(first: 25) { nodes { handle title } }
-      variants(first: 20) {
+      variants(first: 50) {
         nodes {
           id
           legacyResourceId

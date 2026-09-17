@@ -2,12 +2,15 @@ import { ApiError } from '@/lib/api-error';
 import { getSupabase } from '@/lib/supabase';
 import type { MobileConversation, MobileConversationContact } from '@/types/conversations';
 
-const CONVERSATION_SELECT = '*, contact:contacts(id, phone, name, email, company, avatar_url)';
+const CONVERSATION_SELECT =
+  '*, channel, contact:contacts(id, phone, name, email, company, avatar_url, channel, channel_user_id)';
 
 type RawContact = {
   id: string;
-  phone: string;
+  phone: string | null;
   name?: string | null;
+  channel?: MobileConversation['channel'];
+  channel_user_id?: string | null;
   email?: string | null;
   company?: string | null;
   avatar_url?: string | null;
@@ -15,6 +18,7 @@ type RawContact = {
 
 type RawConversation = {
   id: string;
+  channel?: MobileConversation['channel'];
   status: MobileConversation['status'];
   assigned_agent_id?: string | null;
   last_message_text?: string | null;
@@ -34,7 +38,9 @@ function mapContact(raw: RawContact | RawContact[] | null | undefined): MobileCo
   if (!contact) return null;
   return {
     id: contact.id,
-    phone: contact.phone,
+    phone: contact.phone ?? null,
+    channel: contact.channel,
+    channel_user_id: contact.channel_user_id ?? null,
     name: contact.name ?? null,
     email: contact.email ?? null,
     company: contact.company ?? null,
@@ -55,8 +61,10 @@ function expiresAt(row: RawConversation): string | null {
 }
 
 export function mapConversationRow(row: RawConversation): MobileConversation {
+  const contact = mapContact(row.contact);
   return {
     id: row.id,
+    channel: row.channel ?? contact?.channel ?? 'whatsapp',
     status: row.status,
     assigned_agent_id: row.assigned_agent_id ?? null,
     last_message_text: row.last_message_text ?? null,
@@ -66,7 +74,7 @@ export function mapConversationRow(row: RawConversation): MobileConversation {
     customer_service_expires_at: expiresAt(row),
     created_at: row.created_at,
     updated_at: row.updated_at,
-    contact: mapContact(row.contact),
+    contact,
   };
 }
 
@@ -74,7 +82,7 @@ async function loadContact(contactId: string | undefined): Promise<MobileConvers
   if (!contactId) return null;
   const { data, error } = await getSupabase()
     .from('contacts')
-    .select('id, phone, name, email, company, avatar_url')
+    .select('id, phone, name, email, company, avatar_url, channel, channel_user_id')
     .eq('id', contactId)
     .maybeSingle();
   if (error || !data) return null;

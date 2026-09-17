@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { Loader2, Upload, Trash2, Mail, CircleAlert } from 'lucide-react';
+import { Loader2, Upload, Trash2, Mail, CircleAlert, Copy } from 'lucide-react';
 
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/hooks/use-auth';
@@ -375,8 +375,28 @@ export function ProfileForm() {
               </div>
               <div className="sm:col-span-2">
                 <dt className="text-muted-foreground">{t('userId')}</dt>
-                <dd className="mt-0.5 break-all font-mono text-xs text-muted-foreground">
-                  {user?.id ?? '—'}
+                <dd className="mt-0.5 flex items-center gap-2 font-mono text-sm text-foreground">
+                  <span>{profile?.number_id ?? '—'}</span>
+                  {profile?.number_id != null && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label={t('copyUserId')}
+                      className="text-muted-foreground hover:text-foreground"
+                      onClick={async () => {
+                        try {
+                          await navigator.clipboard.writeText(String(profile.number_id));
+                          toast.success(t('userIdCopied'));
+                        } catch {
+                          // Clipboard can be blocked in insecure contexts;
+                          // the number is still visible to copy manually.
+                        }
+                      }}
+                    >
+                      <Copy className="size-3.5" />
+                    </Button>
+                  )}
                 </dd>
               </div>
             </dl>

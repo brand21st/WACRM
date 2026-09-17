@@ -228,6 +228,11 @@ export async function syncStoreContent(
   const persist = await persistStoreContentRows(db, config.accountId, rows)
   if (persist.ok && !persist.warning) {
     try {
+      await ingestStoreContentKnowledge(db, config.accountId, rows)
+    } catch (err) {
+      console.warn('[shopify/store-content] knowledge ingest failed:', err)
+    }
+    try {
       await refreshContentSyncMetadata(db, config.accountId)
     } catch (err) {
       console.warn('[shopify/store-content] metadata update failed:', err)
@@ -330,11 +335,11 @@ function scoreStoreDoc(
   return score
 }
 
-async function persistAsKnowledgeDocuments(
+async function ingestStoreContentKnowledge(
   db: SupabaseClient,
   accountId: string,
   rows: Record<string, unknown>[],
-): Promise<{ ok: boolean; warning?: string }> {
+): Promise<void> {
   const { data: existing } = await db
     .from('ai_knowledge_documents')
     .select('id, title')
@@ -346,26 +351,50 @@ async function persistAsKnowledgeDocuments(
   }
 
   const { ingestDocument } = await import('@/lib/ai/knowledge')
+  let embeddingsApiKey: string | null = null
+  try {
+    const { loadEmbeddingsKey } = await import('@/lib/ai/config')
+    const loaded = await loadEmbeddingsKey(db, accountId)
+    embeddingsApiKey = loaded.key
+  } catch {
+    embeddingsApiKey = null
+  }
+
   for (const row of rows) {
     const title = `${SHOPIFY_KB_PREFIX}${String(row.title ?? 'Page')}`
     const content = String(row.body ?? '').trim()
     if (!content) continue
     const { data: doc, error } = await db
       .from('ai_knowledge_documents')
-      .insert({ account_id: accountId, title, content })
+      .insert({
+        account_id: accountId,
+        title,
+        content,
+        source_type: 'url',
+        source_url: typeof row.page_url === 'string' ? row.page_url : null,
+        last_scraped_at: new Date().toISOString(),
+        scrape_error: null,
+      })
       .select('id')
       .single()
     if (error || !doc) {
-      console.error('[shopify/store-content] knowledge fallback insert failed:', error)
+      console.error('[shopify/store-content] knowledge insert failed:', error)
       continue
     }
     try {
-      await ingestDocument(db, accountId, { embeddingsApiKey: null }, doc.id, content, title)
+      await ingestDocument(db, accountId, { embeddingsApiKey }, doc.id, content, title)
     } catch (err) {
       console.warn('[shopify/store-content] knowledge ingest failed:', err)
     }
   }
+}
 
+async function persistAsKnowledgeDocuments(
+  db: SupabaseClient,
+  accountId: string,
+  rows: Record<string, unknown>[],
+): Promise<{ ok: boolean; warning?: string }> {
+  await ingestStoreContentKnowledge(db, accountId, rows)
   return {
     ok: true,
     warning:

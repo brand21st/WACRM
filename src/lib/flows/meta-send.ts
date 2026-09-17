@@ -18,6 +18,16 @@ import {
   type WhatsAppOrderStatus,
 } from '@/lib/whatsapp/meta-api'
 import type { InteractiveMessagePayload } from '@/lib/whatsapp/interactive'
+import { resolveTransport } from '@/lib/meta/channel-transport'
+import {
+  pageButtonsMessage,
+  pageCtaUrlMessage,
+  pageListMessage,
+  pageMediaMessage,
+  pageTextMessage,
+  sendPageTypingForContact,
+} from '@/lib/meta/page-send'
+import { sendPageMessage } from '@/lib/meta/graph'
 import { decrypt } from '@/lib/whatsapp/encryption'
 import {
   sanitizePhoneForMeta,
@@ -80,6 +90,18 @@ export async function engineSendText(
   args: SendTextEngineArgs,
 ): Promise<{ whatsapp_message_id: string }> {
   const db = supabaseAdmin()
+  const transport = await resolveTransport(db, args.accountId, args.contactId)
+  if (transport.channel !== 'whatsapp') {
+    const sent = await sendPageMessage({
+      pageId: transport.pageId,
+      pageAccessToken: transport.accessToken,
+      recipientId: transport.recipientId,
+      message: pageTextMessage(args.text),
+      replyToMid: args.contextMessageId,
+    })
+    await persistBotText(db, args, sent.messageId)
+    return { whatsapp_message_id: sent.messageId }
+  }
 
   const { data: contact, error: contactErr } = await db
     .from('contacts')
@@ -166,6 +188,34 @@ export async function engineSendText(
   return { whatsapp_message_id: waMessageId }
 }
 
+async function persistBotText(
+  db: ReturnType<typeof supabaseAdmin>,
+  args: SendTextEngineArgs,
+  messageId: string,
+) {
+  const { error: msgErr } = await db.from('messages').insert({
+    conversation_id: args.conversationId,
+    sender_type: 'bot',
+    content_type: 'text',
+    content_text: args.text,
+    message_id: messageId,
+    status: 'sent',
+    ai_generated: args.aiGenerated ?? false,
+    reply_to_message_id: args.replyToMessageId || null,
+  })
+  if (msgErr) {
+    throw new Error(`sent to Meta but DB insert failed: ${msgErr.message}`)
+  }
+  await db
+    .from('conversations')
+    .update({
+      last_message_text: args.text,
+      last_message_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', args.conversationId)
+}
+
 interface SendMediaEngineArgs {
   accountId: string
   userId: string
@@ -205,6 +255,46 @@ export async function engineSendMedia(
   args: SendMediaEngineArgs,
 ): Promise<{ whatsapp_message_id: string }> {
   const db = supabaseAdmin()
+  const pageTransport = await resolveTransport(db, args.accountId, args.contactId)
+  if (pageTransport.channel !== 'whatsapp') {
+    const sent = await sendPageMessage({
+      pageId: pageTransport.pageId,
+      pageAccessToken: pageTransport.accessToken,
+      recipientId: pageTransport.recipientId,
+      message: pageMediaMessage({
+        kind: args.kind,
+        url: args.link,
+        caption: args.caption,
+      }),
+      replyToMid: args.contextMessageId,
+    })
+    const persistedText = args.contentText ?? args.caption ?? null
+    const preview = persistedText?.trim() || `[${args.kind}]`
+    const { error: pageMsgErr } = await db.from('messages').insert({
+      conversation_id: args.conversationId,
+      sender_type: 'bot',
+      content_type: args.kind,
+      content_text: persistedText,
+      media_url: args.link,
+      media_type: args.mediaType ?? null,
+      message_id: sent.messageId,
+      status: 'sent',
+      ai_generated: args.aiGenerated ?? false,
+      reply_to_message_id: args.replyToMessageId || null,
+    })
+    if (pageMsgErr) {
+      throw new Error(`sent to Meta but DB insert failed: ${pageMsgErr.message}`)
+    }
+    await db
+      .from('conversations')
+      .update({
+        last_message_text: preview,
+        last_message_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', args.conversationId)
+    return { whatsapp_message_id: sent.messageId }
+  }
 
   const { data: contact, error: contactErr } = await db
     .from('contacts')
@@ -500,10 +590,153 @@ type SendInput =
   | (SendOrderDetailsEngineArgs & { kind: 'order_details' })
   | (SendOrderStatusEngineArgs & { kind: 'order_status' })
 
+async function persistInteractiveRow(
+  db: ReturnType<typeof supabaseAdmin>,
+  input: SendInput,
+  waMessageId: string,
+): Promise<{ whatsapp_message_id: string }> {
+  const interactivePayload: InteractiveMessagePayload =
+    input.kind === 'buttons'
+      ? {
+          kind: 'buttons',
+          body: input.bodyText,
+          header: input.headerText,
+          footer: input.footerText,
+          buttons: input.buttons,
+        }
+      : input.kind === 'cta_url'
+        ? {
+            kind: 'cta_url',
+            body: input.bodyText,
+            header: input.headerText,
+            footer: input.footerText,
+            display_text: input.displayText,
+            url: input.url,
+            header_image: input.headerImageUrl,
+            ...(input.shopifyHandle
+              ? { shopify_handle: input.shopifyHandle }
+              : {}),
+            ...(input.shopifyVariantId
+              ? { shopify_variant_id: input.shopifyVariantId }
+              : {}),
+          }
+        : input.kind === 'product'
+          ? {
+              kind: 'product',
+              body: input.bodyText,
+              footer: input.footerText,
+              catalog_id: input.catalogId,
+              product_retailer_id: input.productRetailerId,
+            }
+          : input.kind === 'product_list'
+            ? {
+                kind: 'product_list',
+                body: input.bodyText,
+                header: input.headerText,
+                footer: input.footerText,
+                catalog_id: input.catalogId,
+                product_retailer_ids:
+                  input.productRetailerIds ??
+                  (input.sections ?? []).flatMap((section) => section.productRetailerIds),
+                ...(input.sections?.length ? { sections: input.sections } : {}),
+              }
+            : input.kind === 'catalog_message'
+              ? {
+                  kind: 'catalog_message',
+                  body: input.bodyText,
+                  footer: input.footerText,
+                }
+              : input.kind === 'address_message'
+                ? {
+                    kind: 'address_message',
+                    body: input.bodyText,
+                  }
+                : input.kind === 'order_details'
+                ? {
+                    kind: 'order_details',
+                    body: input.bodyText,
+                    footer: input.footerText,
+                    reference_id: input.referenceId,
+                    catalog_id: input.catalogId,
+                  }
+                : input.kind === 'order_status'
+                  ? {
+                      kind: 'order_status',
+                      body: input.bodyText,
+                      reference_id: input.referenceId,
+                      status: input.status,
+                    }
+                  : {
+                      kind: 'list',
+                      body: input.bodyText,
+                      header: input.headerText,
+                      footer: input.footerText,
+                      button_label: input.buttonLabel,
+                      sections: input.sections,
+                    }
+
+  const { error: msgErr } = await db.from('messages').insert({
+    conversation_id: input.conversationId,
+    sender_type: 'bot',
+    content_type: 'interactive',
+    content_text: input.bodyText,
+    interactive_payload: interactivePayload,
+    message_id: waMessageId,
+    status: 'sent',
+    ai_generated: input.aiGenerated ?? false,
+  })
+  if (msgErr) {
+    throw new Error(`sent to Meta but DB insert failed: ${msgErr.message}`)
+  }
+
+  await db
+    .from('conversations')
+    .update({
+      last_message_text: input.bodyText,
+      last_message_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', input.conversationId)
+
+  return { whatsapp_message_id: waMessageId }
+}
+
 async function sendInteractiveViaMeta(
   input: SendInput,
 ): Promise<{ whatsapp_message_id: string }> {
   const db = supabaseAdmin()
+  const pageTransport = await resolveTransport(db, input.accountId, input.contactId)
+  if (pageTransport.channel !== 'whatsapp') {
+    let message: Record<string, unknown>
+    if (input.kind === 'buttons') {
+      message = pageButtonsMessage({
+        bodyText: input.bodyText,
+        buttons: input.buttons,
+      })
+    } else if (input.kind === 'list') {
+      message = pageListMessage({
+        bodyText: input.bodyText,
+        sections: input.sections,
+      })
+    } else if (input.kind === 'cta_url') {
+      message = pageCtaUrlMessage({
+        bodyText: input.bodyText,
+        displayText: input.displayText,
+        url: input.url,
+        headerText: input.headerText,
+        headerImageUrl: input.headerImageUrl,
+      })
+    } else {
+      message = pageTextMessage(input.bodyText)
+    }
+    const sent = await sendPageMessage({
+      pageId: pageTransport.pageId,
+      pageAccessToken: pageTransport.accessToken,
+      recipientId: pageTransport.recipientId,
+      message,
+    })
+    return persistInteractiveRow(db, input, sent.messageId)
+  }
 
   // Scope the contact + whatsapp_config lookups by account_id —
   // same defense-in-depth rationale as automations/meta-send.ts.
@@ -669,121 +902,7 @@ async function sendInteractiveViaMeta(
     await db.from('contacts').update({ phone: workingPhone }).eq('id', contact.id)
   }
 
-  // Persist the bot's prompt to the messages table so it appears in
-  // the inbox. content_type='interactive' is supported as of
-  // migration 010; sender_type='bot' distinguishes flow sends from
-  // manual agent sends (the conversation list preview will pick up
-  // last_message_text as a sensible summary).
-  //
-  // We do NOT set interactive_reply_id here — that column is reserved
-  // for the customer's tap on this message, populated by the webhook
-  // when their reply arrives. We DO persist the structured payload so
-  // the inbox thread re-renders the buttons/rows the bot sent (round-
-  // trip), matching the composer + automation send paths.
-  const interactivePayload: InteractiveMessagePayload =
-    input.kind === 'buttons'
-      ? {
-          kind: 'buttons',
-          body: input.bodyText,
-          header: input.headerText,
-          footer: input.footerText,
-          buttons: input.buttons,
-        }
-      : input.kind === 'cta_url'
-        ? {
-            kind: 'cta_url',
-            body: input.bodyText,
-            header: input.headerText,
-            footer: input.footerText,
-            display_text: input.displayText,
-            url: input.url,
-            header_image: input.headerImageUrl,
-            ...(input.shopifyHandle
-              ? { shopify_handle: input.shopifyHandle }
-              : {}),
-            ...(input.shopifyVariantId
-              ? { shopify_variant_id: input.shopifyVariantId }
-              : {}),
-          }
-        : input.kind === 'product'
-          ? {
-              kind: 'product',
-              body: input.bodyText,
-              footer: input.footerText,
-              catalog_id: input.catalogId,
-              product_retailer_id: input.productRetailerId,
-            }
-          : input.kind === 'product_list'
-            ? {
-                kind: 'product_list',
-                body: input.bodyText,
-                header: input.headerText,
-                footer: input.footerText,
-                catalog_id: input.catalogId,
-                product_retailer_ids:
-                  input.productRetailerIds ??
-                  (input.sections ?? []).flatMap((section) => section.productRetailerIds),
-                ...(input.sections?.length ? { sections: input.sections } : {}),
-              }
-            : input.kind === 'catalog_message'
-              ? {
-                  kind: 'catalog_message',
-                  body: input.bodyText,
-                  footer: input.footerText,
-                }
-              : input.kind === 'address_message'
-                ? {
-                    kind: 'address_message',
-                    body: input.bodyText,
-                  }
-                : input.kind === 'order_details'
-                ? {
-                    kind: 'order_details',
-                    body: input.bodyText,
-                    footer: input.footerText,
-                    reference_id: input.referenceId,
-                    catalog_id: input.catalogId,
-                  }
-                : input.kind === 'order_status'
-                  ? {
-                      kind: 'order_status',
-                      body: input.bodyText,
-                      reference_id: input.referenceId,
-                      status: input.status,
-                    }
-                  : {
-                      kind: 'list',
-                      body: input.bodyText,
-                      header: input.headerText,
-                      footer: input.footerText,
-                      button_label: input.buttonLabel,
-                      sections: input.sections,
-                    }
-
-  const { error: msgErr } = await db.from('messages').insert({
-    conversation_id: input.conversationId,
-    sender_type: 'bot',
-    content_type: 'interactive',
-    content_text: input.bodyText,
-    interactive_payload: interactivePayload,
-    message_id: waMessageId,
-    status: 'sent',
-    ai_generated: input.aiGenerated ?? false,
-  })
-  if (msgErr) {
-    throw new Error(`sent to Meta but DB insert failed: ${msgErr.message}`)
-  }
-
-  await db
-    .from('conversations')
-    .update({
-      last_message_text: input.bodyText,
-      last_message_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', input.conversationId)
-
-  return { whatsapp_message_id: waMessageId }
+  return persistInteractiveRow(db, input, waMessageId)
 }
 
 /**
@@ -794,10 +913,22 @@ async function sendInteractiveViaMeta(
 export async function engineSendTypingIndicator(args: {
   accountId: string
   inboundMessageId: string
+  contactId?: string
 }): Promise<void> {
-  if (!args.inboundMessageId.trim()) return
+  if (!args.inboundMessageId.trim() && !args.contactId) return
   try {
     const db = supabaseAdmin()
+    if (args.contactId) {
+      const transport = await resolveTransport(db, args.accountId, args.contactId)
+      if (transport.channel !== 'whatsapp') {
+        await sendPageTypingForContact({
+          accountId: args.accountId,
+          contactId: args.contactId,
+        })
+        return
+      }
+    }
+    if (!args.inboundMessageId.trim()) return
     const { data: config, error } = await db
       .from('whatsapp_config')
       .select('phone_number_id, access_token')

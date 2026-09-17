@@ -245,6 +245,70 @@ export async function sendMessageToConversation(
   }
 
   const contact = conversation.contact;
+  const channel =
+    (conversation as { channel?: string }).channel ??
+    (contact as { channel?: string } | null)?.channel ??
+    'whatsapp';
+  if (channel === 'messenger' || channel === 'instagram') {
+    const { sendMessageOnPageChannel } = await import('@/lib/meta/page-send');
+    let replyToMid: string | null = null;
+    if (replyToMessageId) {
+      const { data: parent } = await db
+        .from('messages')
+        .select('message_id')
+        .eq('id', replyToMessageId)
+        .eq('conversation_id', conversationId)
+        .maybeSingle();
+      replyToMid = parent?.message_id ?? null;
+    }
+    if (messageType === 'template') {
+      const resolved = await resolveTemplateRow(
+        db,
+        accountId,
+        templateName,
+        templateLanguage,
+      );
+      const bodyText = templateContentText(
+        resolved.row,
+        templateParams ?? [],
+      );
+      if (!bodyText?.trim()) {
+        throw new SendMessageError(
+          'bad_request',
+          'This template has no body text to send on Instagram or Messenger.',
+          400,
+        );
+      }
+      return sendMessageOnPageChannel(db, accountId, {
+        conversationId,
+        messageType: 'text',
+        contentText: bodyText,
+        replyToMessageId,
+        replyToMid,
+      });
+    }
+    if (messageType === 'interactive') {
+      throw new SendMessageError(
+        'bad_request',
+        'Interactive WhatsApp messages are not sent on Instagram or Messenger from this endpoint.',
+        400,
+      );
+    }
+    return sendMessageOnPageChannel(db, accountId, {
+      conversationId,
+      messageType: messageType as
+        | 'text'
+        | 'image'
+        | 'video'
+        | 'audio'
+        | 'document',
+      contentText,
+      mediaUrl,
+      replyToMessageId,
+      replyToMid,
+    });
+  }
+
   if (!contact?.phone) {
     throw new SendMessageError(
       'bad_request',

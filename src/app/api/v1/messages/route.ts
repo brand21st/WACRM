@@ -1,5 +1,5 @@
 // ============================================================
-// POST /api/v1/messages — send a WhatsApp message via the public API.
+// POST /api/v1/messages — send a message via the public API.
 //
 // The headline public endpoint (issue #245). Unlike the dashboard's
 // `/api/whatsapp/send` (which takes an internal `conversation_id`),
@@ -12,7 +12,8 @@
 //
 // Body:
 //   {
-//     "to": "+14155550123",                 // required, E.164
+//     "to": "+14155550123",                 // required; E.164 for WhatsApp, scoped id for IG/Messenger
+//     "channel": "whatsapp",                 // optional: whatsapp (default) | messenger | instagram
 //     "type": "text",                        // text|template|image|video|document|audio (default: text)
 //     "text": "Hello!",                      // text body, or media caption
 //     "media_url": "https://…/file.pdf",     // required for image/video/document/audio
@@ -33,6 +34,7 @@
 
 import { requireApiKey } from '@/lib/auth/api-context';
 import { ok, fail, toApiErrorResponse } from '@/lib/api/v1/respond';
+import { resolveConversationByChannelUser } from '@/lib/meta/resolve-conversation';
 import { resolveConversationByPhone } from '@/lib/whatsapp/resolve-conversation';
 import {
   sendMessageToConversation,
@@ -40,6 +42,7 @@ import {
   SendMessageError,
 } from '@/lib/whatsapp/send-message';
 import type { InteractiveMessagePayload } from '@/lib/whatsapp/interactive';
+import type { ChannelType } from '@/types';
 
 export async function POST(request: Request) {
   try {
@@ -57,6 +60,21 @@ export async function POST(request: Request) {
     if (!to) {
       return fail('bad_request', "'to' is required", 400);
     }
+
+    const channelRaw =
+      typeof body.channel === 'string' ? body.channel.trim() : 'whatsapp';
+    if (
+      channelRaw !== 'whatsapp' &&
+      channelRaw !== 'messenger' &&
+      channelRaw !== 'instagram'
+    ) {
+      return fail(
+        'bad_request',
+        "channel must be 'whatsapp', 'messenger', or 'instagram'",
+        400,
+      );
+    }
+    const channel = channelRaw as ChannelType;
 
     const type = typeof body.type === 'string' ? body.type : 'text';
 
@@ -98,12 +116,21 @@ export async function POST(request: Request) {
     // Find-or-create the conversation for this phone, then send. Both
     // steps share `SendMessageError`, so one catch maps the whole
     // pipeline to the envelope.
-    const resolved = await resolveConversationByPhone(
-      ctx.supabase,
-      ctx.accountId,
-      to,
-      typeof body.name === 'string' ? body.name : null
-    );
+    const resolved =
+      channel === 'whatsapp'
+        ? await resolveConversationByPhone(
+            ctx.supabase,
+            ctx.accountId,
+            to,
+            typeof body.name === 'string' ? body.name : null,
+          )
+        : await resolveConversationByChannelUser({
+            db: ctx.supabase,
+            accountId: ctx.accountId,
+            channel,
+            channelUserId: to,
+            name: typeof body.name === 'string' ? body.name : null,
+          });
 
     const result = await sendMessageToConversation(
       ctx.supabase,

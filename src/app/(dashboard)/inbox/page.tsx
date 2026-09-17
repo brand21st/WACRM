@@ -1,6 +1,7 @@
 "use client";
 
 import { Suspense, useState, useCallback, useEffect, useRef } from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { createClient } from "@/lib/supabase/client";
@@ -55,6 +56,7 @@ function InboxPageInner() {
   const [whatsappConnected, setWhatsappConnected] = useState<boolean | null>(
     null
   );
+  const [metaConnected, setMetaConnected] = useState<boolean | null>(null);
   /**
    * Bumped whenever we want children (ConversationList, MessageThread)
    * to refetch from the DB — used as a safety net against missed
@@ -203,16 +205,28 @@ function InboxPageInner() {
       const accountId = profile?.account_id as string | undefined;
       if (!accountId) {
         setWhatsappConnected(false);
+        setMetaConnected(false);
         return;
       }
 
-      const { data } = await supabase
-        .from("whatsapp_config")
-        .select("status")
-        .eq("account_id", accountId)
-        .maybeSingle();
+      const [{ data }, { data: meta }] = await Promise.all([
+        supabase
+          .from("whatsapp_config")
+          .select("status")
+          .eq("account_id", accountId)
+          .maybeSingle(),
+        supabase
+          .from("meta_page_connections")
+          .select("messenger_status, instagram_status")
+          .eq("account_id", accountId)
+          .maybeSingle(),
+      ]);
 
       setWhatsappConnected(data?.status === "connected");
+      setMetaConnected(
+        meta?.messenger_status === "connected" ||
+          meta?.instagram_status === "connected",
+      );
     };
 
     checkConnection();
@@ -666,6 +680,16 @@ function InboxPageInner() {
           <WifiOff className="h-4 w-4 text-amber-400" />
           <p className="text-xs text-amber-400">
             {t("whatsappNotConnected")}
+          </p>
+        </div>
+      )}
+      {metaConnected === false && (
+        <div className="flex shrink-0 items-center justify-center gap-2 border-b border-sky-500/20 bg-sky-500/10 px-4 py-1.5">
+          <p className="text-xs text-sky-700 dark:text-sky-300">
+            {t("metaNotConnected")}{" "}
+            <Link href="/settings?tab=instagram" className="underline">
+              {t("connectMeta")}
+            </Link>
           </p>
         </div>
       )}

@@ -117,9 +117,11 @@ curl https://your-crm.example.com/api/v1/me \
 
 ### `POST /api/v1/messages`
 
-Send a WhatsApp message to a phone number. Scope: `messages:send`. You
-pass an **E.164 number**, not an internal id — the endpoint
-finds-or-creates the contact + conversation, then sends.
+Send a message. Scope: `messages:send`. Default `channel` is
+`whatsapp`: you pass an **E.164 number**, not an internal id. For
+`messenger` or `instagram`, `to` is the Messenger or Instagram scoped
+id for that person. The endpoint finds-or-creates the contact +
+conversation, then sends.
 
 ```bash
 curl -X POST https://your-crm.example.com/api/v1/messages \
@@ -132,6 +134,17 @@ curl -X POST https://your-crm.example.com/api/v1/messages \
 `video` / `document` / `audio`). Media needs `media_url` (and optional
 `filename`); `text` doubles as the caption. `template` needs a
 `template` object:
+
+Instagram / Messenger example:
+
+```jsonc
+{
+  "to": "17841400000000000",
+  "channel": "instagram",
+  "type": "text",
+  "text": "Hi 👋"
+}
+```
 
 ```jsonc
 {
