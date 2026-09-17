@@ -2,6 +2,9 @@ import { describe, expect, it } from 'vitest'
 import type { CatalogProduct } from '../core/types'
 import { createCatalogMemoryDb } from './memory-db'
 import {
+  catalogFtsAndQuery,
+  catalogFtsOrQuery,
+  catalogFtsRequiredQuery,
   catalogSearchFetchLimit,
   listNewArrivalsCatalog,
   sanitizeFtsQuery,
@@ -72,6 +75,16 @@ describe('catalog search helpers', () => {
 
   it('strips FTS operators', () => {
     expect(sanitizeFtsQuery('red & (bag)!')).toBe('red bag')
+  })
+
+  it('builds AND then required then OR queries', () => {
+    expect(catalogFtsAndQuery('toy camera')).toBe('toy camera')
+    expect(catalogFtsRequiredQuery('toy camera')).toBe('camera')
+    expect(catalogFtsOrQuery('toy camera')).toBe('toy OR camera')
+    expect(catalogFtsAndQuery('I would like to know about the toy camera')).toBe(
+      'toy camera',
+    )
+    expect(catalogFtsRequiredQuery('washup toy')).toBe('washup')
   })
 })
 
@@ -230,5 +243,122 @@ describe('searchCatalog', () => {
   it('returns an empty list when the account catalog is empty', async () => {
     const db = createCatalogMemoryDb()
     expect(await searchCatalog(db, { accountId: 'acct-a', text: 'bag' })).toEqual([])
+  })
+
+  it('finds a digital camera for toy camera and a wash-up set for washup', async () => {
+    const db = createCatalogMemoryDb({
+      catalog_products: [
+        product({
+          id: 'p-cam',
+          handle: 'kids-digital-camera',
+          title: 'Kids Digital Camera',
+          description: 'HD photo and video camera for children',
+        }),
+        product({
+          id: 'p-kitchen',
+          handle: 'itoys-wash-up-kitchen-set',
+          title: 'Itoys Wash Up Kitchen Set',
+          description: 'Kitchen sink play set with running water',
+        }),
+        product({
+          id: 'p-nail',
+          handle: 'baby-electric-nail-trimmer',
+          title: 'Baby Electric Nail Trimmer',
+          description: 'Safe nail care kit',
+          published_at: '2026-09-12T00:00:00.000Z',
+        }),
+        product({
+          id: 'p-teddy',
+          handle: 'breathing-teddy-bear',
+          title: 'Breathing Teddy Bear Plush Toy',
+          description: 'Surface-washable stuffed animal',
+        }),
+      ],
+      catalog_variants: [
+        variant({ id: 'v-cam', product_id: 'p-cam', sku: 'CAM-1', retailer_id: 'CAM-1' }),
+        variant({
+          id: 'v-kitchen',
+          product_id: 'p-kitchen',
+          sku: 'WASH-1',
+          retailer_id: 'WASH-1',
+        }),
+        variant({ id: 'v-nail', product_id: 'p-nail', sku: 'NAIL-1', retailer_id: 'NAIL-1' }),
+        variant({
+          id: 'v-teddy',
+          product_id: 'p-teddy',
+          sku: 'TED-1',
+          retailer_id: 'TED-1',
+        }),
+      ],
+      catalog_media: [],
+      catalog_external_ids: [],
+      catalog_collections: [],
+      catalog_product_collections: [],
+      catalog_attributes: [],
+      catalog_attribute_values: [],
+    })
+
+    const cameras = await searchCatalog(db, {
+      accountId: 'acct-a',
+      text: 'I would like to know about the toy camera',
+    })
+    expect(cameras.map((p) => p.id)[0]).toBe('p-cam')
+    expect(cameras.map((p) => p.id)).not.toContain('p-nail')
+
+    const washup = await searchCatalog(db, { accountId: 'acct-a', text: 'Washup toy' })
+    expect(washup.map((p) => p.id)[0]).toBe('p-kitchen')
+  })
+
+  it('ranks title matches ahead of description noise and newest SKUs', async () => {
+    const db = createCatalogMemoryDb({
+      catalog_products: [
+        ...Array.from({ length: 8 }, (_, i) =>
+          product({
+            id: `p-set-${i}`,
+            handle: `dinner-set-${i}`,
+            title: `Dinner Set ${i + 1}`,
+            description: 'Table set for kids',
+            published_at: `2026-09-1${i}T00:00:00.000Z`,
+          }),
+        ),
+        product({
+          id: 'p-cam',
+          handle: 'kids-digital-camera',
+          title: 'Kids Digital Camera',
+          description: 'HD photo camera',
+          published_at: '2026-01-01T00:00:00.000Z',
+        }),
+        product({
+          id: 'p-tee',
+          handle: 'cotton-t-shirt',
+          title: 'Cotton T-Shirt',
+          description: 'Everyday tee',
+        }),
+      ],
+      catalog_variants: [
+        ...Array.from({ length: 8 }, (_, i) =>
+          variant({
+            id: `v-set-${i}`,
+            product_id: `p-set-${i}`,
+            sku: `SET-${i}`,
+            retailer_id: `SET-${i}`,
+          }),
+        ),
+        variant({ id: 'v-cam', product_id: 'p-cam', sku: 'CAM-1', retailer_id: 'CAM-1' }),
+        variant({ id: 'v-tee', product_id: 'p-tee', sku: 'TEE-1', retailer_id: 'TEE-1' }),
+      ],
+      catalog_media: [],
+      catalog_external_ids: [],
+      catalog_collections: [],
+      catalog_product_collections: [],
+      catalog_attributes: [],
+      catalog_attribute_values: [],
+    })
+
+    const cameras = await searchCatalog(db, { accountId: 'acct-a', text: 'toy camera' })
+    expect(cameras.map((p) => p.id)[0]).toBe('p-cam')
+
+    const tees = await searchCatalog(db, { accountId: 'acct-a', text: 't-shirt' })
+    expect(tees.map((p) => p.id)).toContain('p-tee')
   })
 })

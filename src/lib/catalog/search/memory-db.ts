@@ -26,17 +26,26 @@ function compareOrdered(rowValue: unknown, value: unknown, op: 'gte' | 'lte'): b
   return op === 'gte' ? leftText >= rightText : leftText <= rightText
 }
 
+function rowField(row: Row, column: string): unknown {
+  if (column === 'title_norm') {
+    return String(row.title ?? '')
+      .toLowerCase()
+      .replace(/[^\p{L}\p{N}]+/gu, '')
+  }
+  return row[column]
+}
+
 function parseOrClause(clause: string): Filter {
   const parts = clause.split(/,(?=[a-z_]+\.)/i)
   const checks = parts.map((part) => {
     const ilike = part.match(/^([a-z_]+)\.ilike\.(.+)$/i)
-    if (ilike) return (row: Row) => matchIlike(row[ilike[1]], ilike[2])
+    if (ilike) return (row: Row) => matchIlike(rowField(row, ilike[1]), ilike[2])
     const eq = part.match(/^([a-z_]+)\.eq\.(.+)$/i)
-    if (eq) return (row: Row) => String(row[eq[1]] ?? '') === eq[2]
+    if (eq) return (row: Row) => String(rowField(row, eq[1]) ?? '') === eq[2]
     const gte = part.match(/^([a-z_]+)\.gte\.(.+)$/i)
-    if (gte) return (row: Row) => Number(row[gte[1]]) >= Number(gte[2])
+    if (gte) return (row: Row) => Number(rowField(row, gte[1])) >= Number(gte[2])
     const lte = part.match(/^([a-z_]+)\.lte\.(.+)$/i)
-    if (lte) return (row: Row) => Number(row[lte[1]]) <= Number(lte[2])
+    if (lte) return (row: Row) => Number(rowField(row, lte[1])) <= Number(lte[2])
     return () => false
   })
   return (row) => checks.some((fn) => fn(row))
@@ -115,23 +124,23 @@ export function createCatalogMemoryDb(
         return builder
       },
       eq: (column: string, value: unknown) => {
-        filters.push((row) => row[column] === value)
+        filters.push((row) => rowField(row, column) === value)
         return builder
       },
       in: (column: string, values: unknown[]) => {
-        filters.push((row) => values.includes(row[column]))
+        filters.push((row) => values.includes(rowField(row, column)))
         return builder
       },
       ilike: (column: string, pattern: string) => {
-        filters.push((row) => matchIlike(row[column], pattern))
+        filters.push((row) => matchIlike(rowField(row, column), pattern))
         return builder
       },
       gte: (column: string, value: unknown) => {
-        filters.push((row) => compareOrdered(row[column], value, 'gte'))
+        filters.push((row) => compareOrdered(rowField(row, column), value, 'gte'))
         return builder
       },
       lte: (column: string, value: unknown) => {
-        filters.push((row) => compareOrdered(row[column], value, 'lte'))
+        filters.push((row) => compareOrdered(rowField(row, column), value, 'lte'))
         return builder
       },
       or: (clause: string) => {
@@ -139,10 +148,15 @@ export function createCatalogMemoryDb(
         return builder
       },
       textSearch: (_column: string, query: string) => {
-        const tokens = query.toLowerCase().split(/\s+/).filter(Boolean)
+        const groups = query
+          .toLowerCase()
+          .split(/\s+or\s+/i)
+          .map((group) => group.replace(/['"]/g, '').split(/\s+/).filter(Boolean))
+          .filter((group) => group.length > 0)
         filters.push((row) => {
-          const hay = `${row.title ?? ''} ${row.description ?? ''}`.toLowerCase()
-          return tokens.every((token) => hay.includes(token))
+          const hay = `${row.title ?? ''} ${row.handle ?? ''} ${row.description ?? ''} ${rowField(row, 'title_norm')}`.toLowerCase()
+          if (groups.length === 0) return false
+          return groups.some((tokens) => tokens.every((token) => hay.includes(token)))
         })
         return builder
       },

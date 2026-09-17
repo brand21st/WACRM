@@ -625,9 +625,68 @@ describe('matchProductsToAsk', () => {
     expect(matchProductsToAsk('AB-1234', [other, hit], 3)).toEqual([hit])
   })
 
+  it('ranks a toy-camera ask onto cameras, not newest unrelated SKUs', () => {
+    const camera = fixtureProduct({
+      id: 'gid://shopify/Product/cam',
+      handle: 'kids-digital-camera-hd-photo-video-camera-for-children-3-years',
+      title: 'Kids Digital Camera – HD Photo & Video Camera for Children (3+ Years)',
+    })
+    const instant = fixtureProduct({
+      id: 'gid://shopify/Product/instant',
+      handle: 'diy-instant-digital-camera-with-print-3',
+      title: 'DIY Instant Digital Camera with Print 3+',
+    })
+    const nail = fixtureProduct({
+      id: 'gid://shopify/Product/nail',
+      handle: 'baby-electric-nail-trimmer-with-6-grinding-heads-safe-nail-care-kit',
+      title: 'Baby Electric Nail Trimmer with 6 Grinding Heads – Safe Nail Care Kit',
+    })
+    const walkie = fixtureProduct({
+      id: 'gid://shopify/Product/walkie',
+      handle: 'kids-smart-walkie-talkies-with-video-calling',
+      title: 'Kids Smart Walkie Talkies with Video Calling',
+      description: 'Includes a camera for video calling',
+    })
+    expect(
+      rankShoppingProducts(
+        'toy camera',
+        [nail, walkie, camera, instant],
+        3,
+      ).hits.map((p) => p.handle),
+    ).toEqual([
+      'kids-digital-camera-hd-photo-video-camera-for-children-3-years',
+      'diy-instant-digital-camera-with-print-3',
+    ])
+  })
+
+  it('ranks washup onto the wash-up kitchen set instead of a washable teddy', () => {
+    const kitchen = fixtureProduct({
+      id: 'gid://shopify/Product/kitchen',
+      handle: 'itoys-wash-up-kitchen-set',
+      title: 'Itoys Wash Up Kitchen Set',
+    })
+    const teddy = fixtureProduct({
+      id: 'gid://shopify/Product/teddy',
+      handle: 'breathing-teddy-bear-classic-plush-soft-toy',
+      title:
+        'Breathing Teddy Bear with Music, Sound, Light and Breathing Motion for Kids Stuffed Animal Plush Toy',
+      description: 'Surface-washable. Do not submerge in water.',
+    })
+    expect(
+      rankShoppingProducts('washup toy', [teddy, kitchen], 2).hits.map((p) => p.handle),
+    ).toEqual(['itoys-wash-up-kitchen-set'])
+    expect(rankShoppingProducts('washup toy', [teddy, kitchen], 2).exact).toBe(true)
+  })
+
   it('builds a search query from spoken filler words', () => {
     expect(productSearchQuery('send me the red bag')).toBe('red bag')
     expect(productSearchQuery('black shirt under 1500')).toBe('black shirt')
+    expect(productSearchQuery('I would like to know about the toy camera')).toBe(
+      'toy camera',
+    )
+    expect(productSearchQuery('Washup toy')).toBe('washup toy')
+    expect(productSearchQuery('Wash up toy')).toBe('wash up toy')
+    expect(productSearchQuery('t-shirt')).toBe('tshirt shirt')
   })
 
   it('parses a bare requested price next to a product ask', () => {
@@ -1268,7 +1327,7 @@ describe('executeShopifyTool', () => {
     expect(result.cards).toHaveLength(8)
   })
 
-  it('sends related catalog cards when search has no exact match', async () => {
+  it('does not dump newest catalog cards when a named search misses', async () => {
     catalogSearch.searchCatalog.mockResolvedValue([])
     catalogSearch.listNewArrivalsCatalog.mockResolvedValue(
       Array.from({ length: 4 }, (_, i) =>
@@ -1285,8 +1344,9 @@ describe('executeShopifyTool', () => {
       'search_products',
       { query: 'green dress' },
     )
-    expect(result.cards).toHaveLength(4)
-    expect(JSON.parse(result.json).note).toMatch(/related catalog/)
+    expect(result.cards).toEqual([])
+    expect(JSON.parse(result.json).note).toMatch(/Do not invent/)
+    expect(catalogSearch.listNewArrivalsCatalog).not.toHaveBeenCalled()
   })
 
   it('lets a tool limit override the inferred search count', async () => {

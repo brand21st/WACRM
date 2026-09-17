@@ -1,4 +1,23 @@
 import type { ShopifyProductHit } from './types'
+import {
+  compactText,
+  isWeakAskToken,
+  productAskTokens,
+} from '@/lib/catalog/search/tokens'
+
+export {
+  catalogFtsAndQuery,
+  catalogFtsOrQuery,
+  catalogFtsRequiredQuery,
+  catalogFtsWebsearchQuery,
+  catalogSearchNeedles,
+  compactText,
+  concatenatedSearchNeedles,
+  isWeakAskToken,
+  productAskTokens,
+  productFtsTokens,
+  requiredAskTokens,
+} from '@/lib/catalog/search/tokens'
 
 const STOP = new Set([
   'the',
@@ -25,93 +44,12 @@ const STOP = new Set([
   'product',
 ])
 
-const ASK_STOP = new Set([
-  ...STOP,
-  'show',
-  'send',
-  'give',
-  'me',
-  'please',
-  'want',
-  'need',
-  'looking',
-  'have',
-  'you',
-  'do',
-  'can',
-  'just',
-  'one',
-  'some',
-  'few',
-  'option',
-  'options',
-  'products',
-  'items',
-  'cards',
-  'something',
-  'there',
-  'here',
-  'any',
-  'your',
-  'our',
-  'got',
-  'get',
-  'find',
-  'see',
-  'check',
-  'available',
-  'stock',
-  'price',
-  'cost',
-  'how',
-  'much',
-  'many',
-  'what',
-  'which',
-  'where',
-  'is',
-  'are',
-  'buy',
-  'order',
-  'link',
-  'hello',
-  'hi',
-  'recommend',
-  'recommendation',
-  'recommendations',
-  'related',
-  'similar',
-  'matching',
-  'suggest',
-  'suggestion',
-  'suggestions',
-  'should',
-  'wanna',
-  'gonna',
-  'thanks',
-  'thank',
-  'under',
-  'below',
-  'within',
-  'budget',
-  'budgetil',
-  'upto',
-])
-
 export function tokensFromDescription(description: string): string[] {
   return description
     .toLowerCase()
     .replace(/[^\p{L}\p{M}\p{N}\s-]/gu, ' ')
     .split(/\s+/)
     .filter((t) => t.length >= 2 && !STOP.has(t))
-}
-
-export function productAskTokens(text: string): string[] {
-  return text
-    .toLowerCase()
-    .replace(/[^\p{L}\p{M}\p{N}\s-]/gu, ' ')
-    .split(/\s+/)
-    .filter((t) => t.length >= 2 && !ASK_STOP.has(t))
 }
 
 export function productSearchQuery(text: string): string {
@@ -247,6 +185,14 @@ function tokenVariants(token: string): string[] {
 }
 
 function hayHasToken(hay: string, token: string): boolean {
+  const compactToken = compactText(token)
+  if (compactToken.length >= 4 && compactText(hay).includes(compactToken)) {
+    return true
+  }
+  if (token.length <= 2) {
+    const escaped = token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    return new RegExp(`(?:^|[\\s-])${escaped}(?:[\\s-]|$)`, 'i').test(hay)
+  }
   return tokenVariants(token).some((t) => hay.includes(t))
 }
 
@@ -277,17 +223,20 @@ export type ShoppingMatch = {
 
 function scoreAskHits(query: string, products: ShopifyProductHit[]) {
   const tokens = productAskTokens(query)
-  const phrase = tokens.join(' ')
+  const required = tokens.filter((t) => !isWeakAskToken(t))
+  const phrase = required.join(' ') || tokens.join(' ')
   return products.map((p) => {
     const fields = productMatchHay(p)
     let score = 0
-    let allHit = tokens.length > 0
+    const must = required.length > 0 ? required : tokens
+    let allHit = must.length > 0
     for (const token of tokens) {
+      const requiredToken = !isWeakAskToken(token) || required.length === 0
       if (hayHasToken(fields.title, token)) score += 3
       else if (hayHasToken(fields.handle, token) || hayHasToken(fields.sku, token)) {
         score += 2
       } else if (hayHasToken(fields.hay, token)) score += 1
-      else allHit = false
+      else if (requiredToken) allHit = false
     }
     const phraseHit =
       Boolean(phrase) &&

@@ -461,6 +461,15 @@ export async function executeShopifyTool(
             'No catalog products match that budget. Do not invent cheaper items.',
           )
         }
+        if (productAskTokens(query).length > 0) {
+          return productsResult(
+            [],
+            ctx.retailerIdSource,
+            limit,
+            'No catalog products match that search. Do not invent items.',
+            false,
+          )
+        }
         const relatedLimit = Math.min(limit, 10)
         const related = await listNewArrivals(ctx.db, ctx.config, relatedLimit)
         return productsResult(

@@ -26,7 +26,7 @@ const SEND_THE_ONE =
   /\b(?:send|show|give)\s+(?:me\s+)?(?:the|this|that)\s+[a-z][\w\s-]{0,40}?\b(?!s\b)/i
 
 const PRODUCT_NOUN =
-  /\b(products?|items?|dress(?:es)?|bags?|sarees?|kurt(?:i|is)?|coords?|sets?|shirts?|tops?|catalog(?:ue)?|collection|arrivals?)\b/i
+  /\b(products?|items?|dress(?:es)?|bags?|sarees?|kurt(?:i|is)?|coords?|sets?|shirts?|tops?|toys?|cameras?|kitchen|shoes?|sandals?|watches?|jewellery|jewelry|phones?|catalog(?:ue)?|collection|arrivals?)\b/i
 
 const PRODUCT_COLOR =
   /\b(red|green|blue|pink|black|white|yellow|rani|navy|maroon|gold|silver|colour|color)\b/i

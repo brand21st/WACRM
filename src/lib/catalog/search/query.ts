@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { isMissingDbColumn } from '@/lib/shopify/config-db'
 import {
   PRODUCT_SELECT,
   getProductByHandle,
@@ -12,6 +13,18 @@ import type {
   CatalogSearchQuery,
   CatalogSearchSort,
 } from '../core/types'
+import {
+  catalogFtsAndQuery,
+  catalogFtsOrQuery,
+  catalogFtsRequiredQuery,
+  catalogFtsWebsearchQuery,
+  catalogSearchNeedles,
+  compactText,
+  concatenatedSearchNeedles,
+  productAskTokens,
+} from './tokens'
+
+export { catalogFtsWebsearchQuery, catalogFtsAndQuery, catalogFtsOrQuery, catalogFtsRequiredQuery }
 
 const SEARCH_FETCH_CAP = 50
 
@@ -68,7 +81,7 @@ export async function searchCatalog(
     })
     let products = await hydrateProducts(db, query.accountId, rows)
     products = applyInMemoryFilters(products, query)
-    products = sortProducts(products, sort)
+    products = sortProducts(products, sort, text)
     const limited = products.slice(0, fetchLimit)
     logCatalogSearch({
       accountId: query.accountId,
@@ -141,28 +154,42 @@ async function collectProductRows(
   }
 
   if (query.text) {
-    const fts = sanitizeFtsQuery(query.text)
-    if (fts) {
-      try {
-        add(await fetchRows(scoped().textSearch('fts', fts, { type: 'websearch', config: 'simple' }).limit(query.fetchLimit)))
-      } catch (err) {
-        console.warn('[catalog-search] FTS failed, using ILIKE', {
-          accountId: query.accountId,
-          error: err instanceof Error ? err.message : String(err),
-        })
-      }
+    await addTitleNeedles(add, scoped, query)
+    const andQuery = catalogFtsAndQuery(query.text)
+    const requiredQuery = catalogFtsRequiredQuery(query.text)
+    const orQuery = catalogFtsOrQuery(query.text)
+    if (andQuery) {
+      await addFts(add, scoped, query, andQuery)
+    }
+    if (seen.size < query.fetchLimit && requiredQuery && requiredQuery !== andQuery) {
+      await addFts(add, scoped, query, requiredQuery)
+    }
+    if (seen.size < query.fetchLimit && orQuery && orQuery !== andQuery) {
+      await addFts(add, scoped, query, orQuery)
+    }
+    for (const needle of catalogSearchNeedles(query.text)) {
+      add(
+        await fetchProductsForVariantText(
+          db,
+          query.accountId,
+          needle,
+          query.fetchLimit,
+          query.status,
+        ),
+      )
+      if (seen.size >= query.fetchLimit) break
     }
     if (seen.size === 0) {
-      const pattern = `%${query.text}%`
       add(
-        await fetchRows(
-          scoped()
-            .or(`title.ilike.${pattern},handle.ilike.${pattern},brand.ilike.${pattern}`)
-            .limit(query.fetchLimit),
+        await fetchProductsForVariantText(
+          db,
+          query.accountId,
+          query.text,
+          query.fetchLimit,
+          query.status,
         ),
       )
     }
-    add(await fetchProductsForVariantText(db, query.accountId, query.text, query.fetchLimit))
   } else {
     add(await fetchRows(applySort(scoped(), query.sort).limit(query.fetchLimit)))
   }
@@ -173,13 +200,87 @@ async function collectProductRows(
   return rows
 }
 
+async function addFts(
+  add: (rows: ProductRow[]) => void,
+  scoped: () => ProductQuery,
+  query: CatalogSearchQuery & { fetchLimit: number },
+  fts: string,
+): Promise<void> {
+  try {
+    add(
+      await fetchRows(
+        scoped().textSearch('fts', fts, { type: 'websearch', config: 'simple' }).limit(query.fetchLimit),
+      ),
+    )
+  } catch (err) {
+    console.warn('[catalog-search] FTS failed, using ILIKE', {
+      accountId: query.accountId,
+      error: err instanceof Error ? err.message : String(err),
+    })
+  }
+}
+
+async function addTitleNeedles(
+  add: (rows: ProductRow[]) => void,
+  scoped: () => ProductQuery,
+  query: CatalogSearchQuery & { text: string; fetchLimit: number },
+): Promise<void> {
+  const needles = catalogSearchNeedles(query.text)
+  for (const needle of needles) {
+    const before = await addIlikeNeedle(add, scoped, query, needle)
+    if (before === 0 && needle.length >= 6) {
+      for (const part of concatenatedSearchNeedles(needle)) {
+        await addIlikeNeedle(add, scoped, query, part)
+      }
+    }
+  }
+}
+
+async function addIlikeNeedle(
+  add: (rows: ProductRow[]) => void,
+  scoped: () => ProductQuery,
+  query: CatalogSearchQuery & { fetchLimit: number },
+  needle: string,
+): Promise<number> {
+  const safe = sanitizeCatalogSearch(needle)
+  if (!safe) return 0
+  const pattern = `%${safe}%`
+  const before = { count: 0 }
+  const collect = (rows: ProductRow[]) => {
+    before.count += rows.length
+    add(rows)
+  }
+  collect(
+    await fetchRows(
+      scoped()
+        .or(`title.ilike.${pattern},handle.ilike.${pattern},brand.ilike.${pattern}`)
+        .limit(query.fetchLimit),
+    ),
+  )
+  const compact = compactText(safe)
+  if (compact.length >= 4) {
+    try {
+      collect(
+        await fetchRows(
+          scoped().ilike('title_norm', `%${compact}%`).limit(query.fetchLimit),
+        ),
+      )
+    } catch (err) {
+      const error = err as { message?: string; code?: string }
+      if (!isMissingDbColumn(error, 'title_norm')) throw err
+    }
+  }
+  return before.count
+}
+
 async function fetchProductsForVariantText(
   db: SupabaseClient,
   accountId: string,
   text: string,
   limit: number,
+  status?: string,
 ): Promise<ProductRow[]> {
-  const pattern = `%${text}%`
+  const pattern = `%${sanitizeCatalogSearch(text)}%`
   const { data, error } = await db
     .from('catalog_variants')
     .select('product_id')
@@ -189,13 +290,13 @@ async function fetchProductsForVariantText(
   if (error) throw error
   const ids = unique((data ?? []).map((row) => String(row.product_id)).filter(Boolean))
   if (ids.length === 0) return []
-  return fetchRows(
-    db
-      .from('catalog_products')
-      .select(PRODUCT_SELECT)
-      .eq('account_id', accountId)
-      .in('id', ids),
-  )
+  let req = db
+    .from('catalog_products')
+    .select(PRODUCT_SELECT)
+    .eq('account_id', accountId)
+    .in('id', ids)
+  if (status) req = req.eq('status', status)
+  return fetchRows(req)
 }
 
 type ProductQuery = {
@@ -335,8 +436,15 @@ function applyInMemoryFilters(
 function sortProducts(
   products: CatalogProduct[],
   sort: CatalogSearchSort,
+  text = '',
 ): CatalogProduct[] {
-  if (sort === 'relevance') return products
+  if (sort === 'relevance' && text.trim()) {
+    return [...products].sort((a, b) => {
+      const diff = scoreCatalogRelevance(text, b) - scoreCatalogRelevance(text, a)
+      if (diff !== 0) return diff
+      return a.title.localeCompare(b.title)
+    })
+  }
   const copy = [...products]
   copy.sort((a, b) => {
     if (sort === 'price_asc') return (a.priceMin ?? Number.POSITIVE_INFINITY) - (b.priceMin ?? Number.POSITIVE_INFINITY)
@@ -346,6 +454,26 @@ function sortProducts(
     return b.createdAt.localeCompare(a.createdAt)
   })
   return copy
+}
+
+export function scoreCatalogRelevance(query: string, product: CatalogProduct): number {
+  const tokens = productAskTokens(query)
+  if (tokens.length === 0) return 0
+  const title = product.title.toLowerCase()
+  const handle = product.handle.replace(/-/g, ' ').toLowerCase()
+  const brand = (product.brand ?? '').toLowerCase()
+  const compactTitle = compactText(product.title)
+  const description = (product.description ?? '').toLowerCase()
+  let score = 0
+  for (const token of tokens) {
+    const compact = compactText(token)
+    if (compact.length >= 4 && compactTitle.includes(compact)) score += 8
+    else if (title.includes(token)) score += 6
+    else if (handle.includes(token)) score += 4
+    else if (brand.includes(token)) score += 2
+    else if (description.includes(token)) score += 1
+  }
+  return score
 }
 
 function compareNullableDate(a: string | null, b: string | null): number {
