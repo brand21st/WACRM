@@ -2115,6 +2115,8 @@
       "newTemplate": "New Template",
       "noTemplates": "No templates yet.",
       "createFirst": "Create your first message template to get started.",
+      "shopifySection": "Shopify order templates",
+      "otherSection": "Other templates",
       "editTitle": "Editing triggers Meta re-review — status flips to PENDING.",
       "editLabel": "Edit template",
       "edit": "Edit",

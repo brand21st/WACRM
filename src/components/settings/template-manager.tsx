@@ -11,6 +11,7 @@ import {
   X,
   Pencil,
   RotateCcw,
+  Store,
   Upload,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
@@ -59,6 +60,7 @@ import {
   extractVariableIndices,
   TEMPLATE_LIMITS,
 } from '@/lib/whatsapp/template-validators';
+import { isShopifyTemplateName } from '@/lib/shopify/notification-templates';
 import {
   SHOPIFY_NOTIFICATION_FIELDS,
   type ShopifyNotificationField,
@@ -224,7 +226,7 @@ function emptyButton(type: TemplateButton['type']): TemplateButton {
 export function TemplateManager() {
   const t = useTranslations('Settings.templates');
   const supabase = createClient();
-  const { user, loading: authLoading } = useAuth();
+  const { user, accountId, loading: authLoading } = useAuth();
 
   const [loading, setLoading] = useState(true);
   const [templates, setTemplates] = useState<MessageTemplate[]>([]);
@@ -272,6 +274,16 @@ export function TemplateManager() {
     [form.header_format, form.header_content],
   );
 
+  const { shopifyTemplates, otherTemplates } = useMemo(() => {
+    const shopify: MessageTemplate[] = [];
+    const other: MessageTemplate[] = [];
+    for (const tpl of templates) {
+      if (isShopifyTemplateName(tpl.name)) shopify.push(tpl);
+      else other.push(tpl);
+    }
+    return { shopifyTemplates: shopify, otherTemplates: other };
+  }, [templates]);
+
   // Resize body_samples so it always has exactly bodyVarCount entries.
   // (We mutate via setForm in an effect so React owns the state.)
   useEffect(() => {
@@ -314,21 +326,24 @@ export function TemplateManager() {
 
   useEffect(() => {
     if (authLoading) return;
-    if (!user) {
+    if (!accountId) {
       setLoading(false);
       return;
     }
-    fetchTemplates(user.id);
+    fetchTemplates(accountId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [authLoading, user?.id]);
+  }, [authLoading, accountId]);
 
-  async function fetchTemplates(userId: string) {
+  async function fetchTemplates(scopeAccountId: string) {
     try {
       setLoading(true);
+      // Scope by account, not author. Shopify order templates are created
+      // under the owner (Quick add / clone), so a user_id filter hid them
+      // from the Message templates window.
       const { data, error } = await supabase
         .from('message_templates')
         .select('*')
-        .eq('user_id', userId)
+        .eq('account_id', scopeAccountId)
         .order('created_at', { ascending: false });
       if (error) throw error;
       setTemplates(data || []);
@@ -415,7 +430,7 @@ export function TemplateManager() {
       }
       // Refresh first, then close — re-opening the dialog
       // immediately should not show a stale list.
-      if (user) await fetchTemplates(user.id);
+      if (accountId) await fetchTemplates(accountId);
       toast.success(
         data.dry_run
           ? isEdit
@@ -469,7 +484,7 @@ export function TemplateManager() {
           { duration: 10000 },
         );
       }
-      await fetchTemplates(user.id);
+      if (accountId) await fetchTemplates(accountId);
     } catch (err) {
       console.error('Template sync error:', err);
       toast.error(err instanceof Error ? err.message : t('toastSyncError'));
@@ -616,6 +631,122 @@ export function TemplateManager() {
     }
   }
 
+  function templateCard(template: MessageTemplate) {
+    const statusKey = template.status || 'DRAFT';
+    const status = templateStatusConfig[statusKey];
+    const isShopify = isShopifyTemplateName(template.name);
+    return (
+      <Card key={template.id}>
+        <CardContent className="flex items-start justify-between pt-4">
+          <div className="space-y-2 min-w-0 flex-1">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h3 className="font-medium text-foreground">{template.name}</h3>
+              {isShopify ? (
+                <Badge variant="secondary" className="text-xs font-normal">
+                  Shopify
+                </Badge>
+              ) : null}
+              <Badge
+                className={`text-xs border ${categoryColors[template.category] || ''}`}
+              >
+                {template.category}
+              </Badge>
+              <Badge className={`text-xs border ${status.classes}`}>
+                {status.label}
+              </Badge>
+              {template.language && (
+                <span className="text-xs text-muted-foreground uppercase">
+                  {template.language}
+                </span>
+              )}
+              {template.quality_score && (
+                <span
+                  className={`text-[10px] uppercase font-medium ${
+                    template.quality_score === 'GREEN'
+                      ? 'text-emerald-400'
+                      : template.quality_score === 'YELLOW'
+                        ? 'text-yellow-400'
+                        : 'text-red-400'
+                  }`}
+                  title="Meta quality score"
+                >
+                  {template.quality_score}
+                </span>
+              )}
+            </div>
+            <p className="text-sm text-muted-foreground line-clamp-2">
+              {template.body_text}
+            </p>
+            {template.footer_text && (
+              <p className="text-xs text-muted-foreground italic">
+                {template.footer_text}
+              </p>
+            )}
+            {(template.rejection_reason || template.submission_error) && (
+              <div className="flex items-start gap-1.5 text-xs text-red-400 bg-red-950/20 border border-red-900/40 rounded px-2 py-1.5">
+                <AlertCircle className="size-3.5 mt-0.5 shrink-0" />
+                <span>
+                  {template.rejection_reason || template.submission_error}
+                </span>
+              </div>
+            )}
+          </div>
+          <div className="flex items-center gap-1 shrink-0 ml-2">
+            {statusKey === 'APPROVED' && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => openEdit(template)}
+                title={t('editTitle')}
+                aria-label={t('editLabel')}
+                className="text-muted-foreground hover:text-primary hover:bg-primary/10 h-8 px-2"
+              >
+                <Pencil className="size-3.5" />
+                {t('edit')}
+              </Button>
+            )}
+            {(statusKey === 'REJECTED' || statusKey === 'PAUSED') && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => openEdit(template)}
+                title={t('resubmitTitle')}
+                aria-label={t('resubmitLabel')}
+                className="text-muted-foreground hover:text-primary hover:bg-primary/10 h-8 px-2"
+              >
+                <RotateCcw className="size-3.5" />
+                {t('resubmit')}
+              </Button>
+            )}
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setTemplateToDelete(template)}
+              disabled={deletingId === template.id}
+              aria-label={
+                template.meta_template_id
+                  ? t('deleteMetaLocallyAria')
+                  : t('deleteLocallyAria')
+              }
+              title={
+                template.meta_template_id
+                  ? t('deleteMetaLocallyTitle')
+                  : t('deleteLocallyTitle')
+              }
+              className="text-muted-foreground hover:text-red-400 hover:bg-red-950/30 h-8 w-8"
+            >
+              {deletingId === template.id ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <Trash2 className="size-4" />
+              )}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
   return (
     <section className="animate-in fade-in-50 space-y-4 duration-200">
       <SettingsPanelHead
@@ -650,116 +781,36 @@ export function TemplateManager() {
           </CardContent>
         </Card>
       ) : (
-        <div className="grid gap-3 xl:grid-cols-2">
-          {templates.map((template) => {
-            const statusKey = template.status || 'DRAFT';
-            const status = templateStatusConfig[statusKey];
-            return (
-              <Card key={template.id}>
-                <CardContent className="flex items-start justify-between pt-4">
-                  <div className="space-y-2 min-w-0 flex-1">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <h3 className="font-medium text-foreground">{template.name}</h3>
-                      <Badge
-                        className={`text-xs border ${categoryColors[template.category] || ''}`}
-                      >
-                        {template.category}
-                      </Badge>
-                      <Badge className={`text-xs border ${status.classes}`}>
-                        {status.label}
-                      </Badge>
-                      {template.language && (
-                        <span className="text-xs text-muted-foreground uppercase">
-                          {template.language}
-                        </span>
-                      )}
-                      {template.quality_score && (
-                        <span
-                          className={`text-[10px] uppercase font-medium ${
-                            template.quality_score === 'GREEN'
-                              ? 'text-emerald-400'
-                              : template.quality_score === 'YELLOW'
-                                ? 'text-yellow-400'
-                                : 'text-red-400'
-                          }`}
-                          title="Meta quality score"
-                        >
-                          {template.quality_score}
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-sm text-muted-foreground line-clamp-2">
-                      {template.body_text}
-                    </p>
-                    {template.footer_text && (
-                      <p className="text-xs text-muted-foreground italic">
-                        {template.footer_text}
-                      </p>
-                    )}
-                    {(template.rejection_reason || template.submission_error) && (
-                      <div className="flex items-start gap-1.5 text-xs text-red-400 bg-red-950/20 border border-red-900/40 rounded px-2 py-1.5">
-                        <AlertCircle className="size-3.5 mt-0.5 shrink-0" />
-                        <span>
-                          {template.rejection_reason || template.submission_error}
-                        </span>
-                      </div>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-1 shrink-0 ml-2">
-                    {statusKey === 'APPROVED' && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => openEdit(template)}
-                        title={t('editTitle')}
-                        aria-label={t('editLabel')}
-                        className="text-muted-foreground hover:text-primary hover:bg-primary/10 h-8 px-2"
-                      >
-                        <Pencil className="size-3.5" />
-                        {t('edit')}
-                      </Button>
-                    )}
-                    {(statusKey === 'REJECTED' || statusKey === 'PAUSED') && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => openEdit(template)}
-                        title={t('resubmitTitle')}
-                        aria-label={t('resubmitLabel')}
-                        className="text-muted-foreground hover:text-primary hover:bg-primary/10 h-8 px-2"
-                      >
-                        <RotateCcw className="size-3.5" />
-                        {t('resubmit')}
-                      </Button>
-                    )}
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => setTemplateToDelete(template)}
-                      disabled={deletingId === template.id}
-                      aria-label={
-                        template.meta_template_id
-                          ? t('deleteMetaLocallyAria')
-                          : t('deleteLocallyAria')
-                      }
-                      title={
-                        template.meta_template_id
-                          ? t('deleteMetaLocallyTitle')
-                          : t('deleteLocallyTitle')
-                      }
-                      className="text-muted-foreground hover:text-red-400 hover:bg-red-950/30 h-8 w-8"
-                    >
-                      {deletingId === template.id ? (
-                        <Loader2 className="size-4 animate-spin" />
-                      ) : (
-                        <Trash2 className="size-4" />
-                      )}
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            );
-          })}
+        <div className="space-y-6">
+          {shopifyTemplates.length > 0 ? (
+            <div className="space-y-3">
+              <h3 className="flex items-center gap-2 text-sm font-medium text-foreground">
+                <Store className="size-4 text-primary" />
+                {t('shopifySection')}
+                <span className="text-muted-foreground font-normal">
+                  ({shopifyTemplates.length})
+                </span>
+              </h3>
+              <div className="grid gap-3 xl:grid-cols-2">
+                {shopifyTemplates.map(templateCard)}
+              </div>
+            </div>
+          ) : null}
+          {otherTemplates.length > 0 ? (
+            <div className="space-y-3">
+              {shopifyTemplates.length > 0 ? (
+                <h3 className="text-sm font-medium text-foreground">
+                  {t('otherSection')}
+                  <span className="ml-2 text-muted-foreground font-normal">
+                    ({otherTemplates.length})
+                  </span>
+                </h3>
+              ) : null}
+              <div className="grid gap-3 xl:grid-cols-2">
+                {otherTemplates.map(templateCard)}
+              </div>
+            </div>
+          ) : null}
         </div>
       )}
 
