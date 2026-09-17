@@ -6,6 +6,8 @@ import "./globals.css";
 import { PRODUCT_DESCRIPTION, PRODUCT_NAME } from "@/lib/brand";
 import { IntlProvider } from "@/components/intl-provider";
 import { ThemeProvider } from "@/hooks/use-theme";
+import { ClarityScript } from "@/components/clarity-script";
+import { GoogleAnalyticsScript } from "@/components/google-analytics-script";
 import { ThemedToaster } from "@/components/themed-toaster";
 import {
   DEFAULT_MODE,
@@ -110,6 +112,8 @@ export default async function RootLayout({
         />
       </head>
       <body className="min-h-full bg-background text-foreground font-sans">
+        <ClarityScript />
+        <GoogleAnalyticsScript />
         <IntlProvider messages={messages} locale={locale}>
           <ThemeProvider>
             {children}

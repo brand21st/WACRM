@@ -21,6 +21,8 @@ Changing these requires a rebuild, not just a restart. In Coolify mark them as a
 - `NEXT_PUBLIC_SITE_URL` (`https://cloud.vachat.in` in production)
 - `NEXT_PUBLIC_APP_LOCALE` (optional, default `en`)
 - `NEXT_PUBLIC_RAZORPAY_KEY_ID` (optional, only if checkout uses Razorpay in the browser)
+- `NEXT_PUBLIC_CLARITY_ID` (optional, Microsoft Clarity)
+- `NEXT_PUBLIC_GA_MEASUREMENT_ID` (optional, Google Analytics 4)
 
 ### Runtime (passed through on `app` only)
 
