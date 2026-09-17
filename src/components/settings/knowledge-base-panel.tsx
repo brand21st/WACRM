@@ -34,6 +34,16 @@ import {
 } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { SettingsPanelHead } from './settings-panel-head';
+import { KnowledgeShopifyLibrary } from './knowledge-shopify-library';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
 
 interface DocSummary {
   id: string;
@@ -463,396 +473,239 @@ export function KnowledgeBasePanel() {
 
       <div className="space-y-4">
         <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <Link2 className="h-4 w-4 text-primary" /> {t('pasteLabel')}
-            </CardTitle>
-            <CardDescription>{t('pasteHint')}</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <Input
-              value={url}
-              onChange={(e) => onUrlChange(e.target.value)}
-              onPaste={onUrlPaste}
-              onBlur={() => {
-                if (extractHttpUrl(url)) void startScrape(url);
-              }}
-              placeholder={t('pastePlaceholder')}
-              disabled={!canEdit || scraping}
-              inputMode="url"
-            />
-            {scraping || job?.status === 'running' || job?.status === 'queued' ? (
-              <p className="flex items-start gap-2 text-sm text-muted-foreground">
-                <Loader2 className="mt-0.5 h-4 w-4 shrink-0 animate-spin" />
-                <span className="min-w-0 break-all">
-                  {t('learning', { url: learningUrl })}
-                </span>
-              </p>
-            ) : null}
+          <CardContent className="flex flex-col sm:flex-row items-start sm:items-center gap-4 p-4">
+            <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary-soft text-primary">
+              <Link2 className="size-5" />
+            </span>
+            <div className="flex-1 w-full space-y-2">
+              <Input
+                value={url}
+                onChange={(e) => onUrlChange(e.target.value)}
+                onPaste={onUrlPaste}
+                onBlur={() => {
+                  if (extractHttpUrl(url)) void startScrape(url);
+                }}
+                placeholder={t('pastePlaceholder')}
+                disabled={!canEdit || scraping}
+                inputMode="url"
+              />
+              {scraping || job?.status === 'running' || job?.status === 'queued' ? (
+                <p className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Loader2 className="size-3.5 shrink-0 animate-spin" />
+                  <span className="min-w-0 truncate">
+                    {t('learning', { url: learningUrl })}
+                  </span>
+                </p>
+              ) : null}
+            </div>
           </CardContent>
         </Card>
-
-        {shopifyConnected && canEdit ? (
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-base">
-                <ShoppingBag className="h-4 w-4 text-primary" /> {t('shopifyTitle')}
-              </CardTitle>
-              <CardDescription>{t('shopifyDesc')}</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => void syncShopify()}
-                disabled={shopifySyncing}
-              >
-                {shopifySyncing ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : null}
-                {t('shopifySync')}
-              </Button>
-              {policies.length + pages.length + products.length > 0 ? (
-                <div className="space-y-4">
-                  <p className="text-sm text-muted-foreground">
-                    {t('shopifyIndexed', {
-                      policies: policies.length,
-                      pages: pages.length,
-                      products: products.length,
-                    })}
-                  </p>
-                  <ShopifyGroup
-                    title={t('shopifyGroupPolicies', { count: policies.length })}
-                    items={policies}
-                    emptyBody={t('shopifyEmptyBody')}
-                    kindLabel={t('shopifyKindPolicy')}
-                  />
-                  <ShopifyGroup
-                    title={t('shopifyGroupPages', { count: pages.length })}
-                    items={pages}
-                    emptyBody={t('shopifyEmptyBody')}
-                    kindLabel={t('shopifyKindPage')}
-                  />
-                  <ShopifyGroup
-                    title={t('shopifyGroupProducts', { count: products.length })}
-                    items={products}
-                    emptyBody={t('shopifyEmptyBody')}
-                    kindLabel={t('shopifyKindProduct')}
-                    showPrice
-                    defaultOpen
-                    collapseLabel={t('shopifyCollapse')}
-                    expandLabel={t('shopifyExpand')}
-                    inStockLabel={t('shopifyInStock')}
-                    outOfStockLabel={t('shopifyOutOfStock')}
-                    variantsLabel={t('shopifyVariants')}
-                  />
-                </div>
-              ) : shopifySyncing ? null : (
-                <p className="text-sm text-muted-foreground">{t('shopifyItemsEmpty')}</p>
-              )}
-            </CardContent>
-          </Card>
-        ) : null}
 
         <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <BookOpen className="h-4 w-4 text-primary" /> {t('documentsTitle')}
-            </CardTitle>
-            <CardDescription>
-              {t('documentsDesc', {
-                searchType: hasEmbeddingsKey
-                  ? tk('semanticSearchOn')
-                  : tk('keywordSearchOn'),
-              })}
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {loading ? (
-              <div className="flex items-center py-4 text-sm text-muted-foreground">
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" /> {tk('loading')}
-              </div>
-            ) : (
-              <>
-                {manualDocs.length === 0 && editing === null ? (
-                  <p className="text-sm text-muted-foreground">{tk('noDocs')}</p>
-                ) : null}
+          <Tabs defaultValue="shopify">
+            <CardHeader className="flex flex-row items-center gap-4 border-b pb-4 px-4 pt-4 space-y-0">
+              <TabsList className="w-full sm:w-fit justify-start">
+                <TabsTrigger value="shopify" className="flex-1 sm:flex-none">
+                  {t('tabShopifyCount', { count: policies.length + pages.length + products.length })}
+                </TabsTrigger>
+                <TabsTrigger value="documents" className="flex-1 sm:flex-none">
+                  {t('tabDocumentsCount', { count: manualDocs.length })}
+                </TabsTrigger>
+              </TabsList>
+            </CardHeader>
+            <CardContent className="p-0">
+              <TabsContent value="shopify" className="m-0 p-4 sm:p-6 border-none">
+                <KnowledgeShopifyLibrary
+                  connected={shopifyConnected}
+                  syncing={shopifySyncing}
+                  canEdit={canEdit}
+                  policies={policies}
+                  pages={pages}
+                  products={products}
+                  onSync={() => void syncShopify()}
+                />
+              </TabsContent>
+              
+              <TabsContent value="documents" className="m-0 p-4 sm:p-6 border-none space-y-4">
+                <div className="flex flex-col gap-1">
+                  <h3 className="text-base font-semibold flex items-center gap-2">
+                    <BookOpen className="size-4 text-primary" />
+                    {t('documentsTitle')}
+                  </h3>
+                  <p className="text-sm text-muted-foreground">
+                    {t('documentsDesc', {
+                      searchType: hasEmbeddingsKey
+                        ? tk('semanticSearchOn')
+                        : tk('keywordSearchOn'),
+                    })}
+                  </p>
+                </div>
 
-                {manualDocs.length > 0 ? (
-                  <ul className="divide-y divide-border rounded-md border border-border">
-                    {manualDocs.map((doc) => (
-                      <li
-                        key={doc.id}
-                        className="flex items-center justify-between gap-2 px-3 py-2"
-                      >
-                        <span className="min-w-0">
-                          <span className="block truncate text-sm text-foreground">
-                            {doc.title}
-                          </span>
-                          <span className="mt-0.5 flex items-center gap-2">
-                            <Badge variant="secondary">
-                              {doc.source_type === 'url' ? t('sourceUrl') : t('sourceManual')}
-                            </Badge>
-                            {doc.source_url ? (
-                              <a
-                                href={doc.source_url}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="inline-flex items-center gap-1 truncate text-xs text-muted-foreground hover:text-foreground"
-                                title={t('openSource')}
-                              >
-                                <ExternalLink className="h-3 w-3" />
-                                {safeHost(doc.source_url)}
-                              </a>
-                            ) : null}
-                            {doc.scrape_error ? (
-                              <span className="block truncate text-xs text-destructive">
-                                {doc.scrape_error}
-                              </span>
-                            ) : null}
-                          </span>
-                        </span>
-                        {canEdit ? (
-                          <span className="flex shrink-0 gap-1">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="h-8 w-8 p-0"
-                              onClick={() => void openEdit(doc.id)}
-                              title="Edit"
-                            >
-                              <Pencil className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="h-8 w-8 p-0 text-destructive hover:text-destructive"
-                              onClick={() => void remove(doc.id)}
-                              title="Delete"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </span>
-                        ) : null}
-                      </li>
-                    ))}
-                  </ul>
-                ) : null}
-
-                {editing !== null ? (
-                  <div className="space-y-3 rounded-md border border-border p-3">
-                    <div className="space-y-2">
-                      <Label htmlFor="kb-title">{tk('editDocTitle')}</Label>
-                      <Input
-                        id="kb-title"
-                        value={title}
-                        onChange={(e) => setTitle(e.target.value)}
-                        onPaste={(event) => {
-                          const pasted = event.clipboardData.getData('text');
-                          const extracted = extractHttpUrl(pasted);
-                          if (extracted && pasted.trim() === extracted) {
-                            event.preventDefault();
-                            cancelEdit();
-                            void startScrape(extracted);
-                          }
-                        }}
-                        placeholder={tk('editDocTitlePlaceholder')}
-                        disabled={saving}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="kb-content">{tk('editDocContent')}</Label>
-                      <Textarea
-                        id="kb-content"
-                        value={content}
-                        onChange={(e) => setContent(e.target.value)}
-                        onPaste={(event) => {
-                          const pasted = event.clipboardData.getData('text');
-                          const extracted = extractHttpUrl(pasted);
-                          if (extracted && pasted.trim() === extracted) {
-                            event.preventDefault();
-                            cancelEdit();
-                            void startScrape(extracted);
-                          }
-                        }}
-                        placeholder={tk('editDocContentPlaceholder')}
-                        rows={8}
-                        disabled={saving}
-                      />
-                    </div>
-                    <div className="flex justify-end gap-2">
-                      <Button variant="ghost" onClick={cancelEdit} disabled={saving}>
-                        {tk('cancel')}
-                      </Button>
-                      <Button onClick={() => void save()} disabled={saving}>
-                        {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                        {tk('saveDoc')}
-                      </Button>
-                    </div>
+                {loading ? (
+                  <div className="flex items-center py-4 text-sm text-muted-foreground">
+                    <Loader2 className="mr-2 size-4 animate-spin" /> {tk('loading')}
                   </div>
-                ) : canEdit ? (
-                  <div className="flex items-center justify-between">
-                    <Button variant="outline" size="sm" onClick={openNew}>
-                      <Plus className="mr-2 h-4 w-4" /> {tk('addDoc')}
-                    </Button>
-                    {hasEmbeddingsKey && docs.length > 0 ? (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => void reindex()}
-                        disabled={reindexing}
-                        title={tk('reindexTooltip')}
-                      >
-                        {reindexing ? (
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        ) : (
-                          <RefreshCw className="h-4 w-4" />
-                        )}
-                        {tk('reindex')}
-                      </Button>
+                ) : (
+                  <>
+                    {manualDocs.length === 0 && editing === null ? (
+                      <p className="text-sm text-muted-foreground">{tk('noDocs')}</p>
                     ) : null}
-                  </div>
-                ) : null}
-              </>
-            )}
-          </CardContent>
+
+                    {manualDocs.length > 0 ? (
+                      <div className="overflow-hidden rounded-xl border bg-card">
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Document</TableHead>
+                              <TableHead className="w-[100px] text-right"></TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {manualDocs.map((doc) => (
+                              <TableRow key={doc.id} className="group/row">
+                                <TableCell>
+                                  <div className="flex flex-col min-w-0">
+                                    <span className="truncate font-medium text-foreground">
+                                      {doc.title}
+                                    </span>
+                                    <span className="mt-1 flex items-center gap-2">
+                                      <Badge variant="secondary" className="font-normal">
+                                        {doc.source_type === 'url' ? t('sourceUrl') : t('sourceManual')}
+                                      </Badge>
+                                      {doc.source_url ? (
+                                        <a
+                                          href={doc.source_url}
+                                          target="_blank"
+                                          rel="noreferrer"
+                                          className="inline-flex items-center gap-1 truncate text-xs text-muted-foreground hover:text-foreground"
+                                          title={t('openSource')}
+                                        >
+                                          <ExternalLink className="size-3" />
+                                          {safeHost(doc.source_url)}
+                                        </a>
+                                      ) : null}
+                                      {doc.scrape_error ? (
+                                        <span className="block truncate text-xs text-destructive">
+                                          {doc.scrape_error}
+                                        </span>
+                                      ) : null}
+                                    </span>
+                                  </div>
+                                </TableCell>
+                                <TableCell className="text-right align-middle">
+                                  {canEdit ? (
+                                    <div className="flex items-center justify-end gap-1 opacity-0 group-hover/row:opacity-100 transition-opacity">
+                                      <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="size-8"
+                                        onClick={() => void openEdit(doc.id)}
+                                        title="Edit"
+                                      >
+                                        <Pencil className="size-4" />
+                                      </Button>
+                                      <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="size-8 text-destructive hover:text-destructive"
+                                        onClick={() => void remove(doc.id)}
+                                        title="Delete"
+                                      >
+                                        <Trash2 className="size-4" />
+                                      </Button>
+                                    </div>
+                                  ) : null}
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    ) : null}
+
+                    {editing !== null ? (
+                      <div className="space-y-4 rounded-xl bg-muted/50 p-4 border border-border">
+                        <div className="space-y-2">
+                          <Label htmlFor="kb-title">{tk('editDocTitle')}</Label>
+                          <Input
+                            id="kb-title"
+                            value={title}
+                            onChange={(e) => setTitle(e.target.value)}
+                            onPaste={(event) => {
+                              const pasted = event.clipboardData.getData('text');
+                              const extracted = extractHttpUrl(pasted);
+                              if (extracted && pasted.trim() === extracted) {
+                                event.preventDefault();
+                                cancelEdit();
+                                void startScrape(extracted);
+                              }
+                            }}
+                            placeholder={tk('editDocTitlePlaceholder')}
+                            disabled={saving}
+                            className="bg-background"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="kb-content">{tk('editDocContent')}</Label>
+                          <Textarea
+                            id="kb-content"
+                            value={content}
+                            onChange={(e) => setContent(e.target.value)}
+                            onPaste={(event) => {
+                              const pasted = event.clipboardData.getData('text');
+                              const extracted = extractHttpUrl(pasted);
+                              if (extracted && pasted.trim() === extracted) {
+                                event.preventDefault();
+                                cancelEdit();
+                                void startScrape(extracted);
+                              }
+                            }}
+                            placeholder={tk('editDocContentPlaceholder')}
+                            rows={8}
+                            disabled={saving}
+                            className="bg-background"
+                          />
+                        </div>
+                        <div className="flex justify-end gap-2 pt-2">
+                          <Button variant="ghost" onClick={cancelEdit} disabled={saving}>
+                            {tk('cancel')}
+                          </Button>
+                          <Button onClick={() => void save()} disabled={saving}>
+                            {saving ? <Loader2 className="mr-2 size-4 animate-spin" /> : null}
+                            {tk('saveDoc')}
+                          </Button>
+                        </div>
+                      </div>
+                    ) : canEdit ? (
+                      <div className="flex items-center justify-between pt-2">
+                        <Button variant="outline" size="sm" onClick={openNew}>
+                          <Plus className="mr-2 size-4" /> {tk('addDoc')}
+                        </Button>
+                        {hasEmbeddingsKey && docs.length > 0 ? (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => void reindex()}
+                            disabled={reindexing}
+                            title={tk('reindexTooltip')}
+                          >
+                            {reindexing ? (
+                              <Loader2 className="mr-2 size-4 animate-spin" />
+                            ) : (
+                              <RefreshCw className="mr-2 size-4" />
+                            )}
+                            {tk('reindex')}
+                          </Button>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </>
+                )}
+              </TabsContent>
+            </CardContent>
+          </Tabs>
         </Card>
       </div>
-    </div>
-  );
-}
-
-function formatStorePrice(item: StoreItem): string | null {
-  const min = String(item.price_min ?? '').trim();
-  const max = String(item.price_max ?? '').trim();
-  if (!min && !max) return null;
-  const amount = min && max && min !== max ? `${min}–${max}` : min || max;
-  const currency = String(item.currency ?? '').trim();
-  return currency ? `${amount} ${currency}` : amount;
-}
-
-function ShopifyGroup({
-  title,
-  items,
-  emptyBody,
-  kindLabel,
-  showPrice = false,
-  defaultOpen = false,
-  collapseLabel,
-  expandLabel,
-  inStockLabel,
-  outOfStockLabel,
-  variantsLabel,
-}: {
-  title: string;
-  items: StoreItem[];
-  emptyBody: string;
-  kindLabel: string;
-  showPrice?: boolean;
-  defaultOpen?: boolean;
-  collapseLabel?: string;
-  expandLabel?: string;
-  inStockLabel?: string;
-  outOfStockLabel?: string;
-  variantsLabel?: string;
-}) {
-  const [allOpen, setAllOpen] = useState(defaultOpen);
-  const listRef = useRef<HTMLUListElement>(null);
-  useLayoutEffect(() => {
-    const root = listRef.current;
-    if (!root) return;
-    root.querySelectorAll('details').forEach((node) => {
-      node.open = allOpen;
-    });
-  }, [allOpen, items.length]);
-  if (items.length === 0) return null;
-  const showToggle = Boolean(collapseLabel && expandLabel);
-  return (
-    <div className="space-y-2">
-      <div className="flex items-center justify-between gap-2">
-        <p className="text-sm font-medium text-foreground">{title}</p>
-        {showToggle ? (
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => setAllOpen((open) => !open)}
-          >
-            {allOpen ? <ChevronsDownUp /> : <ChevronsUpDown />}
-            {allOpen ? collapseLabel : expandLabel}
-          </Button>
-        ) : null}
-      </div>
-      <ul ref={listRef} className="divide-y divide-border rounded-md border border-border">
-        {items.map((item) => {
-          const price = showPrice ? formatStorePrice(item) : null;
-          const body = item.body?.trim() ?? '';
-          const variants = item.variants ?? [];
-          return (
-            <li key={item.id}>
-              <details className="group px-3 py-2">
-                <summary className="flex cursor-pointer list-none items-start justify-between gap-2 [&::-webkit-details-marker]:hidden">
-                  <span className="flex min-w-0 items-start gap-3">
-                    {item.image_url ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={item.image_url}
-                        alt=""
-                        className="mt-0.5 size-12 shrink-0 rounded-md object-cover"
-                      />
-                    ) : null}
-                    <span className="min-w-0">
-                      <span className="block text-sm text-foreground">{item.title}</span>
-                      {price ? (
-                        <span className="block text-xs text-muted-foreground">{price}</span>
-                      ) : null}
-                      {item.page_url ? (
-                        <a
-                          href={item.page_url}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="inline-flex items-center gap-1 truncate text-xs text-muted-foreground hover:text-foreground"
-                          onClick={(event) => event.stopPropagation()}
-                        >
-                          <ExternalLink className="h-3 w-3" />
-                          {safeHost(item.page_url)}
-                        </a>
-                      ) : null}
-                    </span>
-                  </span>
-                  <Badge variant="secondary">{kindLabel}</Badge>
-                </summary>
-                <div className="mt-2 space-y-2 rounded-md bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
-                  {body ? (
-                    <p className="whitespace-pre-wrap break-words">{body}</p>
-                  ) : (
-                    <p>{emptyBody}</p>
-                  )}
-                  {variants.length > 0 ? (
-                    <div>
-                      <p className="font-medium text-foreground">
-                        {variantsLabel} ({variants.length})
-                      </p>
-                      <ul className="mt-1 space-y-0.5">
-                        {variants.map((variant, index) => (
-                          <li key={`${item.id}-v-${index}`}>
-                            {variant.title}
-                            {variant.price ? ` · ${variant.price}` : ''}
-                            {item.currency ? ` ${item.currency}` : ''}
-                            {variant.sku ? ` · ${variant.sku}` : ''}
-                            {' · '}
-                            {variant.available === false ? outOfStockLabel : inStockLabel}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  ) : null}
-                </div>
-              </details>
-            </li>
-          );
-        })}
-      </ul>
     </div>
   );
 }
