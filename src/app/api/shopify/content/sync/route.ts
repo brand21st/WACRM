@@ -1,9 +1,29 @@
 import { NextResponse } from 'next/server'
+import type { SupabaseClient } from '@supabase/supabase-js'
 import { getCurrentAccount, requireRole, toErrorResponse } from '@/lib/auth/account'
 import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rate-limit'
 import { loadShopifyConfig } from '@/lib/shopify/config'
 import { syncStoreContent } from '@/lib/shopify/store-content'
 import { ShopifyError } from '@/lib/shopify/client'
+
+const LIST_PAGE_SIZE = 1000
+
+async function listAllRows<T>(
+  fetchPage: (
+    from: number,
+    to: number,
+  ) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>,
+): Promise<{ rows: T[]; error: { message: string } | null }> {
+  const rows: T[] = []
+  for (let offset = 0; ; offset += LIST_PAGE_SIZE) {
+    const { data, error } = await fetchPage(offset, offset + LIST_PAGE_SIZE - 1)
+    if (error) return { rows, error }
+    const page = data ?? []
+    rows.push(...page)
+    if (page.length < LIST_PAGE_SIZE) break
+  }
+  return { rows, error: null }
+}
 
 /**
  * GET /api/shopify/content/sync  (any member)
@@ -14,30 +34,17 @@ export async function GET() {
   try {
     const { supabase, accountId } = await getCurrentAccount()
     const [contentRes, productRes] = await Promise.all([
-      supabase
-        .from('shopify_store_content')
-        .select('id, kind, title, handle, page_url, body, synced_at')
-        .eq('account_id', accountId)
-        .order('kind', { ascending: true })
-        .order('title', { ascending: true })
-        .limit(250),
-      supabase
-        .from('shopify_catalog_products')
-        .select(
-          'shopify_product_id, handle, title, body, body_excerpt, price_min, price_max, currency, product_url, image_url, variant_summary',
-        )
-        .eq('account_id', accountId)
-        .order('title', { ascending: true })
-        .limit(500),
+      listStoreContent(supabase, accountId),
+      listCatalogProducts(supabase, accountId),
     ])
     if (contentRes.error) {
       console.error('[shopify/content/sync GET]', contentRes.error)
     }
-    const items = (contentRes.data ?? []).map((row) => ({
+    const items = contentRes.rows.map((row) => ({
       ...row,
       body: String(row.body ?? ''),
     }))
-    const products = (productRes.error ? [] : productRes.data ?? []).map((row) => {
+    const products = (productRes.error ? [] : productRes.rows).map((row) => {
       const body = String(row.body || row.body_excerpt || '')
       return {
         id: String(row.shopify_product_id),
@@ -103,6 +110,51 @@ export async function POST() {
     console.error('[shopify/content/sync]', err)
     return toErrorResponse(err)
   }
+}
+
+async function listStoreContent(db: SupabaseClient, accountId: string) {
+  return listAllRows<{
+    id: string
+    kind: string
+    title: string
+    handle: string | null
+    page_url: string | null
+    body: string | null
+    synced_at: string | null
+  }>((from, to) =>
+    db
+      .from('shopify_store_content')
+      .select('id, kind, title, handle, page_url, body, synced_at')
+      .eq('account_id', accountId)
+      .order('kind', { ascending: true })
+      .order('title', { ascending: true })
+      .range(from, to),
+  )
+}
+
+async function listCatalogProducts(db: SupabaseClient, accountId: string) {
+  return listAllRows<{
+    shopify_product_id: string
+    handle: string | null
+    title: string | null
+    body: string | null
+    body_excerpt: string | null
+    price_min: number | string | null
+    price_max: number | string | null
+    currency: string | null
+    product_url: string | null
+    image_url: string | null
+    variant_summary: unknown
+  }>((from, to) =>
+    db
+      .from('shopify_catalog_products')
+      .select(
+        'shopify_product_id, handle, title, body, body_excerpt, price_min, price_max, currency, product_url, image_url, variant_summary',
+      )
+      .eq('account_id', accountId)
+      .order('title', { ascending: true })
+      .range(from, to),
+  )
 }
 
 function summarizeCatalogVariants(raw: unknown): Array<{

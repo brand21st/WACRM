@@ -2886,7 +2886,22 @@
       "colStock": "재고",
       "colVariant": "옵션",
       "shopifyNoText": "텍스트 없음",
-      "shopifyHasText": "색인됨"
+      "shopifyHasText": "색인됨",
+      "coverageTitle": "AI 지식 커버리지",
+      "coverageTabScore": "점수",
+      "coverageTabBreakdown": "분류",
+      "coverageScoreLabel": "어시스턴트가 답장 시 검색할 수 있는 색인 콘텐츠 양입니다.",
+      "coverageChunks": "청크",
+      "coverageChars": "색인 텍스트",
+      "coverageEmbeddings": "임베딩",
+      "coverageKeywordSearch": "키워드 검색",
+      "coverageEmpty": "Shopify를 동기화하거나 문서를 추가해 지식 점수를 쌓으세요.",
+      "coverageLoading": "커버리지 계산 중…",
+      "coverageBreakdownProducts": "상품",
+      "coverageBreakdownPages": "페이지",
+      "coverageBreakdownPolicies": "정책",
+      "coverageBreakdownManual": "직접 입력 문서",
+      "coverageBreakdownWebsite": "웹사이트"
     }
   },
   "SuperAdmin": {

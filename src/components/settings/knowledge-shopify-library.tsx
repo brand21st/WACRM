@@ -110,7 +110,7 @@ export function KnowledgeShopifyLibrary({
 
   const renderContentAccordion = (items: StoreItem[]) => {
     return (
-      <Accordion type="multiple" className="w-full">
+      <Accordion multiple className="w-full">
         {items.map((item) => {
           const body = item.body?.trim() ?? '';
           return (
@@ -180,7 +180,8 @@ export function KnowledgeShopifyLibrary({
         </TabsList>
         
         <TabsContent value="products">
-          <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 xl:grid-cols-3">
+          <div className="max-h-[min(70vh,1200px)] overflow-y-auto pr-1">
+            <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 xl:grid-cols-3">
             {products.map((product) => {
               const price = formatStorePrice(product);
               const totalVariants = product.variants?.length ?? 0;
@@ -229,6 +230,7 @@ export function KnowledgeShopifyLibrary({
                 </div>
               );
             })}
+            </div>
           </div>
         </TabsContent>
         

@@ -46,11 +46,11 @@ describe('GET /api/shopify/content/sync', () => {
     const contentChain = {
       eq: vi.fn(),
       order: vi.fn(),
-      limit: vi.fn(),
+      range: vi.fn(),
     }
     contentChain.eq.mockReturnValue(contentChain)
     contentChain.order.mockReturnValue(contentChain)
-    contentChain.limit.mockResolvedValue({
+    contentChain.range.mockResolvedValue({
       data: [
         {
           id: 'p1',
@@ -67,11 +67,11 @@ describe('GET /api/shopify/content/sync', () => {
     const productChain = {
       eq: vi.fn(),
       order: vi.fn(),
-      limit: vi.fn(),
+      range: vi.fn(),
     }
     productChain.eq.mockReturnValue(productChain)
     productChain.order.mockReturnValue(productChain)
-    productChain.limit.mockResolvedValue({
+    productChain.range.mockResolvedValue({
       data: [
         {
           shopify_product_id: 'gid://shopify/Product/1',

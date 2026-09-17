@@ -2891,7 +2891,22 @@
       "colStock": "Stock",
       "colVariant": "Variant",
       "shopifyNoText": "No text",
-      "shopifyHasText": "Indexed"
+      "shopifyHasText": "Indexed",
+      "coverageTitle": "AI knowledge coverage",
+      "coverageTabScore": "Score",
+      "coverageTabBreakdown": "Breakdown",
+      "coverageScoreLabel": "How much indexed content the assistant can retrieve when replying.",
+      "coverageChunks": "Chunks",
+      "coverageChars": "Indexed text",
+      "coverageEmbeddings": "Embeddings",
+      "coverageKeywordSearch": "Keyword search",
+      "coverageEmpty": "Sync Shopify or add documents to build your knowledge score.",
+      "coverageLoading": "Calculating coverage…",
+      "coverageBreakdownProducts": "Products",
+      "coverageBreakdownPages": "Pages",
+      "coverageBreakdownPolicies": "Policies",
+      "coverageBreakdownManual": "Manual docs",
+      "coverageBreakdownWebsite": "Websites"
     }
   },
   "SuperAdmin": {

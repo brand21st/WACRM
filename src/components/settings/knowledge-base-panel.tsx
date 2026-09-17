@@ -33,7 +33,9 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import type { KnowledgeStatsPayload } from '@/lib/ai/knowledge-stats';
 import { SettingsPanelHead } from './settings-panel-head';
+import { KnowledgeCoverageCard } from './knowledge-coverage-card';
 import { KnowledgeShopifyLibrary } from './knowledge-shopify-library';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
@@ -111,6 +113,8 @@ export function KnowledgeBasePanel() {
   const [shopifySyncing, setShopifySyncing] = useState(false);
   const [storeItems, setStoreItems] = useState<StoreItem[]>([]);
   const [storeProducts, setStoreProducts] = useState<StoreItem[]>([]);
+  const [stats, setStats] = useState<KnowledgeStatsPayload | null>(null);
+  const [statsLoading, setStatsLoading] = useState(true);
   const lastStartedRef = useRef('');
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const loadedAccountIdRef = useRef<string | null>(null);
@@ -130,11 +134,25 @@ export function KnowledgeBasePanel() {
     }
   }, [tk]);
 
+  const fetchStats = useCallback(async () => {
+    setStatsLoading(true);
+    try {
+      const res = await fetch('/api/ai/knowledge/stats');
+      const data = await res.json();
+      if (res.ok) setStats(data as KnowledgeStatsPayload);
+    } catch {
+      /* coverage is optional */
+    } finally {
+      setStatsLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     if (!accountId || loadedAccountIdRef.current === accountId) return;
     loadedAccountIdRef.current = accountId;
     void fetchDocs();
-  }, [accountId, fetchDocs]);
+    void fetchStats();
+  }, [accountId, fetchDocs, fetchStats]);
 
   const fetchStoreItems = useCallback(async () => {
     try {
@@ -167,7 +185,7 @@ export function KnowledgeBasePanel() {
               }),
             );
           }
-          await Promise.all([fetchStoreItems(), fetchDocs()]);
+          await Promise.all([fetchStoreItems(), fetchDocs(), fetchStats()]);
         } else if (!opts?.silent) {
           toast.error(data.error ?? t('shopifySyncFailed'));
         }
@@ -177,7 +195,7 @@ export function KnowledgeBasePanel() {
         setShopifySyncing(false);
       }
     },
-    [fetchDocs, fetchStoreItems, t],
+    [fetchDocs, fetchStats, fetchStoreItems, t],
   );
 
   useEffect(() => {
@@ -223,7 +241,7 @@ export function KnowledgeBasePanel() {
       if (next.status === 'done' || next.status === 'failed') {
         setScraping(false);
         lastStartedRef.current = '';
-        await fetchDocs();
+        await Promise.all([fetchDocs(), fetchStats()]);
         if (next.status === 'failed' || next.pages_saved <= 0) {
           toast.error(next.error ?? t('scrapeFailed'));
         } else if (next.pages_failed > 0) {
@@ -245,7 +263,7 @@ export function KnowledgeBasePanel() {
       }
       return next;
     },
-    [fetchDocs, t],
+    [fetchDocs, fetchStats, t],
   );
 
   useEffect(() => {
@@ -301,7 +319,7 @@ export function KnowledgeBasePanel() {
         if (next.status === 'done' || next.status === 'failed') {
           setScraping(false);
           lastStartedRef.current = '';
-          await fetchDocs();
+          await Promise.all([fetchDocs(), fetchStats()]);
           if (next.status === 'failed' || next.pages_saved <= 0) {
             toast.error(next.error ?? t('scrapeFailed'));
           } else {
@@ -320,7 +338,7 @@ export function KnowledgeBasePanel() {
         toast.error(t('scrapeFailed'));
       }
     },
-    [canEdit, fetchDocs, scraping, t],
+    [canEdit, fetchDocs, fetchStats, scraping, t],
   );
 
   const onUrlChange = (value: string) => {
@@ -402,7 +420,7 @@ export function KnowledgeBasePanel() {
         if (data.warning) toast.warning(data.warning);
         else toast.success(isNew ? tk('saveSuccessNew') : tk('saveSuccessUpdate'));
         cancelEdit();
-        await fetchDocs();
+        await Promise.all([fetchDocs(), fetchStats()]);
       } else {
         toast.error(data.error ?? tk('saveFailed'));
       }
@@ -419,6 +437,7 @@ export function KnowledgeBasePanel() {
       if (res.ok) {
         toast.success(tk('removeSuccess'));
         setDocs((d) => d.filter((x) => x.id !== id));
+        void fetchStats();
       } else {
         const data = await res.json();
         toast.error(data.error ?? tk('removeFailed'));
@@ -435,6 +454,7 @@ export function KnowledgeBasePanel() {
       const data = await res.json();
       if (res.ok && data.success) {
         toast.success(tk('reindexSuccess', { count: data.reindexed }));
+        void fetchStats();
       } else {
         toast.error(data.error ?? tk('reindexFailed'));
       }
@@ -500,6 +520,8 @@ export function KnowledgeBasePanel() {
             </div>
           </CardContent>
         </Card>
+
+        <KnowledgeCoverageCard stats={stats} loading={statsLoading} />
 
         <Card>
           <Tabs defaultValue="shopify">

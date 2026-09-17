@@ -43,7 +43,6 @@ import {
 } from './product-knowledge'
 
 export { SHOPIFY_CATALOG_WEBHOOK_TOPICS }
-export const MAX_CATALOG_PRODUCTS = 500
 const SYNC_PAGE_SIZE = 50
 
 interface ProductsSyncData {
@@ -382,7 +381,7 @@ export async function syncCatalog(
   const ids: string[] = []
   let after: string | null = null
 
-  while (rows.length < MAX_CATALOG_PRODUCTS) {
+  for (;;) {
     const data = (await shopifyGraphql({
       shopDomain: config.shopDomain,
       accessToken: config.accessToken,
@@ -391,6 +390,7 @@ export async function syncCatalog(
       timeoutMs: 45_000,
     })) as ProductsSyncData
     const nodes = data.products?.nodes ?? []
+    if (nodes.length === 0) break
     for (const node of nodes) {
       const hit = mapGqlProduct(node, config.primaryDomain, config.currency)
       if (!hit) continue
@@ -415,7 +415,6 @@ export async function syncCatalog(
         }),
       )
       ids.push(hit.id)
-      if (rows.length >= MAX_CATALOG_PRODUCTS) break
     }
     if (!data.products?.pageInfo?.hasNextPage || !data.products.pageInfo.endCursor) {
       break
