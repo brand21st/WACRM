@@ -3,12 +3,13 @@
  * Named product searches such as "catalog of red bags" stay product searches.
  */
 
-const NAMED_CATALOG = /\bcatalog(?:ue)?s?\s+of\b/
+const CATALOG_WORD = /\bcat(?:a)?log(?:ue)?s?\b/
+const NAMED_CATALOG = /\bcat(?:a)?log(?:ue)?s?\s+of\b/
 const NEW_OR_BEST =
   /\b(new products?|new arrivals?|best[- ]?sell(?:ing|ers?)|bestsellers?|trending)\b/i
 
 const STANDALONE_CATALOG =
-  /^(please\s+)?((can\s+you\s+|could\s+you\s+)?(show|open|browse|send|view|share)\s+(me\s+)?(the\s+)?)?(your\s+|the\s+)?(whatsapp\s+|store\s+|wa\s+|commerce\s+)?catalog(?:ue)?s?$/
+  /^(please\s+)?((can\s+you\s+|could\s+you\s+)?(show|open|browse|send|view|share)\s+(me\s+)?(the\s+)?)?(your\s+|the\s+)?(whatsapp\s+|store\s+|wa\s+|commerce\s+)?cat(?:a)?log(?:ue)?s?(?:\s+pls|\s+please)?$/
 
 const BROWSE_ALL_PRODUCTS =
   /^(please\s+)?((can\s+you\s+|could\s+you\s+)?(show|open|browse|send|view|share|list)\s+(me\s+)?(the\s+)?)?(your\s+|the\s+|all\s+)?products?$/
@@ -38,13 +39,13 @@ export function isWhatsAppCatalogRequest(text: string): boolean {
   if (NEW_OR_BEST.test(t) || NAMED_CATALOG.test(t)) return false
 
   if (STANDALONE_CATALOG.test(t)) return true
-  if (/\b(whatsapp|wa|commerce|store|product)\s+catalog(?:ue)?s?\b/.test(t)) {
+  if (/\b(whatsapp|wa|commerce|store|product)\s+cat(?:a)?log(?:ue)?s?\b/.test(t)) {
     return true
   }
-  if (/\bbrowse\s+(the\s+|your\s+)?(store\s+)?catalog(?:ue)?s?\b/.test(t)) {
+  if (/\bbrowse\s+(the\s+|your\s+)?(store\s+)?cat(?:a)?log(?:ue)?s?\b/.test(t)) {
     return true
   }
-  if (/\bകാറ്റലോഗ്\b/.test(raw) || /\bcatalog(?:ue)?s?\b/.test(t)) {
+  if (/\bകാറ്റലോഗ്\b/.test(raw) || CATALOG_WORD.test(t)) {
     return !NAMED_CATALOG.test(t)
   }
   if (WHAT_PRODUCTS.test(t) || BROWSE_ALL_PRODUCTS.test(t)) return true
@@ -66,7 +67,7 @@ export function recentTurnMentionedCatalog(
   const start = Math.max(0, messages.length - 6)
   for (let i = messages.length - 1; i >= start; i--) {
     const content = messages[i]?.content ?? ''
-    if (/\bcatalog(?:ue)?s?\b|കാറ്റലോഗ്/i.test(content)) return true
+    if (/\bcat(?:a)?log(?:ue)?s?\b|കാറ്റലോഗ്/i.test(content)) return true
   }
   return false
 }
@@ -74,7 +75,7 @@ export function recentTurnMentionedCatalog(
 export function replyClaimsCatalogSent(text: string): boolean {
   const raw = text.trim()
   if (!raw) return false
-  const catalog = '(?:catalog(?:ue)?s?|കാറ്റലോഗ്)'
+  const catalog = '(?:cat(?:a)?log(?:ue)?s?|കാറ്റലോഗ്)'
   const sent = '(?:sent|ayakku|ayachu|അയച്ച|വന്ന|browse)'
   return (
     new RegExp(`\\b${catalog}.{0,80}${sent}`, 'i').test(raw) ||

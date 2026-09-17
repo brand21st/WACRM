@@ -115,6 +115,22 @@ describe('classifySalesTurn', () => {
     expect(classifySalesTurn('another one', { hasFocus: true }).kind).toBe(
       'product_switch',
     )
+    expect(classifySalesTurn('list all products', { hasFocus: true }).kind).toBe(
+      'product_switch',
+    )
+    expect(classifySalesTurn('catlog pls', { hasFocus: true }).kind).toBe(
+      'product_switch',
+    )
+    expect(classifySalesTurn('new prodcuts onnu send cheyu', { hasFocus: true }).kind).toBe(
+      'product_switch',
+    )
+    expect(classifySalesTurn('enikk ithu venda', { hasFocus: true }).kind).toBe(
+      'product_switch',
+    )
+    expect(classifySalesTurn('Itoys washup set', { hasFocus: true }).kind).toBe(
+      'product_switch',
+    )
+    expect(classifySalesTurn('this Red Bag', { hasFocus: true }).kind).toBe('stay')
     expect(unlocksCatalogBrowse('product_switch')).toBe(true)
   })
 

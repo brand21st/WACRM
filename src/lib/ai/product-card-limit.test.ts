@@ -63,6 +63,8 @@ describe('isShopifyProductAsk', () => {
     expect(isShopifyProductAsk('toy camera')).toBe(true)
     expect(isShopifyProductAsk('Washup toy?')).toBe(true)
     expect(isShopifyProductAsk('kids digital camera')).toBe(true)
+    expect(isShopifyProductAsk('catlog pls')).toBe(true)
+    expect(isShopifyProductAsk('list all products')).toBe(true)
   })
 
   it('does not treat non-catalog asks as product searches', () => {

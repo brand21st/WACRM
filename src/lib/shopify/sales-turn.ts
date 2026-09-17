@@ -5,6 +5,8 @@ import {
   salesCustomerAsk,
   wantsProductOrder,
 } from './product-focus'
+import { isWhatsAppCatalogRequest } from '@/lib/ai/catalog-intent'
+import { isShopifyProductAsk } from '@/lib/ai/product-card-limit'
 import type { SalesNextAction } from '@/lib/catalog/intelligence/types'
 
 export type SalesTurnKind =
@@ -37,14 +39,14 @@ const GREETING_ONLY =
   /^(hi+|hii|hello|hey|ok|okay|thanks|thank you|hai|ഹായ്|നന്ദി)[.!?]*$/i
 
 const REJECT_CURRENT =
-  /\b(?:not (?:this|that|it)|don['’]?t want (?:this|that|it)|do not want (?:this|that|it)|not interested(?: in (?:this|that))?|no thanks?|show (?:me )?(?:another|something else)|something else|different (?:one|product|model|saree|sari|kurti|dress))\b|ഇത്\s*വേണ്ട|ഇതല്ല|വേറെ\s+(?:saree|sari|kurti|dress|model|one)|മറ്റൊരു|മറ്റൊന്ന്/i
+  /\b(?:not (?:this|that|it)|don['’]?t want (?:this|that|it)|do not want (?:this|that|it)|not interested(?: in (?:this|that))?|no thanks?|show (?:me )?(?:another|something else)|something else|different (?:one|product|model|saree|sari|kurti|dress))\b|ഇത്\s*വേണ്ട|ഇതല്ല|വേറെ\s+(?:saree|sari|kurti|dress|model|one)|മറ്റൊരു|മറ്റൊന്ന്|\b(?:ithu|ith|itu)\s*venda\b/i
 
 /** Bare “Another?” / “വേറെ?” while a product is pinned = show something else. */
 const ANOTHER_PRODUCT =
   /^(?:another|else|other(?: one)?|next|something else|different(?: one)?|വേറെ|മറ്റൊന്ന്|മറ്റൊന്നു|ഇനി(?:\s*വേറെ)?)\??[.!]*$/i
 
 const PRODUCT_NOUN =
-  /\b(sarees?|saris?|kurtis?|kurtas?|dresses?|shirts?|bags?|blouses?|shoes?|models?|products?|items?|arrivals?|collections?|options?|ones?)\b|സാരി|കുര്‍ത്തി|കുര്ത്തി/i
+  /\b(sarees?|saris?|kurtis?|kurtas?|dresses?|shirts?|bags?|blouses?|shoes?|models?|prod(?:u)?cts?|prodcuts|items?|arrivals?|collections?|options?|ones?|toys?|cameras?|sets?|cat(?:a)?log(?:ue)?s?)\b|സാരി|കുര്‍ത്തി|കുര്ത്തി/i
 
 const VARIANT_WORD =
   /\b(colou?r|size|shade|നിറം|വലുപ്പം|small|medium|large|xl|xxl|[sml]{1,3}|black|navy|red|blue|white|green|pink|gold|beige|yellow|orange|purple|brown|grey|gray)\b/i
@@ -53,7 +55,7 @@ const ANOTHER_VARIANT =
   /\b(?:another|different|other)\s+(?:colou?r|size|shade)\b|വേറെ\s*(?:നിറം|വലുപ്പം|color|colour|size)|മറ്റൊരു\s*(?:നിറം|വലുപ്പം|color|colour|size)|(?:same (?:one|thing)|this (?:one|same)|ഇത്\s*തന്നെ).{0,24}\b(?:in\s+)?(?:colou?r|size|red|blue|navy|black|white|green|pink|gold|beige)\b/i
 
 const SWITCH_NOUN =
-  'sarees?|saris?|kurtis?|kurtas?|dresses?|shirts?|bags?|blouses?|shoes?|models?|products?|items?|arrivals?|collections?|options?|ones?'
+  'sarees?|saris?|kurtis?|kurtas?|dresses?|shirts?|bags?|blouses?|shoes?|models?|prod(?:u)?cts?|prodcuts|items?|arrivals?|collections?|options?|ones?|toys?|cameras?|sets?|cat(?:a)?log(?:ue)?s?'
 const SWITCH_MOD = 'another|else|different|other|new|latest'
 const SWITCH_WITH_CATEGORY = new RegExp(
   String.raw`(?:\b(?:${SWITCH_MOD})\b|വേറെ|മറ്റൊരു|പുതിയ).{0,24}\b(?:${SWITCH_NOUN})\b` +
@@ -97,7 +99,7 @@ const COMPARISON =
   /\b(?:this or that|which (?:is |one is )?(?:better|cheaper|best)|compare|difference|vs\.?)\b|ഏതാണ്\s*നല്ലത്/i
 
 const MALAYALAM_BUY = /ഇത്\s*വേണം|(?:ഇത്\s*)?എടുക്കാം|എടുക്കട്ടെ|വാങ്ങണം|ഓർഡർ\s*ചെയ്യ/i
-const MALAYALAM_REJECT = /ഇത്\s*വേണ്ട|ഇതല്ല/
+const MALAYALAM_REJECT = /ഇത്\s*വേണ്ട|ഇതല്ല|\b(?:ithu|ith|itu)\s*venda\b/i
 
 export function classifySalesTurn(
   text: string | null | undefined,
@@ -125,6 +127,8 @@ export function classifySalesTurn(
     return turn('purchase')
   }
 
+  if (isWhatsAppCatalogRequest(raw)) return turn('product_switch')
+
   if (COMPARISON.test(raw)) return turn('comparison')
 
   if (SUBSTITUTION.test(raw)) return turn('substitution')
@@ -151,6 +155,15 @@ export function classifySalesTurn(
     (opts?.hasFocus && FOCUSED_QUESTION.test(raw))
   ) {
     return turn('product_question', questionTopic(raw))
+  }
+
+  if (
+    opts?.hasFocus &&
+    isShopifyProductAsk(raw) &&
+    !/^(?:this|that|the|it)\b/i.test(raw) &&
+    !/\b(?:this|that|the)\s+(?:product|item|one)\b/i.test(raw)
+  ) {
+    return turn('product_switch')
   }
 
   const req = parseShoppingRequirements(raw)

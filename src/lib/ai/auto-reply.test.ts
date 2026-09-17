@@ -4102,6 +4102,43 @@ describe('dispatchInboundToAiReply — agent product focus', () => {
     )
   })
 
+  it('clears stale focus and sends Shopify cards for catlog / list-all-products asks', async () => {
+    h.state.conv = {
+      assigned_agent_id: null,
+      ai_autoreply_disabled: false,
+      ai_reply_count: 0,
+      ai_product_focus: focusedConv({
+        handle: 'baby-electric-nail-trimmer-with-6-grinding-heads-safe-nail-care-kit',
+        title: 'Baby Electric Nail Trimmer',
+        stage: 'ready_to_confirm',
+      }),
+    }
+    h.buildConversationContext.mockResolvedValue([
+      { role: 'user', content: 'catlog pls' },
+    ])
+    h.generateReply.mockResolvedValue({
+      text: 'Here are products from the store.',
+      handoff: false,
+    })
+
+    await dispatchInboundToAiReply(ARGS)
+
+    expect(h.state.updatePayload).toMatchObject({ ai_product_focus: null })
+    expect(h.generateReply).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tools: expect.arrayContaining([
+          expect.objectContaining({ name: 'search_products' }),
+          expect.objectContaining({ name: 'list_new_arrivals' }),
+        ]),
+      }),
+    )
+    expect(h.executeShopifyTool).toHaveBeenCalledWith(
+      expect.anything(),
+      'list_new_arrivals',
+      {},
+    )
+  })
+
   it('keeps the focused product and picker on a variant change', async () => {
     h.buildConversationContext.mockResolvedValue([
       { role: 'user', content: 'same one in red, M' },

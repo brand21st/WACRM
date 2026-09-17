@@ -45,7 +45,7 @@ import {
 import { canSpeak as ttsReady, synthesizeSpeech } from './speech'
 import { prepareIndicSpeechText, stripUrlsForSpeech } from './speech-text'
 import { splitShoppingReply } from './shopping-voice'
-import { isShopifyProductAsk, MAX_PRODUCT_CARDS } from '@/lib/ai/product-card-limit'
+import { isNewArrivalsAsk, isShopifyProductAsk, MAX_PRODUCT_CARDS } from '@/lib/ai/product-card-limit'
 import {
   CHECKOUT_BUTTON_LABEL,
   VIEW_CART_BUTTON_LABEL,
@@ -123,7 +123,7 @@ import {
   persistCatalogCardQueue,
 } from './catalog-card-queue'
 import { isShowMoreAsk, splitProductCardPage } from './product-card-page'
-import { wantsWhatsAppCatalog } from './catalog-intent'
+import { isWhatsAppCatalogRequest, wantsWhatsAppCatalog } from './catalog-intent'
 import {
   loadCatalogSalesMode,
   recordShownRecommendationEvents,
@@ -1070,6 +1070,14 @@ export async function dispatchInboundToAiReply(
         if (shopping.categoryHint) {
           await shopifyTools.executeTool('search_products', {
             query: shopping.categoryHint,
+          })
+        } else if (
+          isShopifyProductAsk(queryText) &&
+          !isWhatsAppCatalogRequest(queryText) &&
+          !isNewArrivalsAsk(queryText)
+        ) {
+          await shopifyTools.executeTool('search_products', {
+            query: queryText,
           })
         } else {
           await shopifyTools.executeTool('list_new_arrivals', {})

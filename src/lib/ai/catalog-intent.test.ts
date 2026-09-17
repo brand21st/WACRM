@@ -11,6 +11,8 @@ describe('isWhatsAppCatalogRequest', () => {
   it('matches standalone catalog asks', () => {
     expect(isWhatsAppCatalogRequest('catalog')).toBe(true)
     expect(isWhatsAppCatalogRequest('catalogue')).toBe(true)
+    expect(isWhatsAppCatalogRequest('catlog')).toBe(true)
+    expect(isWhatsAppCatalogRequest('catlog pls')).toBe(true)
     expect(isWhatsAppCatalogRequest('show catalog')).toBe(true)
     expect(isWhatsAppCatalogRequest('browse the catalog')).toBe(true)
     expect(isWhatsAppCatalogRequest('whatsapp catalog')).toBe(true)
@@ -27,6 +29,7 @@ describe('isWhatsAppCatalogRequest', () => {
     expect(isWhatsAppCatalogRequest('show products')).toBe(true)
     expect(isWhatsAppCatalogRequest('all products')).toBe(true)
     expect(isWhatsAppCatalogRequest('list products')).toBe(true)
+    expect(isWhatsAppCatalogRequest('list all products')).toBe(true)
   })
 
   it('does not treat product searches as catalog asks', () => {

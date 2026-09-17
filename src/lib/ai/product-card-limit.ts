@@ -26,7 +26,7 @@ const SEND_THE_ONE =
   /\b(?:send|show|give)\s+(?:me\s+)?(?:the|this|that)\s+[a-z][\w\s-]{0,40}?\b(?!s\b)/i
 
 const PRODUCT_NOUN =
-  /\b(products?|items?|dress(?:es)?|bags?|sarees?|kurt(?:i|is)?|coords?|sets?|shirts?|tops?|toys?|cameras?|kitchen|shoes?|sandals?|watches?|jewellery|jewelry|phones?|catalog(?:ue)?|collection|arrivals?)\b/i
+  /\b(prod(?:u)?cts?|prodcuts|items?|dress(?:es)?|bags?|sarees?|kurt(?:i|is)?|coords?|sets?|shirts?|tops?|toys?|cameras?|kitchen|shoes?|sandals?|watches?|jewellery|jewelry|phones?|cat(?:a)?log(?:ue)?s?|collection|arrivals?)\b/i
 
 const PRODUCT_COLOR =
   /\b(red|green|blue|pink|black|white|yellow|rani|navy|maroon|gold|silver|colour|color)\b/i
@@ -35,8 +35,12 @@ const PRODUCT_COLOR =
 export function isShopifyProductAsk(text: string): boolean {
   const raw = text.replace(/\s+/g, ' ').trim()
   if (!raw) return false
-  if (BROWSE_ALL.test(raw) || RECOMMEND.test(raw) || RELATED.test(raw)) return true
+  if (isNewArrivalsAsk(raw) || RECOMMEND.test(raw) || RELATED.test(raw)) return true
   return PRODUCT_NOUN.test(raw) || PRODUCT_COLOR.test(raw) || SKU_LIKE.test(raw)
+}
+
+export function isNewArrivalsAsk(text: string): boolean {
+  return BROWSE_ALL.test(text.replace(/\s+/g, ' ').trim())
 }
 
 function clampCardCount(n: number): number {
