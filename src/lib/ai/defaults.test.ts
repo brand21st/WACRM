@@ -492,6 +492,35 @@ describe('buildSystemPrompt', () => {
     expect(prompt).toMatch(/Never say you do not have the information/)
     expect(prompt).toMatch(/95441 61100/)
   })
+
+  it('strictly restricts replies to business scope and forbids general/global knowledge', () => {
+    const autoPrompt = buildSystemPrompt({
+      userPrompt: null,
+      mode: 'auto_reply',
+    })
+    expect(autoPrompt).toMatch(/Strict business scope and knowledge-base restriction/)
+    expect(autoPrompt).toMatch(/strictly forbidden from answering general knowledge, global\/world topics/)
+    expect(autoPrompt).toMatch(/Never act as a general-purpose AI, ChatGPT, or conversational encyclopedia/)
+    expect(autoPrompt).toMatch(/do NOT answer the general topic/)
+    expect(autoPrompt).toMatch(/reply with exactly \[\[HANDOFF\]\]/)
+
+    const draftPrompt = buildSystemPrompt({
+      userPrompt: null,
+      mode: 'draft',
+    })
+    expect(draftPrompt).toMatch(/Strict business scope and knowledge-base restriction/)
+    expect(draftPrompt).toMatch(/strictly forbidden from answering general knowledge, global\/world topics/)
+    expect(draftPrompt).toMatch(/do NOT answer the general topic/)
+  })
+
+  it('notifies when no knowledge excerpts matched this turn', () => {
+    const prompt = buildSystemPrompt({
+      userPrompt: null,
+      mode: 'auto_reply',
+    })
+    expect(prompt).toMatch(/Knowledge base: No matching knowledge-base excerpts found for this turn/)
+    expect(prompt).toMatch(/Never invent business policies, store details, or facts not in your context/)
+  })
 })
 
 describe('FULL_AGENT_FALLBACK_REPLY', () => {

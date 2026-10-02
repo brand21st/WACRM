@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { getCurrentAccount, toErrorResponse } from "@/lib/auth/account";
 import { isExpoPushToken } from "@/lib/notifications/expo-push";
+import { isFcmToken } from "@/lib/notifications/fcm-push";
 import {
   checkRateLimit,
   rateLimitResponse,
@@ -9,13 +10,16 @@ import {
 } from "@/lib/rate-limit";
 
 const PLATFORMS = new Set(["ios", "android", "web"]);
+const PROVIDERS = new Set(["expo", "fcm"]);
 
-function readToken(body: unknown): string | null {
+function readRawToken(body: unknown): string | null {
   if (!body || typeof body !== "object") return null;
-  const raw = (body as { expo_push_token?: unknown }).expo_push_token;
+  const raw =
+    (body as { token?: unknown }).token ??
+    (body as { expo_push_token?: unknown }).expo_push_token;
   if (typeof raw !== "string") return null;
   const token = raw.trim();
-  return isExpoPushToken(token) ? token : null;
+  return token.length > 0 ? token : null;
 }
 
 function readPlatform(body: unknown): "ios" | "android" | "web" | null {
@@ -25,11 +29,23 @@ function readPlatform(body: unknown): "ios" | "android" | "web" | null {
   return PLATFORMS.has(raw) ? (raw as "ios" | "android" | "web") : null;
 }
 
+function readProvider(body: unknown, token: string): "expo" | "fcm" | null {
+  if (body && typeof body === "object") {
+    const raw = (body as { provider?: unknown }).provider;
+    if (typeof raw === "string" && PROVIDERS.has(raw)) {
+      return raw as "expo" | "fcm";
+    }
+  }
+  if (isExpoPushToken(token)) return "expo";
+  if (isFcmToken(token)) return "fcm";
+  return null;
+}
+
 /**
  * POST /api/device-push-tokens  (any member)
  * DELETE /api/device-push-tokens
  *
- * Register or drop this install's Expo push token. Device-scoped —
+ * Register or drop this install's Expo or FCM token. Device-scoped —
  * a teammate's phone is not shared.
  */
 export async function POST(request: Request) {
@@ -42,11 +58,17 @@ export async function POST(request: Request) {
     if (!limit.success) return rateLimitResponse(limit);
 
     const body = await request.json().catch(() => null);
-    const token = readToken(body);
+    const token = readRawToken(body);
     const platform = readPlatform(body);
-    if (!token || !platform) {
+    const provider = token ? readProvider(body, token) : null;
+    const valid =
+      token &&
+      platform &&
+      provider &&
+      (provider === "expo" ? isExpoPushToken(token) : isFcmToken(token));
+    if (!valid || !token || !platform || !provider) {
       return NextResponse.json(
-        { error: "expo_push_token and platform are required" },
+        { error: "token, provider, and platform are required" },
         { status: 400 },
       );
     }
@@ -57,6 +79,7 @@ export async function POST(request: Request) {
         account_id: ctx.accountId,
         expo_push_token: token,
         platform,
+        provider,
       },
       { onConflict: "expo_push_token" },
     );
@@ -79,10 +102,10 @@ export async function DELETE(request: Request) {
   try {
     const ctx = await getCurrentAccount();
     const body = await request.json().catch(() => null);
-    const token = readToken(body);
+    const token = readRawToken(body);
     if (!token) {
       return NextResponse.json(
-        { error: "expo_push_token is required" },
+        { error: "token is required" },
         { status: 400 },
       );
     }

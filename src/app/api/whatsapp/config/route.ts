@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server'
+import { after, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createClient as createAdminClient } from '@supabase/supabase-js'
 import {
@@ -477,6 +477,23 @@ export async function POST(request: Request) {
         phone_info: phoneInfo,
       })
     }
+
+    after(async () => {
+      try {
+        const { data: shop } = await supabase
+          .from('shopify_configs')
+          .select('is_active')
+          .eq('account_id', accountId)
+          .maybeSingle()
+        if (!shop || shop.is_active === false) return
+        const { scheduleInstallShopifyOrderTemplates } = await import(
+          '@/lib/shopify/install-order-templates'
+        )
+        await scheduleInstallShopifyOrderTemplates(supabase, accountId)
+      } catch (err) {
+        console.error('[whatsapp/config] shopify template install failed:', err)
+      }
+    })
 
     return NextResponse.json({
       success: true,

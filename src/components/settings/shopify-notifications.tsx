@@ -26,6 +26,7 @@ import {
   canQuickEditShopifyTemplate,
   findPresetTemplate,
   isPresetNameForTrigger,
+  isShopifyTemplateName,
   presetForTrigger,
   templatesForTriggerDropdown,
   triggersMissingPresets,
@@ -195,6 +196,14 @@ export function ShopifyNotificationsCard({
         ) : (
           <>
             <p className="text-xs text-muted-foreground">{t('hint')}</p>
+            {triggersMissingPresets(templates).length > 0 ? (
+              <p className="text-sm text-muted-foreground">{t('installInProgress')}</p>
+            ) : templates.some(
+                (row) =>
+                  isShopifyTemplateName(row.name) && row.status === 'PENDING',
+              ) ? (
+              <p className="text-sm text-muted-foreground">{t('installPending')}</p>
+            ) : null}
             <label className="flex items-center gap-2 text-sm">
               <Checkbox
                 checked={showAll}
@@ -482,7 +491,7 @@ function TriggerRow({
                   </select>
                 </div>
               ))}
-              <p className="text-xs text-muted-foreground">{t('urlInBodyHint')}</p>
+              <p className="text-xs text-muted-foreground">{t.raw('urlInBodyHint')}</p>
             </div>
           ) : null}
         </div>

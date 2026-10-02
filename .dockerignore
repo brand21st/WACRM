@@ -6,6 +6,7 @@ docs
 mcp-server
 supabase
 vachat-app
+mobile
 *.md
 !README.md
 .env*

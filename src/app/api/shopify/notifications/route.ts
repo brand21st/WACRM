@@ -1,10 +1,11 @@
-import { NextResponse } from 'next/server'
+import { after, NextResponse } from 'next/server'
 
 import { requireRole, toErrorResponse, type AccountContext } from '@/lib/auth/account'
 import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rate-limit'
 import {
   canEnableShopifyTemplate,
   SHOPIFY_TEMPLATE_PICKER_STATUSES,
+  triggersMissingPresets,
 } from '@/lib/shopify/notification-templates'
 import {
   isShopifyNotificationTrigger,
@@ -116,9 +117,19 @@ export async function GET() {
       return NextResponse.json({ error: 'Failed to load notification rules' }, { status: 500 })
     }
 
+    const missing = triggersMissingPresets(templates)
+    if (missing.length > 0) {
+      after(() =>
+        import('@/lib/shopify/install-order-templates').then(({ scheduleInstallShopifyOrderTemplates }) =>
+          scheduleInstallShopifyOrderTemplates(supabase, accountId),
+        ),
+      )
+    }
+
     return NextResponse.json({
       rules: mergeRules((data ?? []) as Partial<ShopifyNotificationRule>[]),
       templates,
+      installing: missing.length > 0,
     })
   } catch (err) {
     return toErrorResponse(err)

@@ -1,3 +1,7 @@
+# Archived
+
+This Expo client is **archived**. Use the Flutter app in `../mobile` instead. See [ARCHIVED.md](./ARCHIVED.md).
+
 # Welcome to your Expo app 👋
 
 This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).

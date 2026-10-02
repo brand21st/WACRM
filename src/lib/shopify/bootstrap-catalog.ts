@@ -33,6 +33,11 @@ export async function bootstrapShopify(
   } catch (err) {
     console.error('[shopify/bootstrap] store content sync failed:', err)
   }
+
+  const { scheduleInstallShopifyOrderTemplates } = await import(
+    './install-order-templates'
+  )
+  await scheduleInstallShopifyOrderTemplates(db, accountId)
 }
 
 /** @deprecated Use bootstrapShopify — kept so existing call sites keep working. */

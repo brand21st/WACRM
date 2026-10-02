@@ -10,7 +10,10 @@ import {
 // Supabase client (.from().update().eq().select()) — anything beyond
 // throws, so unintended calls fail loudly.
 function makeSupabaseStub(
-  selectResult: { data: { id: string }[] | null; error: { message: string } | null } = {
+  selectResult: {
+    data: { id: string; name?: string; account_id?: string }[] | null;
+    error: { message: string } | null;
+  } = {
     data: [{ id: 'row-1' }],
     error: null,
   },
@@ -19,35 +22,34 @@ function makeSupabaseStub(
     table: string;
     update?: Record<string, unknown>;
     filter?: { column: string; value: unknown };
+    filters?: { column: string; value: unknown }[];
   }[] = [];
 
   const stub = {
     from(table: string) {
       const entry: (typeof calls)[number] = { table };
       calls.push(entry);
+      const api = {
+        eq(column: string, value: unknown) {
+          entry.filter = { column, value };
+          entry.filters = [...(entry.filters ?? []), { column, value }];
+          return api;
+        },
+        select() {
+          return Promise.resolve(selectResult);
+        },
+        then(
+          onFulfilled: (v: { error: { message: string } | null }) => unknown,
+        ) {
+          return Promise.resolve({ error: selectResult.error }).then(
+            onFulfilled,
+          );
+        },
+      };
       return {
         update(payload: Record<string, unknown>) {
           entry.update = payload;
-          return {
-            eq(column: string, value: unknown) {
-              entry.filter = { column, value };
-              return {
-                select() {
-                  return Promise.resolve(selectResult);
-                },
-                then(
-                  onFulfilled: (
-                    v: { error: { message: string } | null },
-                  ) => unknown,
-                ) {
-                  // Allow `await supabase.update().eq()` (no .select()).
-                  return Promise.resolve({ error: selectResult.error }).then(
-                    onFulfilled,
-                  );
-                },
-              };
-            },
-          };
+          return api;
         },
       };
     },
@@ -105,6 +107,38 @@ describe('handleTemplateWebhookChange — status update', () => {
       rejection_reason: null,
       submission_error: null,
     });
+  });
+
+  it('enables matching Shopify notification rules when a shopify_* template is APPROVED', async () => {
+    const { stub, calls } = makeSupabaseStub({
+      data: [
+        {
+          id: 'row-1',
+          name: 'shopify_new_order',
+          account_id: 'acct-1',
+        },
+      ],
+      error: null,
+    });
+    await handleTemplateWebhookChange(
+      {
+        field: 'message_template_status_update',
+        value: {
+          event: 'APPROVED',
+          message_template_id: '12345',
+          message_template_name: 'shopify_new_order',
+        },
+      },
+      stub,
+    );
+    expect(calls).toHaveLength(2);
+    expect(calls[1].table).toBe('shopify_notification_rules');
+    expect(calls[1].update).toEqual({ is_enabled: true });
+    expect(calls[1].filters).toEqual([
+      { column: 'account_id', value: 'acct-1' },
+      { column: 'template_name', value: 'shopify_new_order' },
+      { column: 'is_enabled', value: false },
+    ]);
   });
 
   it('persists the reason field on REJECTED', async () => {

@@ -82,8 +82,8 @@ describe("notifyAccountDevicesOfIncomingMessage", () => {
     mocks.from.mockReturnValue(
       tokenQuery({
         data: [
-          { id: "t1", expo_push_token: "ExponentPushToken[aaa]" },
-          { id: "t2", expo_push_token: "garbage" },
+          { id: "t1", expo_push_token: "ExponentPushToken[aaa]", provider: "expo" },
+          { id: "t2", expo_push_token: "garbage", provider: "expo" },
         ],
         error: null,
       }),

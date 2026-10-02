@@ -4,6 +4,12 @@ import {
   incomingPreviewText,
   contactDisplayName,
 } from "@/lib/notifications/incoming-preview";
+import {
+  getFcmAccessToken,
+  isFcmToken,
+  readFcmConfig,
+  sendFcmMessage,
+} from "@/lib/notifications/fcm-push";
 
 export const EXPO_PUSH_URL = "https://exp.host/--/api/v2/push/send";
 export const INCOMING_PUSH_CHANNEL = "incoming-messages";
@@ -50,7 +56,7 @@ export type IncomingPushInput = {
   contentText?: string | null;
 };
 
-type TokenRow = { id: string; expo_push_token: string };
+type TokenRow = { id: string; expo_push_token: string; provider?: string | null };
 
 type ExpoTicket = {
   status?: string;
@@ -122,7 +128,7 @@ async function dropInvalidTokens(rows: TokenRow[], tickets: ExpoTicket[]) {
 }
 
 /**
- * Fan out an inbound customer message to every Expo device on the
+ * Fan out an inbound customer message to Expo and FCM devices on the
  * account. Never throws to the caller — webhook ACK must not wait
  * on Apple / Google / Expo.
  */
@@ -134,7 +140,7 @@ export async function notifyAccountDevicesOfIncomingMessage(
 
   const { data, error } = await supabaseAdmin()
     .from("device_push_tokens")
-    .select("id, expo_push_token")
+    .select("id, expo_push_token, provider")
     .eq("account_id", input.accountId);
 
   if (error) {
@@ -142,14 +148,16 @@ export async function notifyAccountDevicesOfIncomingMessage(
     return;
   }
 
-  const rows = ((data ?? []) as TokenRow[]).filter((row) =>
-    isExpoPushToken(row.expo_push_token),
-  );
-  if (rows.length === 0) return;
+  const all = (data ?? []) as TokenRow[];
+  const expoRows = all.filter((row) => isExpoPushToken(row.expo_push_token));
+  const fcmRows = all.filter((row) => {
+    if (row.provider === "expo") return false;
+    return row.provider === "fcm" || isFcmToken(row.expo_push_token);
+  });
 
   const { title, body } = incomingPushCopy(input);
 
-  for (const batch of chunk(rows, EXPO_PUSH_BATCH_SIZE)) {
+  for (const batch of chunk(expoRows, EXPO_PUSH_BATCH_SIZE)) {
     try {
       const tickets = await sendExpoBatch(
         batch.map((row) => row.expo_push_token),
@@ -164,5 +172,31 @@ export async function notifyAccountDevicesOfIncomingMessage(
         err instanceof Error ? err.message : err,
       );
     }
+  }
+
+  const fcm = readFcmConfig();
+  if (!fcm || fcmRows.length === 0) return;
+  try {
+    const accessToken = await getFcmAccessToken(fcm);
+    const staleIds: string[] = [];
+    for (const row of fcmRows) {
+      const result = await sendFcmMessage({
+        accessToken,
+        projectId: fcm.projectId,
+        token: row.expo_push_token,
+        title,
+        body,
+        conversationId: input.conversationId,
+      });
+      if (result.unregistered) staleIds.push(row.id);
+    }
+    if (staleIds.length > 0) {
+      await supabaseAdmin().from("device_push_tokens").delete().in("id", staleIds);
+    }
+  } catch (err) {
+    console.warn(
+      "[fcm-push] send failed:",
+      err instanceof Error ? err.message : err,
+    );
   }
 }

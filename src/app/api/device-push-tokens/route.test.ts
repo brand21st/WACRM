@@ -89,6 +89,38 @@ describe("POST /api/device-push-tokens", () => {
         account_id: "acc-1",
         expo_push_token: "ExponentPushToken[abc]",
         platform: "android",
+        provider: "expo",
+      },
+      { onConflict: "expo_push_token" },
+    );
+  });
+
+  it("upserts an FCM token from Flutter", async () => {
+    const query = upsertQuery();
+    mocks.getCurrentAccount.mockResolvedValue({
+      userId: "u1",
+      accountId: "acc-1",
+      supabase: { from: () => query },
+    });
+    const token = `d${"A".repeat(140)}:APA91b${"B".repeat(40)}`;
+    const res = await POST(
+      new Request("https://app.test/api/device-push-tokens", {
+        method: "POST",
+        body: JSON.stringify({
+          token,
+          provider: "fcm",
+          platform: "android",
+        }),
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(query.upsert).toHaveBeenCalledWith(
+      {
+        user_id: "u1",
+        account_id: "acc-1",
+        expo_push_token: token,
+        platform: "android",
+        provider: "fcm",
       },
       { onConflict: "expo_push_token" },
     );

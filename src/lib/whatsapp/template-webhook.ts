@@ -28,6 +28,8 @@
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { isShopifyTemplateName } from '@/lib/shopify/notification-templates'
+import { enableShopifyRulesForApprovedTemplate } from '@/lib/shopify/install-order-templates'
 import { normalizeStatus } from './template-status-normalize'
 
 const TEMPLATE_WEBHOOK_FIELDS = new Set([
@@ -134,7 +136,7 @@ async function handleStatusUpdate(
     .from('message_templates')
     .update(update)
     .eq('meta_template_id', metaTemplateId)
-    .select('id')
+    .select('id, name, account_id')
 
   if (error) {
     console.error(
@@ -156,6 +158,17 @@ async function handleStatusUpdate(
     console.warn(
       `[template-webhook] status update matched ${data.length} rows for meta_template_id ${metaTemplateId} — investigate.`,
     )
+  }
+
+  if (status !== 'APPROVED') return
+  for (const row of data as { id: string; name?: string; account_id?: string }[]) {
+    const name = String(row.name ?? '')
+    const accountId = String(row.account_id ?? '')
+    if (!accountId || !isShopifyTemplateName(name)) continue
+    await enableShopifyRulesForApprovedTemplate(supabase, {
+      accountId,
+      templateName: name,
+    })
   }
 }
 
