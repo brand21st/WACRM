@@ -1,4 +1,4 @@
-﻿import { NextResponse, after } from 'next/server'
+import { NextResponse, after } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { decrypt, encrypt, isLegacyFormat } from '@/lib/whatsapp/encryption'
 import { getMediaUrl, downloadMedia } from '@/lib/whatsapp/meta-api'
@@ -93,8 +93,14 @@ interface WhatsAppMessage {
    * payload and mirrors the label into it).
    */
   button?: { text?: string; payload?: string }
-  /** Present when the customer swipe-replies to one of our messages. */
-  context?: { id: string }
+  /** Present when the customer swipe-replies or messages from a catalog product. */
+  context?: {
+    id?: string
+    referred_product?: {
+      catalog_id?: string
+      product_retailer_id?: string
+    }
+  }
   /** Native catalog cart the customer sent from WhatsApp. */
   order?: {
     catalog_id?: string
@@ -895,6 +901,7 @@ async function processMessage(
     mediaBuffer,
     whatsappOrderMessage: message.type === 'order' ? message : undefined,
     addressFormReply,
+    referredProduct: message.context?.referred_product ?? null,
   })
 }
 

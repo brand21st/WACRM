@@ -29,7 +29,9 @@ import {
   enqueueAiVoiceInbound,
 } from '@/lib/queue/enqueue'
 import { aiChatReplyJob, aiConversationAnalyzeJob } from '@/lib/queue/jobs'
+import { lookupCatalogProduct } from '@/lib/catalog/search/lookup'
 import { loadShopifyConfig } from '@/lib/shopify/config'
+import { saveProductFocus } from '@/lib/shopify/product-focus'
 import { dispatchWebhookEvent } from '@/lib/webhooks/deliver'
 import type { ChannelType } from '@/types'
 
@@ -75,6 +77,7 @@ export interface InboundFanoutArgs {
   mediaBuffer?: Buffer | null
   whatsappOrderMessage?: Parameters<typeof handleInboundWhatsAppOrder>[0]['message']
   addressFormReply?: { name?: string; response_json?: string } | null
+  referredProduct?: { catalog_id?: string; product_retailer_id?: string } | null
 }
 
 async function flagBroadcastReplyIfAny(accountId: string, contactId: string) {
@@ -249,6 +252,28 @@ export async function dispatchInboundFanout(args: InboundFanoutArgs): Promise<vo
         contactId: contactRecord.id,
         replyId: interactiveReplyId,
       })
+    }
+
+    if (args.referredProduct?.product_retailer_id) {
+      try {
+        const prod = await lookupCatalogProduct(
+          supabaseAdmin(),
+          accountId,
+          args.referredProduct.product_retailer_id,
+        )
+        if (prod?.handle) {
+          await saveProductFocus(supabaseAdmin(), conversation.id, {
+            handle: prod.handle,
+            title: prod.title,
+            sourceMessageId: persistedMessageId,
+            stage: 'focused',
+            setBy: 'send',
+            introSent: false,
+          })
+        }
+      } catch (err) {
+        console.warn('[fanout] save referred product focus failed:', err)
+      }
     }
   }
 

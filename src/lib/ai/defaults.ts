@@ -321,8 +321,8 @@ export function buildSystemPrompt(args: {
         'If material_known is no, say material information is unavailable. Do not treat words like Linen, Silk, or Premium in the title as fiber. ' +
         'If they ask whether it is cotton, check the material line only. ' +
         (shopify
-          ? 'For business questions (shipping, delivery, returns), call search_store_info. '
-          : '') +
+          ? 'For business, store, or policy questions (shipping, delivery time, COD, returns, refunds, store location, payment, contact, or hours), answer accurately using the knowledge excerpts or call search_store_info. Never change products or refuse the question. '
+          : 'For business or policy questions (shipping, delivery, returns, store location), answer accurately using the knowledge excerpts. ') +
         'Never invent catalog items, SKUs, prices, stock, or policies. Never mention Shopify, WACRM, Meta, or native checkout to the customer.',
     )
   } else {

@@ -83,11 +83,14 @@ const IDENTITY_TOPIC =
 const AVAILABILITY_TOPIC =
   /\b(available|availability|in stock)\b|available\s*ആണോ|ലഭ്യമാണോ|സ്റ്റോക്ക്|\bഉണ്ടോ\b/i
 
+export const STORE_POLICY_TOPIC =
+  /\b(shipping|delivery|dispatch|courier|cod|cash on delivery|return|refund|exchange|cancel|payment|location|shop|store|address|timing|hours|who are you|about you)\b|ഡെലിവറി|ഷിപ്പിംഗ്|റിട്ടേൺ|സ്ഥലം|കട|പെയ്മെന്റ്/i
+
 const PRICE_TOPIC =
-  /\b(price|how much|cost)\b|what(?:'s| is) (?:the )?price|വില|എത്ര/i
+  /\b(price|how much|cost|rate)\b|what(?:'s| is) (?:the )?(?:price|rate)|വില|എത്ര|\brate\b/i
 
 const QUESTION =
-  /\b(fit|details?|sizes?|colou?rs?)\b|ഏത്\s*fit/i
+  /\b(fit|details?|sizes?|colou?rs?|color|colour|fabric|quality|care|wash)\b|ഏത്\s*fit|\bഫോട്ടോ\b|\bചിത്രം\b|\bവിവരം\b/i
 
 const FOCUSED_QUESTION =
   /ഈ\s*(?:product|ഉൽപ്പന്നം)?\s*എന്താണ്|ഇത്\s*എന്താണ്|ഇതെന്താണ്|ഇതിനെക്കുറിച്ച്|ഏത്\s*(?:material|fabric|fit)|available\s*ആണോ|\bഉണ്ടോ\b|cotton\s*ആണോ|(?:sizes?|colou?rs?)\s*(?:ഉണ്ടോ)?/i
@@ -147,6 +150,7 @@ export function classifySalesTurn(
   }
 
   if (
+    STORE_POLICY_TOPIC.test(raw) ||
     MATERIAL_TOPIC.test(raw) ||
     IDENTITY_TOPIC.test(raw) ||
     AVAILABILITY_TOPIC.test(raw) ||
@@ -160,6 +164,11 @@ export function classifySalesTurn(
   if (
     opts?.hasFocus &&
     isShopifyProductAsk(raw) &&
+    !STORE_POLICY_TOPIC.test(raw) &&
+    !PRICE_TOPIC.test(raw) &&
+    !MATERIAL_TOPIC.test(raw) &&
+    !AVAILABILITY_TOPIC.test(raw) &&
+    !QUESTION.test(raw) &&
     !/^(?:this|that|the|it)\b/i.test(raw) &&
     !/\b(?:this|that|the)\s+(?:product|item|one)\b/i.test(raw)
   ) {

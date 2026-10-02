@@ -131,6 +131,15 @@ describe('classifySalesTurn', () => {
       'product_switch',
     )
     expect(classifySalesTurn('this Red Bag', { hasFocus: true }).kind).toBe('stay')
+    expect(classifySalesTurn('saree rate ethraya', { hasFocus: true }).kind).toBe(
+      'product_question',
+    )
+    expect(classifySalesTurn('cash on delivery undo', { hasFocus: true }).kind).toBe(
+      'product_question',
+    )
+    expect(classifySalesTurn('delivery charges undo', { hasFocus: true }).kind).toBe(
+      'product_question',
+    )
     expect(unlocksCatalogBrowse('product_switch')).toBe(true)
   })
 

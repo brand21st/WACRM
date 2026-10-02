@@ -1,4 +1,4 @@
-﻿import { supabaseAdmin } from './admin-client'
+import { supabaseAdmin } from './admin-client'
 import { loadAiConfig } from './config'
 import {
   applySwipeReplyContext,
@@ -129,7 +129,12 @@ import {
   recordShownRecommendationEvents,
 } from '@/lib/catalog/intelligence/recommend'
 import { mergeAndPersistShoppingContext, loadShoppingContext, emptyShoppingContext, formatSalesSnapshot } from '@/lib/catalog/intelligence/shopping-context'
-import { classifySalesTurn, shouldPersistSalesContext, unlocksCatalogBrowse } from '@/lib/shopify/sales-turn'
+import {
+  classifySalesTurn,
+  shouldPersistSalesContext,
+  unlocksCatalogBrowse,
+  STORE_POLICY_TOPIC,
+} from '@/lib/shopify/sales-turn'
 import {
   resolveSalesPatternGuidance,
   type SalesPatternRetrievalMode,
@@ -468,9 +473,10 @@ export async function dispatchInboundToAiReply(
       messages,
       WACRM_CHAT_BUTTON_IDS.products,
     )
+    const isStorePolicyAsk = STORE_POLICY_TOPIC.test(retrieveText)
     const [manualKnowledge, storeContent] = await Promise.all([
       retrieveKnowledge(db, accountId, config, retrieveText),
-      shopify && !(pinnedFocus && !browsingOtherProducts)
+      shopify && (!pinnedFocus || browsingOtherProducts || isStorePolicyAsk)
         ? retrieveShopifyStoreContent(db, accountId, retrieveText, 5)
         : Promise.resolve([] as string[]),
     ])
@@ -1407,10 +1413,51 @@ export async function dispatchInboundToAiReply(
       return
     }
 
-    await sendProductCards(sendArgs, productCards, shopify, {
-      focus: productFocus,
-      db,
-    })
+    const explicitCardAsk =
+      /\b(?:send|show|give|share)\s+(?:me\s+)?(?:the\s+)?(?:photo|pic|picture|image|card|link)\b|ഫോട്ടോ\s*(?:അയക്കാമോ|കാണിക്കാമോ)|ലിങ്ക്\s*(?:അയക്കാമോ|തരാമോ)/i.test(
+        queryText,
+      )
+    const isFirstFocusIntro = Boolean(productFocus && !productFocus.introSent)
+    const shouldSendCards =
+      productCards.length > 0 &&
+      (!productFocus || isFirstFocusIntro || explicitCardAsk)
+
+    if (shouldSendCards) {
+      await sendProductCards(sendArgs, productCards, shopify, {
+        focus: productFocus,
+        db,
+      })
+      if (productFocus && !productFocus.introSent) {
+        productFocus = { ...productFocus, introSent: true }
+        await saveProductFocus(db, conversationId, productFocus).catch((err) =>
+          console.warn('[ai auto-reply] update product focus introSent failed:', err),
+        )
+      }
+    }
+
+    if (!productFocus && productCards.length === 1 && shopify) {
+      const singleCard = productCards[0]
+      const handle =
+        singleCard.handle || handleFromProductUrl(singleCard.productUrl)
+      if (handle) {
+        productFocus = {
+          handle,
+          title: singleCard.title,
+          variantId: singleCard.variantId ?? null,
+          sourceMessageId: inboundMetaMessageId || conversationId,
+          stage: 'focused',
+          setBy: 'reply_draft',
+          introSent: true,
+        }
+        await saveProductFocus(db, conversationId, productFocus).catch((err) =>
+          console.warn(
+            '[ai auto-reply] auto-pin single product focus failed:',
+            err,
+          ),
+        )
+      }
+    }
+
     await sendOrderCards(sendArgs, orderCards)
     if (speakAfterText) await sendShoppingAudio()
   } catch (err) {
@@ -1483,6 +1530,23 @@ async function sendProductRecPage(args: {
   const { page, remaining } = splitProductCardPage(args.cards)
   try {
     await sendProductCards(args.sendArgs, page, args.shopify, { db: args.db })
+    if (args.cards.length === 1 && args.shopify) {
+      const card = args.cards[0]
+      const handle = card.handle || handleFromProductUrl(card.productUrl)
+      if (handle) {
+        await saveProductFocus(args.db, args.conversationId, {
+          handle,
+          title: card.title,
+          variantId: card.variantId ?? null,
+          sourceMessageId: args.conversationId,
+          stage: 'focused',
+          setBy: 'reply_draft',
+          introSent: true,
+        }).catch((err) =>
+          console.warn('[ai auto-reply] pin single rec product focus failed:', err),
+        )
+      }
+    }
   } catch (err) {
     console.error('[ai auto-reply] product cards failed:', err)
   }
