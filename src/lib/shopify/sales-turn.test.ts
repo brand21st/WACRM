@@ -23,6 +23,13 @@ describe('classifySalesTurn', () => {
     expect(classifySalesTurn('I want to buy this').kind).toBe('purchase')
     expect(classifySalesTurn('ഇത് വേണം').kind).toBe('purchase')
     expect(classifySalesTurn('വാങ്ങണം').kind).toBe('purchase')
+    expect(classifySalesTurn('Pls send link').kind).toBe('purchase')
+    expect(classifySalesTurn('send link').kind).toBe('purchase')
+    expect(classifySalesTurn('please send link').kind).toBe('purchase')
+    expect(classifySalesTurn('I can’t see').kind).toBe('purchase')
+    expect(classifySalesTurn("I can't see").kind).toBe('purchase')
+    expect(classifySalesTurn('where is the link').kind).toBe('purchase')
+    expect(classifySalesTurn('ലിങ്ക് അയക്കാമോ').kind).toBe('purchase')
   })
 
   it('does not treat ഇത് വേണ്ട as purchase', () => {

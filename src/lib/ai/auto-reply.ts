@@ -2083,7 +2083,7 @@ async function handoffFocusedPurchase(args: {
     (args.confirmTap ||
       args.focus.stage === 'ready_to_confirm' ||
       isDirectCheckoutAsk ||
-      (isShopifyActive && live.variants.length <= 1))
+      (isShopifyActive && (live.variants.length <= 1 || args.focus.variantId)))
   ) {
     await saveProductFocus(args.db, args.conversationId, {
       ...args.focus,
@@ -2093,7 +2093,11 @@ async function handoffFocusedPurchase(args: {
       stage: 'ready_to_confirm',
       introSent: true,
     })
-    if (args.confirmTap || isDirectCheckoutAsk || (isShopifyActive && live.variants.length <= 1)) {
+    if (
+      args.confirmTap ||
+      isDirectCheckoutAsk ||
+      (isShopifyActive && (live.variants.length <= 1 || args.focus.stage === 'ready_to_confirm' || args.focus.variantId))
+    ) {
       return completeFocusedPurchase({
         db: args.db,
         sendArgs: args.sendArgs,
@@ -2279,11 +2283,24 @@ async function sendSingleShopifyCheckoutCta(
   retailerIdSource?: RetailerIdSource,
 ): Promise<void> {
   const card = toCard(product, retailerIdSource ?? 'sku', variant)
+  let sentCta = false
   if (card.imageUrl) {
-    const ok = await sendCheckoutProductCard(sendArgs, card, card.imageUrl)
-    if (ok) return
+    sentCta = await sendCheckoutProductCard(sendArgs, card, card.imageUrl)
   }
-  await sendCheckoutCtaIfInStock(sendArgs, card)
+  if (!sentCta) {
+    await sendCheckoutCtaIfInStock(sendArgs, card)
+  }
+  if (card.checkoutUrl) {
+    try {
+      await engineSendText({
+        ...sendArgs,
+        text: `Checkout link: ${card.checkoutUrl}`,
+        aiGenerated: true,
+      })
+    } catch (err) {
+      console.error('[ai auto-reply] fallback checkout text link send failed:', err)
+    }
+  }
 }
 
 async function finishFocusedVariantTurn(args: {
@@ -2418,6 +2435,17 @@ async function runFocusedProductTurn(args: {
     live = await getProductLive(args.shopify, args.focus.handle)
   } catch (err) {
     console.warn('[ai auto-reply] focused product reload failed:', err)
+  }
+  if (!live) {
+    try {
+      live = await getProductFromCatalog(
+        args.db,
+        args.shopify,
+        args.focus.handle,
+      )
+    } catch (err) {
+      console.warn('[ai auto-reply] focused product catalog reload failed:', err)
+    }
   }
 
   if (live && args.focusedOrderIntent) {

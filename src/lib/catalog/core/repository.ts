@@ -71,16 +71,21 @@ type ExternalIdRow = {
 const PRODUCT_SELECT =
   'id, account_id, handle, title, description, status, brand, product_url, currency, price_min, price_max, origin, locked, published_at, created_at, updated_at'
 
+const UUID_REGEX =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
 export async function getProductById(
   db: SupabaseClient,
   accountId: string,
   productId: string,
 ): Promise<CatalogProduct | null> {
+  const trimmed = productId.trim()
+  if (!UUID_REGEX.test(trimmed)) return null
   const { data, error } = await db
     .from('catalog_products')
     .select(PRODUCT_SELECT)
     .eq('account_id', accountId)
-    .eq('id', productId)
+    .eq('id', trimmed)
     .maybeSingle()
   if (error) throw error
   if (!data) return null

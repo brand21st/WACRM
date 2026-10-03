@@ -18,8 +18,11 @@ export async function lookupCatalogProduct(
   const raw = id.trim()
   if (!raw) return null
 
+  const isUuid =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(raw)
+
   const product =
-    (await getProductById(db, accountId, raw)) ??
+    (isUuid ? await getProductById(db, accountId, raw) : null) ??
     (await getProductByHandle(db, accountId, raw)) ??
     (await getProductByRetailerId(db, accountId, raw)) ??
     (await getProductBySku(db, accountId, raw)) ??
