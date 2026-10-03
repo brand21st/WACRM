@@ -134,6 +134,8 @@ import {
   shouldPersistSalesContext,
   unlocksCatalogBrowse,
   STORE_POLICY_TOPIC,
+  CHECKOUT_LINK_INTENT,
+  BROWSE_CATALOG_INTENT,
 } from '@/lib/shopify/sales-turn'
 import {
   resolveSalesPatternGuidance,
@@ -307,10 +309,13 @@ export async function dispatchInboundToAiReply(
       console.warn('[ai auto-reply] loadCommerceSettings failed:', err)
       return null
     })
-    const nativeCommerce = nativeCommerceEnabled({
-      metaCatalogId: commerce?.metaCatalogId ?? shopify?.metaCatalogId,
-      waPaymentConfigurationName: commerce?.waPaymentConfigurationName,
-    })
+    const isShopifyActive = isShopifyStoreConnected(shopify)
+    const nativeCommerce =
+      !isShopifyActive &&
+      nativeCommerceEnabled({
+        metaCatalogId: commerce?.metaCatalogId ?? shopify?.metaCatalogId,
+        waPaymentConfigurationName: commerce?.waPaymentConfigurationName,
+      })
 
     const queryText = latestUserMessage(messages)
     const contactMemory = await loadContactMemory(db, accountId, contactId).catch(
@@ -1000,12 +1005,14 @@ export async function dispatchInboundToAiReply(
       ? ''
       : rawCustomerText || FULL_AGENT_FALLBACK_REPLY
 
-    const catalogBrowseAsk = wantsWhatsAppCatalog({
-      customerText: queryText,
-      replyText: textForCustomer,
-      messages,
-      toolRequested: catalogHolder.value,
-    })
+    const catalogBrowseAsk =
+      BROWSE_CATALOG_INTENT.test(queryText) ||
+      wantsWhatsAppCatalog({
+        customerText: queryText,
+        replyText: textForCustomer,
+        messages,
+        toolRequested: catalogHolder.value,
+      })
     if (heldOffer.cards.length > 0 && contactId) {
       const altPrice = priceFromCardCaption(heldOffer.cards[0]?.caption)
       commerceTurn = commerceTurnFromHeldOffer({
@@ -1080,7 +1087,8 @@ export async function dispatchInboundToAiReply(
         } else if (
           isShopifyProductAsk(queryText) &&
           !isWhatsAppCatalogRequest(queryText) &&
-          !isNewArrivalsAsk(queryText)
+          !isNewArrivalsAsk(queryText) &&
+          !BROWSE_CATALOG_INTENT.test(queryText)
         ) {
           await shopifyTools.executeTool('search_products', {
             query: queryText,
@@ -1374,6 +1382,12 @@ export async function dispatchInboundToAiReply(
         chatButtonMode: 'nav',
       })
       if (handedOff) return
+      if (productCards.length > 0) {
+        await sendProductCards(sendArgs, productCards, shopify, {
+          focus: productFocus,
+          db,
+        })
+      }
       try {
         await sendOrderCards(sendArgs, orderCards)
       } catch (err) {
@@ -1417,10 +1431,13 @@ export async function dispatchInboundToAiReply(
       /\b(?:send|show|give|share)\s+(?:me\s+)?(?:the\s+)?(?:photo|pic|picture|image|card|link)\b|ഫോട്ടോ\s*(?:അയക്കാമോ|കാണിക്കാമോ)|ലിങ്ക്\s*(?:അയക്കാമോ|തരാമോ)/i.test(
         queryText,
       )
+    const isBrowseAsk =
+      BROWSE_CATALOG_INTENT.test(queryText) ||
+      isWhatsAppCatalogRequest(queryText)
     const isFirstFocusIntro = Boolean(productFocus && !productFocus.introSent)
     const shouldSendCards =
       productCards.length > 0 &&
-      (!productFocus || isFirstFocusIntro || explicitCardAsk)
+      (!productFocus || isFirstFocusIntro || explicitCardAsk || isBrowseAsk)
 
     if (shouldSendCards) {
       await sendProductCards(sendArgs, productCards, shopify, {
@@ -2059,7 +2076,15 @@ async function handoffFocusedPurchase(args: {
   if (!live) return false
 
   const already = variantFromFocus(live, args.focus)
-  if (already && (args.confirmTap || args.focus.stage === 'ready_to_confirm')) {
+  const isDirectCheckoutAsk = CHECKOUT_LINK_INTENT.test(args.queryText)
+  const isShopifyActive = isShopifyStoreConnected(args.shopify)
+  if (
+    already &&
+    (args.confirmTap ||
+      args.focus.stage === 'ready_to_confirm' ||
+      isDirectCheckoutAsk ||
+      (isShopifyActive && live.variants.length <= 1))
+  ) {
     await saveProductFocus(args.db, args.conversationId, {
       ...args.focus,
       title: live.title,
@@ -2068,7 +2093,7 @@ async function handoffFocusedPurchase(args: {
       stage: 'ready_to_confirm',
       introSent: true,
     })
-    if (args.confirmTap) {
+    if (args.confirmTap || isDirectCheckoutAsk || (isShopifyActive && live.variants.length <= 1)) {
       return completeFocusedPurchase({
         db: args.db,
         sendArgs: args.sendArgs,
@@ -2079,6 +2104,7 @@ async function handoffFocusedPurchase(args: {
         catalogId: args.catalogId,
         contactPhone: args.contactPhone,
         contactName: args.contactName,
+        shopifyConnected: isShopifyActive,
       })
     }
     await engineSendInteractiveButtons({
@@ -2177,10 +2203,11 @@ async function completeFocusedPurchase(args: {
   catalogId?: string | null
   contactPhone: string | null
   contactName: string | null
+  shopifyConnected?: boolean
 }): Promise<boolean> {
   const variant = args.variant
   if (!variant) return false
-  if (args.nativeCommerce) {
+  if (!args.shopifyConnected && args.nativeCommerce) {
     const started = await startNativeCheckoutFromVariant({
       db: args.db,
       sendArgs: args.sendArgs,
@@ -2311,6 +2338,7 @@ async function finishFocusedVariantTurn(args: {
       catalogId: args.catalogId,
       contactPhone: args.contactPhone ?? null,
       contactName: args.contactName ?? null,
+      shopifyConnected: isShopifyStoreConnected(args.shopify),
     })
     if (args.compiledVoice) await args.sendShoppingAudio()
     return true

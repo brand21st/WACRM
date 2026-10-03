@@ -102,5 +102,11 @@ export type {
   ShopifyOrderCard,
   ShopifyOrderLineItem,
 } from './types'
-export { classifySalesTurn, STORE_POLICY_TOPIC } from './sales-turn'
+export {
+  classifySalesTurn,
+  STORE_POLICY_TOPIC,
+  CHECKOUT_LINK_INTENT,
+  BROWSE_CATALOG_INTENT,
+} from './sales-turn'
 export type { SalesTurn, SalesTurnKind, ProductQuestionTopic } from './sales-turn'
+

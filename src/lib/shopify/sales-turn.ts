@@ -101,6 +101,12 @@ const POSITIVE_FEEDBACK =
 const COMPARISON =
   /\b(?:this or that|which (?:is |one is )?(?:better|cheaper|best)|compare|difference|vs\.?)\b|ഏതാണ്\s*നല്ലത്/i
 
+export const CHECKOUT_LINK_INTENT =
+  /\b(?:checkout|buy|purchase|order)\s+(?:link|url)\b|\b(?:send|give|share)\s+(?:me\s+)?(?:the\s+)?(?:checkout|buy|order|purchase|cart)\s+link\b|\b(?:how\s+to\s+(?:buy|order|purchase|checkout|pay))\b|\b(?:how\s+can\s+i\s+(?:buy|order|purchase|checkout|pay))\b|\b(?:payment|pay)\s+link\b|ലിങ്ക്\s*(?:അയക്കാമോ|തരാമോ|പ്ലീസ്)|വാങ്ങാനുള്ള\s*ലിങ്ക്|ചെക്കൗട്ട്\s*ലിങ്ക്|\blink\s+(?:please|pls|share|send|thaa?|tharu|tharamo)\b/i
+
+export const BROWSE_CATALOG_INTENT =
+  /\b(?:more|other|different|all|new|next|similar|related|additional)\s+(?:products?|items?|models?|options?|collections?|designs?)\b|\b(?:show|list|send|view|browse|share|see|give)\s+(?:me\s+)?(?:more|other|different|all|your|some|the|any)?\s*(?:products?|items?|collections?|models?|designs?|catalog(?:ue)?s?)\b|\b(?:list|show|browse)\s+(?:your\s+)?products?\b|\bwhat\s+(?:other\s+)?products?\s+(?:do\s+you\s+have|are\s+there)\b|\bany\s+other\s+(?:products?|items?|collections?|options?)\b|\bcat(?:a)?log(?:ue)?s?\b|കാറ്റലോഗ്|വേറെ\s*(?:പ്രൊഡക്|ഉൽപ്പന്ന|ഐറ്റം|കളക്ഷൻ|മോഡൽ|ഡിസൈൻ|സാധന)|അടുത്ത[ത്]?\s*(?:കുറച്ചു\s*)?(?:പ്രൊഡക്|ഉൽപ്പന്ന|ഐറ്റം|കളക്ഷൻ|മോഡൽ|സാധന)|കൂടുതൽ\s*(?:പ്രൊഡക്|ഉൽപ്പന്ന|ഐറ്റം|കളക്ഷൻ)|മറ്റ്\s*(?:പ്രൊഡക്|ഉൽപ്പന്ന|ഐറ്റം|കളക്ഷൻ)|ബാക്കി\s*(?:പ്രൊഡക്|ഉൽപ്പന്ന|ഐറ്റം)|എന്തൊക്കെ\s*(?:പ്രൊഡക്|ഉൽപ്പന്ന|ഐറ്റം)\s*ഉണ്ട്|വേറെ\s*(?:എന്തൊക്കെ\s*ഉണ്ട്|ഏതൊക്കെ\s*ഉണ്ട്|കാണിക്കാമോ|കാണിക്കോ|ഉണ്ടോ)|കുറച്ചു\s*(?:പ്രൊഡക്|ഉൽപ്പന്ന|സാധന|ഐറ്റം)\s*കാണിക്കോ/i
+
 const MALAYALAM_BUY = /ഇത്\s*വേണം|(?:ഇത്\s*)?എടുക്കാം|എടുക്കട്ടെ|വാങ്ങണം|ഓർഡർ\s*ചെയ്യ/i
 const MALAYALAM_REJECT = /ഇത്\s*വേണ്ട|ഇതല്ല|\b(?:ithu|ith|itu)\s*venda\b/i
 
@@ -126,11 +132,20 @@ export function classifySalesTurn(
     return turn('product_switch')
   }
 
-  if (MALAYALAM_BUY.test(raw) || wantsProductOrder(raw)) {
+  if (
+    MALAYALAM_BUY.test(raw) ||
+    wantsProductOrder(raw) ||
+    CHECKOUT_LINK_INTENT.test(raw)
+  ) {
     return turn('purchase')
   }
 
-  if (isWhatsAppCatalogRequest(raw)) return turn('product_switch')
+  if (
+    BROWSE_CATALOG_INTENT.test(raw) ||
+    isWhatsAppCatalogRequest(raw)
+  ) {
+    return turn('product_switch')
+  }
 
   if (COMPARISON.test(raw)) return turn('comparison')
 

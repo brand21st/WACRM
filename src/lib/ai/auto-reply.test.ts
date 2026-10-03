@@ -3573,6 +3573,19 @@ describe('dispatchInboundToAiReply — agent product focus', () => {
   })
 
   it('hands Confirm order to native checkout without a product card or Checkout NOW', async () => {
+    h.loadShopifyConfig.mockResolvedValue({
+      accountId: 'acc-1',
+      shopDomain: '',
+      accessToken: '',
+      isActive: false,
+      shopName: null,
+      primaryDomain: null,
+      currency: null,
+      metaCatalogId: 'cat-1',
+      lastVerifiedAt: null,
+      lastCatalogSyncAt: null,
+      catalogProductCount: 0,
+    })
     h.loadCommerceSettings.mockResolvedValue({
       metaCatalogId: 'cat-1',
       metaCatalogAutoSync: false,
@@ -3679,6 +3692,19 @@ describe('dispatchInboundToAiReply — agent product focus', () => {
   })
 
   it('sends one Shopify Checkout NOW when native cart mapping is skipped', async () => {
+    h.loadShopifyConfig.mockResolvedValue({
+      accountId: 'acc-1',
+      shopDomain: '',
+      accessToken: '',
+      isActive: false,
+      shopName: null,
+      primaryDomain: null,
+      currency: null,
+      metaCatalogId: 'cat-1',
+      lastVerifiedAt: null,
+      lastCatalogSyncAt: null,
+      catalogProductCount: 0,
+    })
     h.loadCommerceSettings.mockResolvedValue({
       metaCatalogId: 'cat-1',
       metaCatalogAutoSync: false,
@@ -3726,6 +3752,19 @@ describe('dispatchInboundToAiReply — agent product focus', () => {
   })
 
   it('keeps Confirm order on the focused handle and variant, not a previously shown product', async () => {
+    h.loadShopifyConfig.mockResolvedValue({
+      accountId: 'acc-1',
+      shopDomain: '',
+      accessToken: '',
+      isActive: false,
+      shopName: null,
+      primaryDomain: null,
+      currency: null,
+      metaCatalogId: 'cat-1',
+      lastVerifiedAt: null,
+      lastCatalogSyncAt: null,
+      catalogProductCount: 0,
+    })
     h.loadCommerceSettings.mockResolvedValue({
       metaCatalogId: 'cat-1',
       metaCatalogAutoSync: false,

@@ -260,4 +260,21 @@ describe('classifySalesTurn', () => {
     )
     expect(classifySalesTurn('which is better').kind).toBe('comparison')
   })
+
+  it('classifies direct checkout link asks as purchase', () => {
+    expect(classifySalesTurn('checkout link', { hasFocus: true }).kind).toBe('purchase')
+    expect(classifySalesTurn('send me the checkout link', { hasFocus: true }).kind).toBe('purchase')
+    expect(classifySalesTurn('how to buy', { hasFocus: true }).kind).toBe('purchase')
+    expect(classifySalesTurn('ലിങ്ക് അയക്കാമോ', { hasFocus: true }).kind).toBe('purchase')
+    expect(classifySalesTurn('വാങ്ങാനുള്ള ലിങ്ക് തരാമോ', { hasFocus: true }).kind).toBe('purchase')
+  })
+
+  it('classifies more products and catalog requests as product_switch to unlock catalog', () => {
+    expect(classifySalesTurn('more products', { hasFocus: true }).kind).toBe('product_switch')
+    expect(classifySalesTurn('list your products', { hasFocus: true }).kind).toBe('product_switch')
+    expect(classifySalesTurn('show other products', { hasFocus: true }).kind).toBe('product_switch')
+    expect(classifySalesTurn('കാറ്റലോഗ് കാണിക്കോ', { hasFocus: true }).kind).toBe('product_switch')
+    expect(classifySalesTurn('വേറെ പ്രൊഡക്റ്റുകൾ കാണിക്കാമോ', { hasFocus: true }).kind).toBe('product_switch')
+    expect(classifySalesTurn('അടുത്ത് കുറച്ചു പ്രൊഡക്റ്റുകൾ കാണിക്കോ', { hasFocus: true }).kind).toBe('product_switch')
+  })
 })
