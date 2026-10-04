@@ -775,7 +775,7 @@ export async function dispatchInboundToAiReply(
       try {
         photoMatches = await matchProductsFromPhoto(
           db,
-          shopify,
+          catalogConfig,
           latestUserMessage(messages),
           {
             customerImageUrl: inboundMediaUrl,

@@ -227,7 +227,7 @@ vi.mock('./admin-client', () => ({
         return chain
       }
       if (table === 'automations') {
-        // .select().eq().eq().in().limit() → active auto-responders
+        // .select().eq().eq().in().limit() ? active auto-responders
         const chain = {
           select: () => chain,
           eq: () => chain,
@@ -406,7 +406,7 @@ beforeEach(() => {
     (items: { title: string; quantity: number; price?: string | null }[]) =>
       items.length === 0
         ? ''
-        : `Here is your cart:\n${items.map((i) => `• ${i.title}`).join('\n')}`,
+        : `Here is your cart:\n${items.map((i) => `� ${i.title}`).join('\n')}`,
   )
   h.matchProductsFromPhoto.mockResolvedValue([])
   h.getProductLive.mockResolvedValue(null)
@@ -436,7 +436,7 @@ beforeEach(() => {
         : Boolean(p.checkoutUrl)
     const price =
       p.priceMin && p.priceMax && p.priceMin !== p.priceMax
-        ? `${p.priceMin}–${p.priceMax}${p.currency ? ` ${p.currency}` : ''}`
+        ? `${p.priceMin}�${p.priceMax}${p.currency ? ` ${p.currency}` : ''}`
         : `${p.priceMin ?? ''}${p.currency ? ` ${p.currency}` : ''}`.trim()
     const sizes: string[] = []
     const colors: string[] = []
@@ -579,7 +579,7 @@ beforeEach(() => {
   })
 })
 
-describe('dispatchInboundToAiReply — eligibility gates', () => {
+describe('dispatchInboundToAiReply � eligibility gates', () => {
   it('claims a slot and sends on the happy path', async () => {
     await dispatchInboundToAiReply(ARGS)
     expect(h.state.rpcCalls).toEqual([
@@ -888,7 +888,7 @@ describe('dispatchInboundToAiReply — eligibility gates', () => {
     )
     expect(h.generateReply).not.toHaveBeenCalled()
     expect(h.engineSendText).toHaveBeenCalledWith(
-      expect.objectContaining({ text: 'Got it — I’ll reply in English.' }),
+      expect.objectContaining({ text: 'Got it � I�ll reply in English.' }),
     )
     expect(h.engineSendText).toHaveBeenCalledWith(
       expect.objectContaining({ text: 'How can I help you?' }),
@@ -916,7 +916,7 @@ describe('dispatchInboundToAiReply — eligibility gates', () => {
   })
 })
 
-describe('dispatchInboundToAiReply — welcome language picker', () => {
+describe('dispatchInboundToAiReply � welcome language picker', () => {
   function unlockedMemory() {
     return {
       profileSummary: '',
@@ -956,7 +956,7 @@ describe('dispatchInboundToAiReply — welcome language picker', () => {
     )
     expect(h.engineSendInteractiveList).toHaveBeenCalledWith(
       expect.objectContaining({
-        bodyText: 'What’s your language?',
+        bodyText: 'What�s your language?',
         buttonLabel: 'Language',
         sections: [
           expect.objectContaining({
@@ -1001,7 +1001,7 @@ describe('dispatchInboundToAiReply — welcome language picker', () => {
       }),
     )
     expect(h.engineSendText).toHaveBeenCalledWith(
-      expect.objectContaining({ text: expect.stringMatching(/മലയാളത്തിൽ/) }),
+      expect.objectContaining({ text: expect.stringMatching(/??????????/) }),
     )
     expect(h.generateReply).toHaveBeenCalled()
     expect(h.generateReply.mock.calls[0][0].replyLanguage).toMatchObject({
@@ -1028,7 +1028,7 @@ describe('dispatchInboundToAiReply — welcome language picker', () => {
     expect(h.persistLanguageLock).toHaveBeenCalled()
     expect(h.generateReply).not.toHaveBeenCalled()
     expect(h.engineSendText).toHaveBeenCalledWith(
-      expect.objectContaining({ text: 'Got it — I’ll reply in English.' }),
+      expect.objectContaining({ text: 'Got it � I�ll reply in English.' }),
     )
     expect(h.engineSendText).toHaveBeenCalledWith(
       expect.objectContaining({ text: 'How can I help you?' }),
@@ -1040,7 +1040,7 @@ describe('dispatchInboundToAiReply — welcome language picker', () => {
     h.buildConversationContext.mockResolvedValue([
       { role: 'user', content: 'Hai' },
       { role: 'assistant', content: 'Hi, Simi' },
-      { role: 'assistant', content: 'What’s your language?' },
+      { role: 'assistant', content: 'What�s your language?' },
       { role: 'user', content: 'Malayalam, English' },
     ])
     await dispatchInboundToAiReply(ARGS)
@@ -1054,10 +1054,10 @@ describe('dispatchInboundToAiReply — welcome language picker', () => {
     )
     expect(h.engineSendInteractiveList).not.toHaveBeenCalled()
     expect(h.engineSendText).toHaveBeenCalledWith(
-      expect.objectContaining({ text: expect.stringMatching(/മലയാളത്തിൽ/) }),
+      expect.objectContaining({ text: expect.stringMatching(/??????????/) }),
     )
     expect(h.engineSendText).toHaveBeenCalledWith(
-      expect.objectContaining({ text: 'എന്ത് സഹായം വേണം?' }),
+      expect.objectContaining({ text: '????? ????? ?????' }),
     )
     expect(h.generateReply).not.toHaveBeenCalled()
   })
@@ -1066,7 +1066,7 @@ describe('dispatchInboundToAiReply — welcome language picker', () => {
     h.loadContactMemory.mockResolvedValue(unlockedMemory())
     h.buildConversationContext.mockResolvedValue([
       { role: 'user', content: 'Hai' },
-      { role: 'assistant', content: 'What’s your language?' },
+      { role: 'assistant', content: 'What�s your language?' },
     ])
     await dispatchInboundToAiReply({ ...ARGS, isFirstInbound: true })
     expect(h.engineSendInteractiveList).not.toHaveBeenCalled()
@@ -1077,7 +1077,7 @@ describe('dispatchInboundToAiReply — welcome language picker', () => {
     h.loadContactMemory.mockResolvedValue(unlockedMemory())
     h.buildConversationContext.mockResolvedValue([
       { role: 'user', content: 'Hai' },
-      { role: 'assistant', content: 'What’s your language?' },
+      { role: 'assistant', content: 'What�s your language?' },
       { role: 'user', content: 'I want the red saree' },
     ])
     h.generateReply.mockResolvedValue({ text: 'Here is the red saree.', handoff: false })
@@ -1092,7 +1092,7 @@ describe('dispatchInboundToAiReply — welcome language picker', () => {
   })
 })
 
-describe('dispatchInboundToAiReply — handoff', () => {
+describe('dispatchInboundToAiReply � handoff', () => {
   it('disables auto-reply, writes a summary, and does not send on handoff', async () => {
     h.generateReply.mockResolvedValue({ text: '', handoff: true })
     await dispatchInboundToAiReply(ARGS)
@@ -1102,7 +1102,7 @@ describe('dispatchInboundToAiReply — handoff', () => {
     expect(h.state.updatePayload?.ai_handoff_summary).toContain(
       'AI agent handed off',
     )
-    // No handoff target configured → conversation left unassigned.
+    // No handoff target configured ? conversation left unassigned.
     expect(h.state.updatePayload).not.toHaveProperty('assigned_agent_id')
   })
 
@@ -1153,7 +1153,7 @@ describe('dispatchInboundToAiReply — handoff', () => {
   })
 })
 
-describe('dispatchInboundToAiReply — voice modality', () => {
+describe('dispatchInboundToAiReply � voice modality', () => {
   it('sends a voice note for inbound audio when mode is same', async () => {
     h.loadAiConfig.mockResolvedValue(
       aiConfig({ elevenlabsApiKey: 'xi-test' }),
@@ -1365,7 +1365,7 @@ describe('dispatchInboundToAiReply — voice modality', () => {
   })
 })
 
-describe('dispatchInboundToAiReply — typing indicator', () => {
+describe('dispatchInboundToAiReply � typing indicator', () => {
   it('shows typing before generate when enabled and a Meta id is present', async () => {
     await dispatchInboundToAiReply({
       ...ARGS,
@@ -1413,7 +1413,7 @@ describe('dispatchInboundToAiReply — typing indicator', () => {
   })
 })
 
-describe('dispatchInboundToAiReply — OpenAI Realtime voice', () => {
+describe('dispatchInboundToAiReply � OpenAI Realtime voice', () => {
   it('uses the tool loop for voice notes so catalog search stays available', async () => {
     h.loadAiConfig.mockResolvedValue(
       aiConfig({
@@ -1673,7 +1673,7 @@ describe('dispatchInboundToAiReply — OpenAI Realtime voice', () => {
         {
           orderName: '#1001',
           bodyText:
-            'Name: Priya\nPhone: +91 88487 72371\nOrder: #1001\n1 × Red Tote — ₹2,499\nTotal: ₹2,499',
+            'Name: Priya\nPhone: +91 88487 72371\nOrder: #1001\n1 � Red Tote � ?2,499\nTotal: ?2,499',
           buttonLabel: 'Track order',
           url: 'https://track.example/1Z999',
         },
@@ -1891,7 +1891,7 @@ describe('dispatchInboundToAiReply — OpenAI Realtime voice', () => {
   })
 })
 
-describe('dispatchInboundToAiReply — product card Show more', () => {
+describe('dispatchInboundToAiReply � product card Show more', () => {
   const shopifyRow = {
     accountId: 'acct-1',
     shopDomain: 'acme.myshopify.com',
@@ -2040,7 +2040,7 @@ describe('dispatchInboundToAiReply — product card Show more', () => {
   })
 })
 
-describe('dispatchInboundToAiReply — vision photo match', () => {
+describe('dispatchInboundToAiReply � vision photo match', () => {
   const shopifyRow = {
     accountId: 'acct-1',
     shopDomain: 'acme.myshopify.com',
@@ -2302,7 +2302,10 @@ describe('dispatchInboundToAiReply — vision photo match', () => {
     })
     expect(h.matchProductsFromPhoto).toHaveBeenCalledWith(
       expect.anything(),
-      shopifyRow,
+      expect.objectContaining({
+        ...shopifyRow,
+        productCardButton: 'checkout',
+      }),
       'hi',
       expect.objectContaining({
         customerImageUrl: 'https://cdn.example/customer.jpg',
@@ -2314,7 +2317,7 @@ describe('dispatchInboundToAiReply — vision photo match', () => {
   })
 })
 
-describe('dispatchInboundToAiReply — cart offer', () => {
+describe('dispatchInboundToAiReply � cart offer', () => {
   const shopifyRow = {
     accountId: 'acct-1',
     shopDomain: 'acme.myshopify.com',
@@ -2420,7 +2423,7 @@ describe('dispatchInboundToAiReply — cart offer', () => {
     ],
     cartUrl: 'https://shop.example/cart/99:1',
     checkoutUrl: 'https://shop.example/cart/99:1?checkout',
-    summaryLines: ['Red Bag — 49 USD'],
+    summaryLines: ['Red Bag � 49 USD'],
   }
 
   it('sends summary buttons plus View cart and one aggregated Checkout NOW', async () => {
@@ -3351,7 +3354,7 @@ describe('dispatchInboundToAiReply — cart offer', () => {
   })
 })
 
-describe('dispatchInboundToAiReply — agent product focus', () => {
+describe('dispatchInboundToAiReply � agent product focus', () => {
   const shopifyRow = {
     accountId: 'acct-1',
     shopDomain: 'acme.myshopify.com',
@@ -3570,9 +3573,9 @@ describe('dispatchInboundToAiReply — agent product focus', () => {
     expect(h.handleInboundWhatsAppOrder).not.toHaveBeenCalled()
   })
 
-  it('sends variant lists for എടുക്കാം when color and size are still missing', async () => {
+  it('sends variant lists for ???????? when color and size are still missing', async () => {
     h.buildConversationContext.mockResolvedValue([
-      { role: 'user', content: 'എടുക്കാം' },
+      { role: 'user', content: '????????' },
     ])
     h.generateReply.mockResolvedValue({
       text: 'Choose a color for Pournami.',
@@ -3938,7 +3941,7 @@ describe('dispatchInboundToAiReply — agent product focus', () => {
   it('does not run sales AI while a native checkout is pending', async () => {
     h.conversationHasPendingCommerceOrder.mockResolvedValue(true)
     h.buildConversationContext.mockResolvedValue([
-      { role: 'user', content: 'വേറെ kurti കാണിക്കൂ' },
+      { role: 'user', content: '???? kurti ????????' },
     ])
     h.generateReply.mockResolvedValue({
       text: 'Here are more kurtis.',
@@ -3953,9 +3956,9 @@ describe('dispatchInboundToAiReply — agent product focus', () => {
     expect(h.handleInboundWhatsAppOrder).not.toHaveBeenCalled()
   })
 
-  it('does not start purchase from നല്ലതാണ്', async () => {
+  it('does not start purchase from ????????', async () => {
     h.buildConversationContext.mockResolvedValue([
-      { role: 'user', content: 'നല്ലതാണ്' },
+      { role: 'user', content: '????????' },
     ])
     h.generateReply.mockResolvedValue({
       text: 'Glad you like it.',
@@ -4154,7 +4157,7 @@ describe('dispatchInboundToAiReply — agent product focus', () => {
 
   it('clears product focus and unlocks catalog search on a product switch', async () => {
     h.buildConversationContext.mockResolvedValue([
-      { role: 'user', content: 'വേറെ saree' },
+      { role: 'user', content: '???? saree' },
     ])
     h.generateReply.mockResolvedValue({
       text: 'Here are other sarees.',
@@ -4288,7 +4291,7 @@ describe('dispatchInboundToAiReply — agent product focus', () => {
 
   it('keeps focus on a Malayalam availability question and injects catalog facts', async () => {
     h.buildConversationContext.mockResolvedValue([
-      { role: 'user', content: 'ഇത് available ആണോ?' },
+      { role: 'user', content: '??? available ????' },
     ])
 
     await dispatchInboundToAiReply(ARGS)
@@ -4296,7 +4299,7 @@ describe('dispatchInboundToAiReply — agent product focus', () => {
     expect(h.generateReply).not.toHaveBeenCalled()
     expect(h.engineSendText).toHaveBeenCalledWith(
       expect.objectContaining({
-        text: expect.stringMatching(/സ്റ്റോക്ക്|available|in stock/i),
+        text: expect.stringMatching(/??????????|available|in stock/i),
       }),
     )
     expect(h.state.updatePayload?.ai_product_focus).not.toBeNull()
@@ -4322,7 +4325,7 @@ describe('dispatchInboundToAiReply — agent product focus', () => {
       attributes: [{ key: 'fabric', label: 'Fabric', value: 'Rayon' }],
     })
     h.buildConversationContext.mockResolvedValue([
-      { role: 'user', content: 'ഇത് ഏത് material ആണ്?' },
+      { role: 'user', content: '??? ??? material ????' },
     ])
 
     await dispatchInboundToAiReply(ARGS)
@@ -4330,7 +4333,7 @@ describe('dispatchInboundToAiReply — agent product focus', () => {
     expect(h.generateReply).not.toHaveBeenCalled()
     expect(h.engineSendText).toHaveBeenCalledWith(
       expect.objectContaining({
-        text: 'ഇത് Rayon material ആണ്.',
+        text: '??? Rayon material ???.',
       }),
     )
   })
@@ -4365,7 +4368,7 @@ const CORD_SET_CARD = {
   handle: 'aline-cord-set',
 }
 
-describe('dispatchInboundToAiReply — commerce pending offers', () => {
+describe('dispatchInboundToAiReply � commerce pending offers', () => {
   beforeEach(() => {
     h.loadShopifyConfig.mockResolvedValue({
       accountId: 'acct-1',
@@ -4384,12 +4387,12 @@ describe('dispatchInboundToAiReply — commerce pending offers', () => {
 
   it('holds inexact alternative cards and asks before sending', async () => {
     h.buildConversationContext.mockResolvedValue([
-      { role: 'user', content: '499 cord set വേണം' },
+      { role: 'user', content: '499 cord set ????' },
     ])
     h.executeShopifyTool.mockResolvedValue({
       json: JSON.stringify({
         products: [{ title: 'Aline Cord Set', price: '500' }],
-        note: 'No exact ₹499 match. Closest is ₹500. Offer once.',
+        note: 'No exact ?499 match. Closest is ?500. Offer once.',
       }),
       cards: [CORD_SET_CARD],
       exact: false,
@@ -4399,7 +4402,7 @@ describe('dispatchInboundToAiReply — commerce pending offers', () => {
         await args.executeTool('search_products', { query: 'cord set', max_price: 499 })
       }
       return {
-        text: '₹499-ന് exact Cord Set ഇല്ല. ₹500 option ഉണ്ട്. കാണിക്കട്ടെ?',
+        text: '?499-?? exact Cord Set ????. ?500 option ?????. ????????????',
         handoff: false,
       }
     })
@@ -4410,7 +4413,7 @@ describe('dispatchInboundToAiReply — commerce pending offers', () => {
     expect(h.engineSendMedia).not.toHaveBeenCalled()
     expect(h.engineSendText).toHaveBeenCalledWith(
       expect.objectContaining({
-        text: expect.stringMatching(/₹500|500/),
+        text: expect.stringMatching(/?500|500/),
       }),
     )
     expect(h.persistCommerceTurn).toHaveBeenCalled()
@@ -4433,14 +4436,14 @@ describe('dispatchInboundToAiReply — commerce pending offers', () => {
       unavailabilityTold: true,
     }
     h.buildConversationContext.mockResolvedValue([
-      { role: 'assistant', content: '₹499 exact ഇല്ല. ₹500 option ഉണ്ട്. കാണിക്കട്ടെ?' },
+      { role: 'assistant', content: '?499 exact ????. ?500 option ?????. ????????????' },
       { role: 'user', content: 'ok' },
     ])
     h.generateReply.mockImplementation(async (args: { executeTool?: Function }) => {
       if (args.executeTool) {
         await args.executeTool('search_products', { query: 'ok' })
       }
-      return { text: 'Sure, ഇതാ ₹500 Cord Set', handoff: false }
+      return { text: 'Sure, ??? ?500 Cord Set', handoff: false }
     })
 
     await dispatchInboundToAiReply(ARGS)
@@ -4454,7 +4457,7 @@ describe('dispatchInboundToAiReply — commerce pending offers', () => {
     )
     expect(h.engineSendText).toHaveBeenCalledWith(
       expect.objectContaining({
-        text: expect.not.stringMatching(/₹499-ന് exact|499 exact/),
+        text: expect.not.stringMatching(/?499-?? exact|499 exact/),
       }),
     )
   })
@@ -4474,7 +4477,7 @@ describe('dispatchInboundToAiReply — commerce pending offers', () => {
       { role: 'user', content: 'photo please' },
     ])
     h.generateReply.mockResolvedValue({
-      text: 'Sure, ഇതാ product photo',
+      text: 'Sure, ??? product photo',
       handoff: false,
     })
 
