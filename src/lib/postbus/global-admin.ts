@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 
+import { ApiError } from '@/lib/api/v1/respond'
 import {
   POSTBUS_CONFIG_COLUMNS,
   derivePostBusStatus,
@@ -15,6 +16,26 @@ import {
   listApprovedTemplates,
   officialWhatsAppIdentity,
 } from '@/lib/postbus/readiness'
+
+function postgrestString(err: unknown, key: 'code' | 'message'): string {
+  if (!err || typeof err !== 'object' || !(key in err)) return ''
+  const value = (err as Record<string, unknown>)[key]
+  return typeof value === 'string' ? value : ''
+}
+
+export function throwPostBusSaveError(error: unknown): never {
+  const code = postgrestString(error, 'code')
+  const message =
+    postgrestString(error, 'message') || 'Failed to save global PostBus sender'
+  if (code === '42703' && /routing_mode/i.test(message)) {
+    throw new ApiError(
+      'internal',
+      'VaChat is missing postbus_integrations.routing_mode. Run migration 115_postbus_global_mode.sql on the VaChat database, then save templates again.',
+      500,
+    )
+  }
+  throw new ApiError('internal', message, 500)
+}
 
 export function templatesFromBody(
   body: Record<string, unknown>,
@@ -123,7 +144,7 @@ export async function upsertGlobalPostBusAccount(
 
   const { data: saved, error } = await query
   if (error || !saved) {
-    throw error ?? new Error('Failed to save global PostBus sender')
+    throwPostBusSaveError(error ?? new Error('Failed to save global PostBus sender'))
   }
   return saved as unknown as PostBusIntegrationRow
 }

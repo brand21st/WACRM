@@ -68,4 +68,36 @@ describe('PUT /api/postbus/templates', () => {
     )
     expect(res.status).toBe(401)
   })
+
+  it('returns the missing routing_mode message instead of a generic 500', async () => {
+    const missing = {
+      code: '42703',
+      message: 'column postbus_integrations.routing_mode does not exist',
+    }
+    const chain: Record<string, unknown> = {}
+    chain.select = () => chain
+    chain.eq = () => chain
+    chain.neq = async () => ({ data: [], error: missing })
+    chain.maybeSingle = async () => ({ data: null, error: missing })
+    chain.insert = () => chain
+    chain.update = () => chain
+    chain.single = async () => ({ data: null, error: missing })
+    h.requireApiKey.mockResolvedValue({
+      accountId: 'acct-1',
+      createdBy: 'user-1',
+      supabase: { from: () => chain },
+    })
+    const res = await PUT(
+      new Request('http://localhost/api/postbus/templates', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          booked_template_name: 'postbus_booked',
+        }),
+      }),
+    )
+    expect(res.status).toBe(500)
+    const body = await res.json()
+    expect(body.error.message).toMatch(/115_postbus_global_mode/)
+  })
 })
