@@ -1,4 +1,4 @@
-import { Sheet, type LucideIcon } from 'lucide-react'
+import { Sheet, Truck, type LucideIcon } from 'lucide-react'
 
 import type { IntegrationId } from './types'
 
@@ -15,11 +15,12 @@ export interface IntegrationDefinition {
   i18nKey: string
   icon: LucideIcon
   category: 'data'
+  kind: 'oauth' | 'manual'
   statusUrl: string
   connectUrl: string
   disconnectUrl: string
   /** Query param used by the OAuth callback (`?sheets=connected`). */
-  oauthReturnParam: string
+  oauthReturnParam: string | null
 }
 
 export const INTEGRATIONS: readonly IntegrationDefinition[] = [
@@ -28,9 +29,21 @@ export const INTEGRATIONS: readonly IntegrationDefinition[] = [
     i18nKey: 'googleSheets',
     icon: Sheet,
     category: 'data',
+    kind: 'oauth',
     statusUrl: '/api/google/sheets/config',
     connectUrl: '/api/google/sheets/oauth/connect',
     disconnectUrl: '/api/google/sheets/config',
     oauthReturnParam: 'sheets',
+  },
+  {
+    id: 'postbus',
+    i18nKey: 'postbus',
+    icon: Truck,
+    category: 'data',
+    kind: 'manual',
+    statusUrl: '/api/postbus/config',
+    connectUrl: '/api/postbus/config',
+    disconnectUrl: '/api/postbus/config',
+    oauthReturnParam: null,
   },
 ]

@@ -2,12 +2,14 @@
  * Shared integration connection shape returned by every
  * `/api/<integration>/config` GET. Tokens never appear here.
  */
-export type IntegrationId = 'google-sheets'
+export type IntegrationId = 'google-sheets' | 'postbus'
 
 export type IntegrationStatus =
   | 'not_connected'
   | 'connected'
   | 'needs_reconnect'
+  | 'configuration_required'
+  | 'error'
 
 export interface IntegrationConnection {
   connected: boolean
@@ -21,15 +23,24 @@ export function emptyConnection(): IntegrationConnection {
   return { connected: false, status: 'not_connected' }
 }
 
+const STATUSES: readonly IntegrationStatus[] = [
+  'not_connected',
+  'connected',
+  'needs_reconnect',
+  'configuration_required',
+  'error',
+]
+
 export function parseIntegrationConnection(
   data: unknown,
 ): IntegrationConnection {
   if (!data || typeof data !== 'object') return emptyConnection()
   const o = data as Record<string, unknown>
-  const status: IntegrationStatus =
-    o.status === 'connected' || o.status === 'needs_reconnect'
-      ? o.status
-      : 'not_connected'
+  const status: IntegrationStatus = STATUSES.includes(
+    o.status as IntegrationStatus,
+  )
+    ? (o.status as IntegrationStatus)
+    : 'not_connected'
   return {
     connected: status === 'connected',
     status,

@@ -111,6 +111,15 @@ describe("requireApiKey", () => {
     );
   });
 
+  it("passes when the key has any of several required scopes", async () => {
+    findActiveKeyByHash.mockResolvedValue(row({ scopes: ["postbus:send"] }));
+    const ctx = await requireApiKey(reqWith(`Bearer ${KEY}`), [
+      "messages:send",
+      "postbus:send",
+    ]);
+    expect(ctx.accountId).toBe("acct-1");
+  });
+
   it("passes when the key has the required scope", async () => {
     findActiveKeyByHash.mockResolvedValue(row({ scopes: ["messages:send"] }));
     const ctx = await requireApiKey(reqWith(`Bearer ${KEY}`), "messages:send");

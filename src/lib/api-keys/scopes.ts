@@ -21,6 +21,7 @@ export const API_SCOPES = [
   'conversations:read',
   'broadcasts:send',
   'webhooks:manage',
+  'postbus:send',
 ] as const;
 
 export type ApiScope = (typeof API_SCOPES)[number];
@@ -34,6 +35,7 @@ export const SCOPE_DESCRIPTIONS: Record<ApiScope, string> = {
   'conversations:read': 'List and read conversations',
   'broadcasts:send': 'Launch broadcast campaigns',
   'webhooks:manage': 'Register and manage outbound event webhooks',
+  'postbus:send': 'Send PostBus shipment WhatsApp notifications',
 };
 
 /** Type-narrow an unknown value into a valid `ApiScope`. */
@@ -72,4 +74,12 @@ export function hasScope(
   required: ApiScope
 ): boolean {
   return granted.includes(required);
+}
+
+/** True iff `granted` contains at least one of `required`. */
+export function hasAnyScope(
+  granted: readonly string[],
+  required: readonly ApiScope[],
+): boolean {
+  return required.some((scope) => hasScope(granted, scope));
 }

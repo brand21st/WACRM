@@ -13,9 +13,11 @@ import {
   type IntegrationConnection,
   type IntegrationId,
 } from '@/lib/integrations/types'
+import type { PostBusTestResultCode } from '@/lib/postbus/types'
 import { SettingsPanelHead } from '@/components/settings/settings-panel-head'
 
 import { IntegrationCard } from './integration-card'
+import { PostBusConfigDialog } from './postbus-config-dialog'
 
 export function IntegrationsPanel() {
   const t = useTranslations('Settings.integrations')
@@ -41,6 +43,8 @@ export function IntegrationsPanel() {
   const [disconnectingId, setDisconnectingId] = useState<IntegrationId | null>(
     null,
   )
+  const [testingId, setTestingId] = useState<IntegrationId | null>(null)
+  const [postbusOpen, setPostbusOpen] = useState(false)
   const handledReturn = useRef(false)
 
   const loadStatus = useCallback(async (id: IntegrationId, statusUrl: string) => {
@@ -69,6 +73,7 @@ export function IntegrationsPanel() {
     if (handledReturn.current) return
     let matched = false
     for (const def of INTEGRATIONS) {
+      if (!def.oauthReturnParam) continue
       const ok = searchParams.get(def.oauthReturnParam)
       const err = searchParams.get(`${def.oauthReturnParam}_error`)
       if (!ok && !err) continue
@@ -93,6 +98,7 @@ export function IntegrationsPanel() {
     handledReturn.current = true
     const params = new URLSearchParams(searchParams.toString())
     for (const def of INTEGRATIONS) {
+      if (!def.oauthReturnParam) continue
       params.delete(def.oauthReturnParam)
       params.delete(`${def.oauthReturnParam}_error`)
     }
@@ -103,6 +109,11 @@ export function IntegrationsPanel() {
   }, [loadStatus, router, searchParams, t])
 
   const connect = async (id: IntegrationId, connectUrl: string) => {
+    const def = INTEGRATIONS.find((item) => item.id === id)
+    if (def?.kind === 'manual') {
+      setPostbusOpen(true)
+      return
+    }
     setConnectingId(id)
     try {
       const res = await fetch(connectUrl, { method: 'POST' })
@@ -141,6 +152,45 @@ export function IntegrationsPanel() {
     }
   }
 
+  const testPostbus = async () => {
+    setTestingId('postbus')
+    try {
+      const res = await fetch('/api/postbus/config/test', { method: 'POST' })
+      const data = (await res.json().catch(() => ({}))) as {
+        code?: PostBusTestResultCode
+        message?: string
+      }
+      const code = data.code ?? 'connection_error'
+      const known = [
+        'connection_successful',
+        'authentication_failed',
+        'configuration_missing',
+        'invalid_account',
+        'whatsapp_not_configured',
+        'api_error',
+        'connection_error',
+        'not_configured',
+        'error',
+      ] as const
+      const key = known.includes(code as (typeof known)[number])
+        ? (code as (typeof known)[number])
+        : 'connection_error'
+      if (key === 'connection_successful') {
+        toast.success(t(`postbus.testResults.${key}`))
+      } else {
+        toast.message(t(`postbus.testResults.${key}`), {
+          description: typeof data.message === 'string' ? data.message : undefined,
+        })
+      }
+      const def = INTEGRATIONS.find((item) => item.id === 'postbus')
+      if (def) void loadStatus(def.id, def.statusUrl)
+    } catch {
+      toast.error(t('postbus.testResults.connection_error'))
+    } finally {
+      setTestingId(null)
+    }
+  }
+
   return (
     <section className="max-w-2xl animate-in fade-in-50 duration-200">
       <SettingsPanelHead title={t('title')} description={t('description')} />
@@ -153,12 +203,26 @@ export function IntegrationsPanel() {
             loading={loadingId[def.id] ?? true}
             connecting={connectingId === def.id}
             disconnecting={disconnectingId === def.id}
+            testing={testingId === def.id}
             canEdit={canEditSettings}
             onConnect={() => void connect(def.id, def.connectUrl)}
             onDisconnect={() => void disconnect(def.id, def.disconnectUrl)}
+            onConfigure={
+              def.kind === 'manual' ? () => setPostbusOpen(true) : undefined
+            }
+            onTest={def.id === 'postbus' ? () => void testPostbus() : undefined}
           />
         ))}
       </div>
+      <PostBusConfigDialog
+        open={postbusOpen}
+        onOpenChange={setPostbusOpen}
+        canEdit={canEditSettings}
+        onSaved={() => {
+          const def = INTEGRATIONS.find((item) => item.id === 'postbus')
+          if (def) void loadStatus(def.id, def.statusUrl)
+        }}
+      />
     </section>
   )
 }

@@ -22,24 +22,31 @@ export function IntegrationCard({
   loading,
   connecting,
   disconnecting,
+  testing,
   canEdit,
   onConnect,
   onDisconnect,
+  onConfigure,
+  onTest,
 }: {
   definition: IntegrationDefinition
   connection: IntegrationConnection
   loading: boolean
   connecting: boolean
   disconnecting: boolean
+  testing?: boolean
   canEdit: boolean
   onConnect: () => void
   onDisconnect: () => void
+  onConfigure?: () => void
+  onTest?: () => void
 }) {
   const t = useTranslations('Settings.integrations')
   const Icon = definition.icon
   const status = connection.status
   const hasRow = status !== 'not_connected'
-  const busy = loading || connecting || disconnecting
+  const busy = loading || connecting || disconnecting || Boolean(testing)
+  const isManual = definition.kind === 'manual'
 
   const chip =
     status === 'connected' ? (
@@ -49,6 +56,10 @@ export function IntegrationCard({
       </SettingsChip>
     ) : status === 'needs_reconnect' ? (
       <SettingsChip variant="warn">{t('needsReconnecting')}</SettingsChip>
+    ) : status === 'configuration_required' ? (
+      <SettingsChip variant="warn">{t('configurationRequired')}</SettingsChip>
+    ) : status === 'error' ? (
+      <SettingsChip variant="warn">{t('error')}</SettingsChip>
     ) : (
       <SettingsChip variant="muted">
         <StatusDot tone="muted" />
@@ -85,7 +96,9 @@ export function IntegrationCard({
         <CardContent className="space-y-1.5 text-sm">
           {connection.accountLabel ? (
             <p className="text-foreground">
-              <span className="text-muted-foreground">{t('connectedAccount')} </span>
+              <span className="text-muted-foreground">
+                {isManual ? t('merchantId') : t('connectedAccount')}{' '}
+              </span>
               {connection.accountLabel}
             </p>
           ) : null}
@@ -97,14 +110,16 @@ export function IntegrationCard({
           ) : null}
           {connection.lastSyncedAt ? (
             <p className="text-foreground">
-              <span className="text-muted-foreground">{t('lastSynced')} </span>
+              <span className="text-muted-foreground">
+                {isManual ? t('lastTested') : t('lastSynced')}{' '}
+              </span>
               {new Date(connection.lastSyncedAt).toLocaleString()}
             </p>
           ) : null}
         </CardContent>
       ) : null}
 
-      <CardFooter className="gap-2">
+      <CardFooter className="flex-wrap gap-2">
         {status !== 'connected' ? (
           <Button
             type="button"
@@ -115,6 +130,27 @@ export function IntegrationCard({
               <Loader2 className="size-3.5 animate-spin" />
             ) : null}
             {t('connect')}
+          </Button>
+        ) : null}
+        {isManual && onConfigure ? (
+          <Button
+            type="button"
+            variant={status === 'connected' ? 'default' : 'outline'}
+            disabled={!canEdit || busy}
+            onClick={onConfigure}
+          >
+            {t('configure')}
+          </Button>
+        ) : null}
+        {isManual && hasRow && onTest ? (
+          <Button
+            type="button"
+            variant="outline"
+            disabled={!canEdit || busy}
+            onClick={onTest}
+          >
+            {testing ? <Loader2 className="size-3.5 animate-spin" /> : null}
+            {t('testConnection')}
           </Button>
         ) : null}
         {hasRow ? (

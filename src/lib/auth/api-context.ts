@@ -32,7 +32,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { supabaseAdmin } from '@/lib/flows/admin-client';
 import { findActiveKeyByHash, touchLastUsed } from '@/lib/api-keys/store';
 import { hashApiKey, looksLikeApiKey } from '@/lib/api-keys/keys';
-import { hasScope, type ApiScope } from '@/lib/api-keys/scopes';
+import { hasAnyScope, hasScope, type ApiScope } from '@/lib/api-keys/scopes';
 import { forbidden, rateLimited, unauthorized } from '@/lib/api/v1/respond';
 import { checkRateLimit, RATE_LIMITS } from '@/lib/rate-limit';
 
@@ -79,7 +79,7 @@ function extractKey(request: Request): string | null {
  */
 export async function requireApiKey(
   request: Request,
-  scope?: ApiScope
+  scope?: ApiScope | readonly ApiScope[],
 ): Promise<ApiKeyContext> {
   const presented = extractKey(request);
   if (!presented || !looksLikeApiKey(presented)) {
@@ -101,8 +101,21 @@ export async function requireApiKey(
     throw rateLimited(limit);
   }
 
-  if (scope && !hasScope(row.scopes, scope)) {
-    throw forbidden(`This API key is missing the '${scope}' scope`);
+  const required = scope
+    ? Array.isArray(scope)
+      ? scope
+      : [scope]
+    : []
+  if (
+    required.length === 1 &&
+    !hasScope(row.scopes, required[0] as ApiScope)
+  ) {
+    throw forbidden(`This API key is missing the '${required[0]}' scope`);
+  }
+  if (required.length > 1 && !hasAnyScope(row.scopes, required)) {
+    throw forbidden(
+      `This API key is missing one of: ${required.join(', ')}`,
+    );
   }
 
   touchLastUsed(row.id);

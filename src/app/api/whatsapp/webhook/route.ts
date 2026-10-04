@@ -27,6 +27,7 @@ import {
   isPaymentStatus,
 } from '@/lib/commerce/payment'
 import { dispatchWebhookEvent } from '@/lib/webhooks/deliver'
+import { applyPostBusNotificationStatus } from '@/lib/postbus/notification-status'
 import { mapPool } from '@/lib/concurrency'
 import {
   handleTemplateWebhookChange,
@@ -569,7 +570,7 @@ async function handleStatusUpdate(status: {
   //    the owning account for delivery.
   const { data: msgRow } = await supabaseAdmin()
     .from('messages')
-    .select('conversation_id, conversations(account_id)')
+    .select('id, conversation_id, conversations(account_id)')
     .eq('message_id', status.id)
     .limit(1)
     .maybeSingle()
@@ -578,6 +579,12 @@ async function handleStatusUpdate(status: {
     const conv = msgRow.conversations as { account_id: string } | null
     const accountId = conv?.account_id
     if (accountId) {
+      const postbus = await applyPostBusNotificationStatus(
+        supabaseAdmin(),
+        status.id,
+        status.status,
+        msgRow.id as string,
+      )
       await dispatchWebhookEvent(
         supabaseAdmin(),
         accountId,
@@ -586,6 +593,7 @@ async function handleStatusUpdate(status: {
           whatsapp_message_id: status.id,
           conversation_id: msgRow.conversation_id,
           status: status.status,
+          ...postbus,
         }
       )
     }

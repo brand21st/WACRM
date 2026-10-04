@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   API_SCOPES,
   SCOPE_DESCRIPTIONS,
+  hasAnyScope,
   hasScope,
   isApiScope,
   normalizeScopes,
@@ -51,6 +52,20 @@ describe('hasScope', () => {
   it('is false when the scope is absent or the list is empty', () => {
     expect(hasScope(['messages:send'], 'contacts:read')).toBe(false);
     expect(hasScope([], 'messages:send')).toBe(false);
+  });
+});
+
+describe('hasAnyScope', () => {
+  it('is true when any listed scope is present', () => {
+    expect(
+      hasAnyScope(['postbus:send'], ['messages:send', 'postbus:send']),
+    ).toBe(true);
+  });
+
+  it('is false when none of the listed scopes are present', () => {
+    expect(
+      hasAnyScope(['contacts:read'], ['messages:send', 'postbus:send']),
+    ).toBe(false);
   });
 });
 

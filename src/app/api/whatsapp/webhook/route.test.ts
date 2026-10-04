@@ -153,6 +153,17 @@ vi.mock('@supabase/supabase-js', () => ({
               }),
             }),
           }
+        case 'postbus_notifications':
+          return {
+            select: () => ({
+              eq: () => ({
+                maybeSingle: () => Promise.resolve({ data: null, error: null }),
+              }),
+            }),
+            update: () => ({
+              eq: () => Promise.resolve({ error: null }),
+            }),
+          }
         case 'messages':
           return {
             // Two different chains land here, told apart by the count

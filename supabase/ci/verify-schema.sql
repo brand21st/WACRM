@@ -91,6 +91,14 @@ BEGIN
     RAISE EXCEPTION 'public.google_sheets_configs is missing — migration 089 did not apply';
   END IF;
 
+  IF to_regclass('public.postbus_integrations') IS NULL THEN
+    RAISE EXCEPTION 'public.postbus_integrations is missing — migration 113 did not apply';
+  END IF;
+
+  IF to_regclass('public.postbus_notifications') IS NULL THEN
+    RAISE EXCEPTION 'public.postbus_notifications is missing — migration 114 did not apply';
+  END IF;
+
   IF to_regclass('public.platform_google_settings') IS NULL THEN
     RAISE EXCEPTION 'public.platform_google_settings is missing — migration 090 did not apply';
   END IF;
