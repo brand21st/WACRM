@@ -27,6 +27,7 @@ vi.mock('@/lib/whatsapp/send-message', async () => {
 
 vi.mock('@/lib/postbus/readiness', () => ({
   accountHasWhatsAppConfig: (...args: unknown[]) => h.hasWhatsApp(...args),
+  listApprovedTemplates: vi.fn(async () => []),
 }))
 
 import { POST } from './route'
@@ -256,6 +257,26 @@ describe('POST /api/postbus/notifications', () => {
       scopes: ['postbus:send'],
     })
     const res = await POST(request({ ...validBody, merchant_id: 'other-org' }))
+    expect(res.status).toBe(201)
+    expect(h.send).toHaveBeenCalledTimes(1)
+  })
+
+  it('sends PostBus TEST messages even when the event kill switch is off', async () => {
+    h.requireApiKey.mockResolvedValue({
+      supabase: makeDb({
+        integration: {
+          ...integration,
+          routing_mode: 'global',
+          notification_settings: { booked: false },
+        },
+        template,
+      }),
+      accountId: 'acct-1',
+      scopes: ['postbus:send'],
+    })
+    const res = await POST(
+      request({ ...validBody, external_ref: 'postbus:test:booked:org-1:1' }),
+    )
     expect(res.status).toBe(201)
     expect(h.send).toHaveBeenCalledTimes(1)
   })

@@ -11,7 +11,7 @@ import {
   type PostBusIntegrationRow,
 } from '@/lib/postbus/config'
 import { postbusTemplateBodyParams } from '@/lib/postbus/template-params'
-import { accountHasWhatsAppConfig } from '@/lib/postbus/readiness'
+import { accountHasWhatsAppConfig, listApprovedTemplates } from '@/lib/postbus/readiness'
 import { isValidE164, sanitizePhoneForMeta } from '@/lib/whatsapp/phone-utils'
 import { resolveConversationByPhone } from '@/lib/whatsapp/resolve-conversation'
 import {
@@ -89,12 +89,15 @@ export async function POST(request: Request) {
 
     if (intErr) {
       console.error('[postbus/notifications] integration lookup:', intErr)
-      return fail('internal', 'Failed to load PostBus mapping', 500)
+      if (!externalRef.startsWith('postbus:test:')) {
+        return fail('internal', 'Failed to load PostBus mapping', 500)
+      }
     }
 
     const row = integration as unknown as PostBusIntegrationRow | null
     const global = isGlobalPostBusMode(row)
-    if (!row) {
+    const isTestSend = externalRef.startsWith('postbus:test:')
+    if (!row && !isTestSend) {
       return fail(
         'invalid_merchant_mapping',
         global
@@ -103,30 +106,33 @@ export async function POST(request: Request) {
         403,
       )
     }
-    if (global && !hasScope(ctx.scopes, 'postbus:send')) {
-      return fail(
-        'forbidden',
-        'Global PostBus sending requires the postbus:send scope',
-        403,
-      )
-    }
-    if (!global && row.postbus_merchant_id !== merchantId) {
-      return fail(
-        'invalid_merchant_mapping',
-        'merchant_id does not match this API key',
-        403,
-      )
-    }
-
-    const settings = parseNotificationSettings(row.notification_settings)
-    if (!settings[notificationType]) {
-      return fail(
-        'notification_disabled',
-        global
-          ? `${notificationType} notifications are disabled for this global sender`
-          : `${notificationType} notifications are disabled`,
-        400,
-      )
+    if (row) {
+      if (global && !hasScope(ctx.scopes, 'postbus:send')) {
+        return fail(
+          'forbidden',
+          'Global PostBus sending requires the postbus:send scope',
+          403,
+        )
+      }
+      if (!global && !isTestSend && row.postbus_merchant_id !== merchantId) {
+        return fail(
+          'invalid_merchant_mapping',
+          'merchant_id does not match this API key',
+          403,
+        )
+      }
+      if (!isTestSend) {
+        const settings = parseNotificationSettings(row.notification_settings)
+        if (!settings[notificationType]) {
+          return fail(
+            'notification_disabled',
+            global
+              ? `${notificationType} notifications are disabled for this global sender`
+              : `${notificationType} notifications are disabled`,
+            400,
+          )
+        }
+      }
     }
 
     const whatsappOk = await accountHasWhatsAppConfig(ctx.supabase, ctx.accountId)
@@ -138,7 +144,11 @@ export async function POST(request: Request) {
       )
     }
 
-    const templateName = templateNameForEvent(row, notificationType)
+    let templateName = row ? templateNameForEvent(row, notificationType) : null
+    if (!templateName && isTestSend) {
+      const approved = await listApprovedTemplates(ctx.supabase, ctx.accountId)
+      templateName = approved[0]?.name ?? null
+    }
     if (!templateName) {
       return fail(
         'template_missing',
@@ -147,7 +157,7 @@ export async function POST(request: Request) {
       )
     }
 
-    const language = row.template_language?.trim() || 'en_US'
+    const language = row?.template_language?.trim() || 'en_US'
     const { data: templateRow, error: tplErr } = await ctx.supabase
       .from('message_templates')
       .select('name, language, body_text, status')
