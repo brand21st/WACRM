@@ -1,3 +1,4 @@
+import type { ProductCardButtonMode } from '@/lib/shopify/types'
 import type { RetailerIdSource } from '@/lib/shopify/retailer-id'
 
 export interface CommerceBeneficiary {
@@ -23,6 +24,7 @@ export interface CommerceSettings {
   hasRazorpaySecret: boolean
   hasRazorpayWebhookSecret: boolean
   shipBeneficiary: CommerceBeneficiary | null
+  productCardButton: ProductCardButtonMode
 }
 
 export interface CommerceSecrets {

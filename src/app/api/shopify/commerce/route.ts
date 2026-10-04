@@ -7,6 +7,7 @@ import {
   publicCommercePayload,
   saveCommerceSettings,
 } from '@/lib/shopify/commerce-config'
+import { parseProductCardButton } from '@/lib/shopify/types'
 import { parseRetailerIdSource } from '@/lib/shopify/retailer-id'
 import { isCompleteBeneficiary } from '@/lib/commerce/order-details'
 import type { CommerceBeneficiary } from '@/lib/commerce/types'
@@ -75,6 +76,10 @@ export async function POST(request: Request) {
           : undefined,
       clearRazorpayWebhookSecret: body.clear_razorpay_webhook_secret === true,
       ...(shipBeneficiary !== undefined ? { shipBeneficiary } : {}),
+      productCardButton:
+        typeof body.product_card_button === 'string'
+          ? parseProductCardButton(body.product_card_button)
+          : undefined,
     })
 
     const settings = await loadCommerceSettings(supabase, accountId)

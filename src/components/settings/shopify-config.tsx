@@ -12,6 +12,8 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { cn } from '@/lib/utils';
+import { parseProductCardButton, type ProductCardButtonMode } from '@/lib/shopify/types';
 import { SettingsPanelHead } from './settings-panel-head';
 import { UpgradePlanBanner } from './upgrade-plan-banner';
 import { useEntitlements } from '@/hooks/use-entitlements';
@@ -102,6 +104,7 @@ interface ShopifyConfigResponse {
     state?: string;
     postal_code?: string;
   } | null;
+  product_card_button?: string | null;
 }
 
 export function ShopifyConfigPanel() {
@@ -154,6 +157,9 @@ export function ShopifyConfigPanel() {
   const [shipCity, setShipCity] = useState('');
   const [shipState, setShipState] = useState('');
   const [shipPin, setShipPin] = useState('');
+  const [productCardButton, setProductCardButton] =
+    useState<ProductCardButtonMode>('checkout');
+  const [savingProductCardButton, setSavingProductCardButton] = useState(false);
 
   const origin = siteOrigin();
   const appUrl = origin ? `${origin}/settings?tab=shopify` : '';
@@ -217,6 +223,7 @@ export function ShopifyConfigPanel() {
     setShipCity(data.ship_beneficiary?.city ?? '');
     setShipState(data.ship_beneficiary?.state ?? '');
     setShipPin(data.ship_beneficiary?.postal_code ?? '');
+    setProductCardButton(parseProductCardButton(data.product_card_button));
   }, []);
 
   const loadMetaCatalogs = useCallback(async () => {
@@ -386,6 +393,7 @@ export function ShopifyConfigPanel() {
                 postal_code: shipPin,
               }
             : null,
+          product_card_button: productCardButton,
         }),
       });
       const data = await res.json();
@@ -400,6 +408,31 @@ export function ShopifyConfigPanel() {
       toast.error(t('commerceSaveFailed'));
     } finally {
       setSavingCommerce(false);
+    }
+  };
+
+  const saveProductCardButton = async (next: ProductCardButtonMode) => {
+    const previous = productCardButton;
+    setProductCardButton(next);
+    setSavingProductCardButton(true);
+    try {
+      const res = await fetch('/api/shopify/commerce', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ product_card_button: next }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setProductCardButton(previous);
+        toast.error(data.error || t('commerceSaveFailed'));
+        return;
+      }
+      applyPayload({ ...data, configured: true, has_token: true });
+    } catch {
+      setProductCardButton(previous);
+      toast.error(t('commerceSaveFailed'));
+    } finally {
+      setSavingProductCardButton(false);
     }
   };
 
@@ -659,6 +692,46 @@ export function ShopifyConfigPanel() {
                 })}
               </p>
               <p className="text-xs text-muted-foreground">{t('contentHint')}</p>
+              <div className="space-y-2 rounded-lg border p-3">
+                <div>
+                  <p className="text-sm font-medium">{t('productCardButton')}</p>
+                  <p className="text-xs text-muted-foreground">{t('productCardButtonDesc')}</p>
+                </div>
+                <div className="grid grid-cols-2 gap-1 rounded-md bg-muted p-1">
+                  <button
+                    type="button"
+                    className={cn(
+                      'rounded-md px-3 py-1.5 text-sm transition-colors',
+                      productCardButton === 'checkout'
+                        ? 'bg-background font-medium shadow-sm'
+                        : 'text-muted-foreground hover:text-foreground',
+                    )}
+                    disabled={disabled || !configured || savingProductCardButton}
+                    onClick={() => {
+                      if (productCardButton === 'checkout') return;
+                      void saveProductCardButton('checkout');
+                    }}
+                  >
+                    {t('productCardButtonCheckout')}
+                  </button>
+                  <button
+                    type="button"
+                    className={cn(
+                      'rounded-md px-3 py-1.5 text-sm transition-colors',
+                      productCardButton === 'product'
+                        ? 'bg-background font-medium shadow-sm'
+                        : 'text-muted-foreground hover:text-foreground',
+                    )}
+                    disabled={disabled || !configured || savingProductCardButton}
+                    onClick={() => {
+                      if (productCardButton === 'product') return;
+                      void saveProductCardButton('product');
+                    }}
+                  >
+                    {t('productCardButtonProduct')}
+                  </button>
+                </div>
+              </div>
               <div className="flex flex-wrap gap-2">
                 <Button
                   variant="secondary"

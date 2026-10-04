@@ -1,5 +1,11 @@
 import type { ShopifyCatalogVariant } from '@/types'
 
+export type ProductCardButtonMode = 'checkout' | 'product'
+
+export function parseProductCardButton(raw: unknown): ProductCardButtonMode {
+  return raw === 'product' ? 'product' : 'checkout'
+}
+
 export interface ShopifyStoreConfig {
   accountId: string
   shopDomain: string
@@ -12,6 +18,7 @@ export interface ShopifyStoreConfig {
   lastVerifiedAt: string | null
   lastCatalogSyncAt: string | null
   catalogProductCount: number
+  productCardButton?: ProductCardButtonMode
 }
 
 export interface ShopifyCollectionHit {

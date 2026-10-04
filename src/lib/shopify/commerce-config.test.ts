@@ -96,4 +96,22 @@ describe('meta catalog selection', () => {
       settingsFromRow(data as Record<string, unknown>).metaCatalogIds,
     ).toEqual(['cat-2', 'cat-1'])
   })
+
+  it('writes product_card_button', async () => {
+    const db = createCatalogMemoryDb({
+      shopify_configs: [{ account_id: 'acct-a', product_card_button: 'checkout' }],
+    })
+    await saveCommerceSettings(db, 'acct-a', { productCardButton: 'product' })
+    const { data } = await db
+      .from('shopify_configs')
+      .select()
+      .eq('account_id', 'acct-a')
+      .maybeSingle()
+    expect(data).toEqual(
+      expect.objectContaining({ product_card_button: 'product' }),
+    )
+    expect(
+      settingsFromRow(data as Record<string, unknown>).productCardButton,
+    ).toBe('product')
+  })
 })

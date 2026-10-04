@@ -1,5 +1,33 @@
+import type { ProductCardButtonMode } from '@/lib/shopify/types'
+
 export const CHECKOUT_BUTTON_LABEL = 'Checkout NOW'
 export const VIEW_CART_BUTTON_LABEL = 'View cart'
+export const PRODUCT_BUTTON_LABEL = 'View product'
+
+export type { ProductCardButtonMode }
+
+export function parseProductCardButton(raw: unknown): ProductCardButtonMode {
+  return raw === 'product' ? 'product' : 'checkout'
+}
+
+export function productCardCta(
+  card: {
+    inStock?: boolean
+    checkoutUrl?: string | null
+    productUrl?: string | null
+  },
+  mode: ProductCardButtonMode | null | undefined,
+): { url: string; displayText: string } | null {
+  if (parseProductCardButton(mode) === 'product') {
+    const url = card.productUrl?.trim()
+    if (!url) return null
+    return { url, displayText: PRODUCT_BUTTON_LABEL }
+  }
+  if (!cardHasCheckout(card)) return null
+  const url = card.checkoutUrl?.trim()
+  if (!url) return null
+  return { url, displayText: CHECKOUT_BUTTON_LABEL }
+}
 
 const CTA_BODY_MAX = 1024
 

@@ -101,7 +101,9 @@ export type {
   ShopifyOrderHit,
   ShopifyOrderCard,
   ShopifyOrderLineItem,
+  ProductCardButtonMode,
 } from './types'
+export { parseProductCardButton } from './types'
 export {
   classifySalesTurn,
   STORE_POLICY_TOPIC,

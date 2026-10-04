@@ -1600,6 +1600,58 @@ describe('dispatchInboundToAiReply — OpenAI Realtime voice', () => {
     )
   })
 
+
+  it('sends a View product button when the store uses product links', async () => {
+    h.loadShopifyConfig.mockResolvedValue({
+      accountId: 'acct-1',
+      shopDomain: 'acme.myshopify.com',
+      accessToken: 'shpat_test',
+      isActive: true,
+      shopName: 'Acme',
+      primaryDomain: 'https://shop.example',
+      currency: 'USD',
+      metaCatalogId: null,
+      lastVerifiedAt: null,
+      lastCatalogSyncAt: null,
+      catalogProductCount: 2,
+      productCardButton: 'product',
+    })
+    h.executeShopifyTool.mockResolvedValue({
+      json: JSON.stringify({ products: [] }),
+      cards: [
+        {
+          title: 'Red Bag',
+          imageUrl: 'https://cdn.example/bag.jpg',
+          productUrl: 'https://shop.example/products/red-bag',
+          cartUrl: 'https://shop.example/cart/99:1',
+          checkoutUrl: 'https://shop.example/cart/99:1?checkout',
+          inStock: true,
+          caption:
+            'Red Bag\n49 USD\nStock in\nView: https://shop.example/products/red-bag',
+        },
+      ],
+    })
+    h.generateReply.mockImplementation(async (args: { executeTool?: Function }) => {
+      if (args.executeTool) {
+        await args.executeTool('match_product_from_photo', {
+          description: 'red leather bag',
+        })
+      }
+      return {
+        text: 'This looks like our Red Bag.',
+        handoff: false,
+      }
+    })
+    await dispatchInboundToAiReply({ ...ARGS, inboundContentType: 'image' })
+    expect(h.engineSendCtaUrl).toHaveBeenCalledWith(
+      expect.objectContaining({
+        displayText: 'View product',
+        url: 'https://shop.example/products/red-bag',
+        headerImageUrl: 'https://cdn.example/bag.jpg',
+      }),
+    )
+  })
+
   it('sends a Track order card when Shopify order tools return one', async () => {
     h.loadShopifyConfig.mockResolvedValue({
       accountId: 'acct-1',
@@ -3689,6 +3741,46 @@ describe('dispatchInboundToAiReply — agent product focus', () => {
     )
     expect(h.engineSendMedia).not.toHaveBeenCalled()
     expect(h.engineSendProduct).not.toHaveBeenCalled()
+  })
+
+
+  it('sends View product on Confirm order when the store uses product links', async () => {
+    h.loadShopifyConfig.mockResolvedValue({
+      ...shopifyRow,
+      productCardButton: 'product',
+    })
+    h.state.conv = {
+      assigned_agent_id: null,
+      ai_autoreply_disabled: false,
+      ai_reply_count: 0,
+      ai_product_focus: focusedConv({
+        stage: 'ready_to_confirm',
+        variantId: '12',
+        color: 'Red',
+        size: 'L',
+      }),
+    }
+    h.buildConversationContext.mockResolvedValue([
+      {
+        role: 'user',
+        content:
+          '[Customer tapped "Confirm order" (action: wacrm:confirm_order)]',
+      },
+    ])
+
+    await dispatchInboundToAiReply(ARGS)
+
+    expect(h.engineSendCtaUrl).toHaveBeenCalledWith(
+      expect.objectContaining({
+        displayText: 'View product',
+        url: 'https://shop.example/products/pournami-red',
+      }),
+    )
+    expect(h.engineSendText).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: 'Product link: https://shop.example/products/pournami-red',
+      }),
+    )
   })
 
   it('sends one Shopify Checkout NOW when native cart mapping is skipped', async () => {

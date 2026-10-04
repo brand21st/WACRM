@@ -49,10 +49,12 @@ import { isNewArrivalsAsk, isShopifyProductAsk, MAX_PRODUCT_CARDS } from '@/lib/
 import {
   CHECKOUT_BUTTON_LABEL,
   VIEW_CART_BUTTON_LABEL,
-  cardHasCheckout,
   ctaBodyFromCard,
+  parseProductCardButton,
+  productCardCta,
   stripCheckoutUrlsFromReply,
 } from './checkout-cta'
+import type { ProductCardButtonMode } from '@/lib/shopify/types'
 import { stripOrderUrlsFromReply } from './order-card'
 import { detectSpokenIndicTarget } from './indic-language'
 import { uploadGeneratedAudio } from '@/lib/elevenlabs/storage'
@@ -316,6 +318,16 @@ export async function dispatchInboundToAiReply(
         metaCatalogId: commerce?.metaCatalogId ?? shopify?.metaCatalogId,
         waPaymentConfigurationName: commerce?.waPaymentConfigurationName,
       })
+    const catalogConfig = shopify
+      ? {
+          ...shopify,
+          productCardButton:
+            shopify.productCardButton ?? commerce?.productCardButton ?? 'checkout',
+        }
+      : catalogOnlyStoreConfig(accountId, {
+          metaCatalogId: commerce?.metaCatalogId ?? null,
+          productCardButton: commerce?.productCardButton ?? 'checkout',
+        })
 
     const queryText = latestUserMessage(messages)
     const contactMemory = await loadContactMemory(db, accountId, contactId).catch(
@@ -433,7 +445,7 @@ export async function dispatchInboundToAiReply(
           accountId,
           sendArgs,
           cards: queued,
-          shopify,
+          shopify: catalogConfig,
           text: SHOW_MORE_PAGE_TEXT,
           messages,
           wantsText: true,
@@ -667,7 +679,7 @@ export async function dispatchInboundToAiReply(
       if (!(await claimReplySlot(db, conversationId, config))) return
       const handed = await handoffFocusedPurchase({
         db,
-        shopify,
+        shopify: catalogConfig,
         sendArgs,
         conversationId,
         focus: productFocus,
@@ -698,9 +710,6 @@ export async function dispatchInboundToAiReply(
     ) {
       messages.unshift({ role: 'assistant', content: swipeNote })
     }
-    const catalogConfig = shopify ?? catalogOnlyStoreConfig(accountId, {
-      metaCatalogId: commerce?.metaCatalogId ?? null,
-    })
     let focusedHit: ShopifyProductHit | null = null
     if (productFocus) {
       try {
@@ -766,7 +775,7 @@ export async function dispatchInboundToAiReply(
       try {
         photoMatches = await matchProductsFromPhoto(
           db,
-          catalogConfig,
+          shopify,
           latestUserMessage(messages),
           {
             customerImageUrl: inboundMediaUrl,
@@ -975,7 +984,7 @@ export async function dispatchInboundToAiReply(
         text: 'Add the items to your WhatsApp cart, then tap Send order. I’ll send a Review and Pay bill in this chat.',
         aiGenerated: true,
       })
-      await sendProductCards(sendArgs, productCards, shopify, {
+      await sendProductCards(sendArgs, productCards, catalogConfig, {
         focus: productFocus,
         db,
       })
@@ -1234,7 +1243,7 @@ export async function dispatchInboundToAiReply(
               messages,
               wantsText,
               wantsAudio: compiledVoice || wantsAudio,
-              shopify,
+              shopify: catalogConfig,
               productCards,
               orderCards,
             })
@@ -1292,7 +1301,7 @@ export async function dispatchInboundToAiReply(
         db,
         conversationId,
         focus: productFocus,
-        shopify,
+        shopify: catalogConfig,
         sendArgs,
         queryText,
         textForCustomer,
@@ -1338,7 +1347,7 @@ export async function dispatchInboundToAiReply(
         accountId,
         sendArgs,
         cards: productCards,
-        shopify,
+        shopify: catalogConfig,
         text: textForCustomer,
         messages,
         wantsText: true,
@@ -1383,7 +1392,7 @@ export async function dispatchInboundToAiReply(
       })
       if (handedOff) return
       if (productCards.length > 0) {
-        await sendProductCards(sendArgs, productCards, shopify, {
+        await sendProductCards(sendArgs, productCards, catalogConfig, {
           focus: productFocus,
           db,
         })
@@ -1440,7 +1449,7 @@ export async function dispatchInboundToAiReply(
       (!productFocus || isFirstFocusIntro || explicitCardAsk || isBrowseAsk)
 
     if (shouldSendCards) {
-      await sendProductCards(sendArgs, productCards, shopify, {
+      await sendProductCards(sendArgs, productCards, catalogConfig, {
         focus: productFocus,
         db,
       })
@@ -2109,6 +2118,7 @@ async function handoffFocusedPurchase(args: {
         contactPhone: args.contactPhone,
         contactName: args.contactName,
         shopifyConnected: isShopifyActive,
+        productCardButton: args.shopify.productCardButton,
       })
     }
     await engineSendInteractiveButtons({
@@ -2208,6 +2218,7 @@ async function completeFocusedPurchase(args: {
   contactPhone: string | null
   contactName: string | null
   shopifyConnected?: boolean
+  productCardButton?: ProductCardButtonMode
 }): Promise<boolean> {
   const variant = args.variant
   if (!variant) return false
@@ -2229,6 +2240,7 @@ async function completeFocusedPurchase(args: {
     args.product,
     variant,
     args.retailerIdSource,
+    args.productCardButton,
   )
   return true
 }
@@ -2281,20 +2293,29 @@ async function sendSingleShopifyCheckoutCta(
   product: ShopifyProductHit,
   variant: ShopifyVariantHit,
   retailerIdSource?: RetailerIdSource,
+  productCardButton?: ProductCardButtonMode,
 ): Promise<void> {
+  const mode = parseProductCardButton(productCardButton)
   const card = toCard(product, retailerIdSource ?? 'sku', variant)
+  const cta = productCardCta(card, mode)
   let sentCta = false
-  if (card.imageUrl) {
-    sentCta = await sendCheckoutProductCard(sendArgs, card, card.imageUrl)
+  if (cta && card.imageUrl) {
+    sentCta = await sendCheckoutProductCard(
+      sendArgs,
+      card,
+      card.imageUrl,
+      mode,
+    )
   }
-  if (!sentCta) {
-    await sendCheckoutCtaIfInStock(sendArgs, card)
+  if (!sentCta && cta) {
+    await sendCheckoutCtaIfInStock(sendArgs, card, mode)
   }
-  if (card.checkoutUrl) {
+  if (cta) {
+    const prefix = mode === 'product' ? 'Product link' : 'Checkout link'
     try {
       await engineSendText({
         ...sendArgs,
-        text: `Checkout link: ${card.checkoutUrl}`,
+        text: `${prefix}: ${cta.url}`,
         aiGenerated: true,
       })
     } catch (err) {
@@ -2356,6 +2377,7 @@ async function finishFocusedVariantTurn(args: {
       contactPhone: args.contactPhone ?? null,
       contactName: args.contactName ?? null,
       shopifyConnected: isShopifyStoreConnected(args.shopify),
+      productCardButton: args.shopify.productCardButton,
     })
     if (args.compiledVoice) await args.sendShoppingAudio()
     return true
@@ -2780,9 +2802,17 @@ export async function sendProductCards(
     if (!imageUrl && shopify) {
       imageUrl = await liveImageForCard(shopify, card)
     }
-    const checkout = !opts?.omitCheckout && cardHasCheckout(card)
-    if (checkout && imageUrl) {
-      const ok = await sendCheckoutProductCard(sendArgs, card, imageUrl)
+    const cta =
+      !opts?.omitCheckout
+        ? productCardCta(card, parseProductCardButton(shopify?.productCardButton))
+        : null
+    if (cta && imageUrl) {
+      const ok = await sendCheckoutProductCard(
+        sendArgs,
+        card,
+        imageUrl,
+        shopify?.productCardButton,
+      )
       if (ok) {
         sent += 1
         continue
@@ -2791,7 +2821,7 @@ export async function sendProductCards(
     if (imageUrl) {
       const ok = await sendCatalogImage(sendArgs, { ...card, imageUrl })
       if (!ok) continue
-    } else if (!checkout) {
+    } else if (!cta) {
       if (!card.caption.trim()) continue
       try {
         await engineSendText({
@@ -2804,8 +2834,8 @@ export async function sendProductCards(
         continue
       }
     }
-    if (!opts?.omitCheckout) {
-      await sendCheckoutCtaIfInStock(sendArgs, card)
+    if (cta) {
+      await sendCheckoutCtaIfInStock(sendArgs, card, shopify?.productCardButton)
     }
     sent += 1
   }
@@ -2944,15 +2974,16 @@ async function sendCheckoutProductCard(
   sendArgs: SendArgs,
   card: ShopifyProductCard,
   imageUrl: string,
+  productCardButton?: ProductCardButtonMode,
 ): Promise<boolean> {
-  const url = card.checkoutUrl?.trim()
-  if (!url) return false
+  const cta = productCardCta(card, parseProductCardButton(productCardButton))
+  if (!cta) return false
   try {
     await engineSendCtaUrl({
       ...sendArgs,
       bodyText: ctaBodyFromCard(card),
-      displayText: CHECKOUT_BUTTON_LABEL,
-      url,
+      displayText: cta.displayText,
+      url: cta.url,
       headerImageUrl: imageUrl,
       shopifyHandle: card.handle,
       shopifyVariantId: card.variantId,
@@ -2968,15 +2999,16 @@ async function sendCheckoutProductCard(
 async function sendCheckoutCtaIfInStock(
   sendArgs: SendArgs,
   card: ShopifyProductCard,
+  productCardButton?: ProductCardButtonMode,
 ): Promise<void> {
-  const url = card.checkoutUrl?.trim()
-  if (!card.inStock || !url) return
+  const cta = productCardCta(card, parseProductCardButton(productCardButton))
+  if (!cta) return
   try {
     await engineSendCtaUrl({
       ...sendArgs,
       bodyText: ctaBodyFromCard(card),
-      displayText: CHECKOUT_BUTTON_LABEL,
-      url,
+      displayText: cta.displayText,
+      url: cta.url,
       aiGenerated: true,
     })
   } catch (err) {

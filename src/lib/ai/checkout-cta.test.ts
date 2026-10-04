@@ -2,9 +2,12 @@ import { describe, expect, it } from 'vitest'
 import {
   CHECKOUT_BUTTON_LABEL,
   VIEW_CART_BUTTON_LABEL,
+  PRODUCT_BUTTON_LABEL,
   cardHasCheckout,
   ctaBodyFromCard,
   firstCheckoutFromCards,
+  parseProductCardButton,
+  productCardCta,
   stripCheckoutFromReply,
   stripCheckoutUrlsFromReply,
 } from './checkout-cta'
@@ -82,6 +85,55 @@ describe('VIEW_CART_BUTTON_LABEL', () => {
   it('is View cart', () => {
     expect(VIEW_CART_BUTTON_LABEL).toBe('View cart')
     expect(VIEW_CART_BUTTON_LABEL.length).toBeLessThanOrEqual(20)
+  })
+})
+
+describe('PRODUCT_BUTTON_LABEL', () => {
+  it('is View product', () => {
+    expect(PRODUCT_BUTTON_LABEL).toBe('View product')
+    expect(PRODUCT_BUTTON_LABEL.length).toBeLessThanOrEqual(20)
+  })
+})
+
+describe('parseProductCardButton', () => {
+  it('defaults to checkout', () => {
+    expect(parseProductCardButton(undefined)).toBe('checkout')
+    expect(parseProductCardButton('checkout')).toBe('checkout')
+    expect(parseProductCardButton('other')).toBe('checkout')
+  })
+
+  it('accepts product', () => {
+    expect(parseProductCardButton('product')).toBe('product')
+  })
+})
+
+describe('productCardCta', () => {
+  const card = {
+    inStock: true,
+    checkoutUrl: 'https://shop.example/cart/99:1?checkout',
+    productUrl: 'https://shop.example/products/red-bag',
+  }
+
+  it('uses checkout URL and Checkout NOW by default', () => {
+    expect(productCardCta(card, 'checkout')).toEqual({
+      url: card.checkoutUrl,
+      displayText: CHECKOUT_BUTTON_LABEL,
+    })
+    expect(productCardCta(card, undefined)).toEqual({
+      url: card.checkoutUrl,
+      displayText: CHECKOUT_BUTTON_LABEL,
+    })
+  })
+
+  it('skips checkout when the item is out of stock', () => {
+    expect(productCardCta({ ...card, inStock: false }, 'checkout')).toBeNull()
+  })
+
+  it('uses the product URL and View product in product mode', () => {
+    expect(productCardCta({ ...card, inStock: false }, 'product')).toEqual({
+      url: card.productUrl,
+      displayText: PRODUCT_BUTTON_LABEL,
+    })
   })
 })
 

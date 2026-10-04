@@ -1,11 +1,12 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { decrypt } from '@/lib/whatsapp/encryption'
 import { resolveAdminAccessToken } from './oauth'
-import { isMissingClientIdColumn } from './config-db'
+import { isMissingClientIdColumn, isMissingDbColumn } from './config-db'
 import {
   resolveStoredClientId,
   unpackShopifyCredential,
 } from './credential-storage'
+import { parseProductCardButton } from './types'
 import type { ShopifyStoreConfig } from './types'
 
 interface ShopifyConfigRow {
@@ -20,10 +21,11 @@ interface ShopifyConfigRow {
   last_verified_at: string | null
   last_catalog_sync_at: string | null
   catalog_product_count: number | null
+  product_card_button?: string | null
 }
 
 const COLUMNS =
-  'shop_domain, access_token, is_active, shop_name, primary_domain, currency, client_id, meta_catalog_id, last_verified_at, last_catalog_sync_at, catalog_product_count'
+  'shop_domain, access_token, is_active, shop_name, primary_domain, currency, client_id, meta_catalog_id, last_verified_at, last_catalog_sync_at, catalog_product_count, product_card_button'
 
 const LEGACY_COLUMNS =
   'shop_domain, access_token, is_active, shop_name, primary_domain, currency, meta_catalog_id, last_verified_at, last_catalog_sync_at, catalog_product_count'
@@ -47,6 +49,14 @@ export async function loadShopifyConfig(
     .select(COLUMNS)
     .eq('account_id', accountId)
     .maybeSingle()
+
+  if (error && isMissingDbColumn(error, 'product_card_button')) {
+    ;({ data, error } = await db
+      .from('shopify_configs')
+      .select(COLUMNS.replace(', product_card_button', ''))
+      .eq('account_id', accountId)
+      .maybeSingle())
+  }
 
   if (error && isMissingClientIdColumn(error)) {
     ;({ data, error } = await db
@@ -82,6 +92,7 @@ export async function loadShopifyConfig(
     lastVerifiedAt: row.last_verified_at,
     lastCatalogSyncAt: row.last_catalog_sync_at,
     catalogProductCount: row.catalog_product_count ?? 0,
+    productCardButton: parseProductCardButton(row.product_card_button),
   }
 }
 

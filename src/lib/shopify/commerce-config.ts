@@ -2,14 +2,15 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { decrypt, encrypt } from '@/lib/whatsapp/encryption'
 import { isMissingDbColumn } from './config-db'
 import { parseRetailerIdSource, type RetailerIdSource } from './retailer-id'
+import { parseProductCardButton, type ProductCardButtonMode } from './types'
 import type { CommerceBeneficiary, CommerceSecrets, CommerceSettings } from '@/lib/commerce/types'
 import { isCompleteBeneficiary } from '@/lib/commerce/order-details'
 
 export const COMMERCE_SELECT =
-  'meta_catalog_id, meta_catalog_ids, retailer_id_source, meta_catalog_auto_sync, last_meta_catalog_sync_at, meta_catalog_item_count, wa_payment_configuration_name, razorpay_key_id, razorpay_key_secret, razorpay_webhook_secret, ship_beneficiary'
+  'meta_catalog_id, meta_catalog_ids, retailer_id_source, meta_catalog_auto_sync, last_meta_catalog_sync_at, meta_catalog_item_count, wa_payment_configuration_name, razorpay_key_id, razorpay_key_secret, razorpay_webhook_secret, ship_beneficiary, product_card_button'
 
 const COMMERCE_SELECT_WITHOUT_IDS =
-  'meta_catalog_id, retailer_id_source, meta_catalog_auto_sync, last_meta_catalog_sync_at, meta_catalog_item_count, wa_payment_configuration_name, razorpay_key_id, razorpay_key_secret, razorpay_webhook_secret, ship_beneficiary'
+  'meta_catalog_id, retailer_id_source, meta_catalog_auto_sync, last_meta_catalog_sync_at, meta_catalog_item_count, wa_payment_configuration_name, razorpay_key_id, razorpay_key_secret, razorpay_webhook_secret, ship_beneficiary, product_card_button'
 
 export function emptyCommerceSettings(): CommerceSettings {
   return {
@@ -24,6 +25,7 @@ export function emptyCommerceSettings(): CommerceSettings {
     hasRazorpaySecret: false,
     hasRazorpayWebhookSecret: false,
     shipBeneficiary: null,
+    productCardButton: 'checkout',
   }
 }
 
@@ -43,6 +45,26 @@ export async function loadCommerceSettings(
       .select(COMMERCE_SELECT_WITHOUT_IDS)
       .eq('account_id', accountId)
       .maybeSingle())
+  }
+
+  if (error && isMissingDbColumn(error, 'product_card_button')) {
+    const fallback = COMMERCE_SELECT.replace(', product_card_button', '')
+    const fallbackWithoutIds = COMMERCE_SELECT_WITHOUT_IDS.replace(
+      ', product_card_button',
+      '',
+    )
+    ;({ data, error } = await db
+      .from('shopify_configs')
+      .select(fallback)
+      .eq('account_id', accountId)
+      .maybeSingle())
+    if (error && isMissingDbColumn(error, 'meta_catalog_ids')) {
+      ;({ data, error } = await db
+        .from('shopify_configs')
+        .select(fallbackWithoutIds)
+        .eq('account_id', accountId)
+        .maybeSingle())
+    }
   }
 
   if (error && isMissingDbColumn(error, 'wa_payment_configuration_name')) {
@@ -93,6 +115,7 @@ export function settingsFromRow(row: Record<string, unknown>): CommerceSettings 
     hasRazorpaySecret: Boolean(textOrNull(row.razorpay_key_secret)),
     hasRazorpayWebhookSecret: Boolean(textOrNull(row.razorpay_webhook_secret)),
     shipBeneficiary: parseBeneficiary(row.ship_beneficiary),
+    productCardButton: parseProductCardButton(row.product_card_button),
   }
 }
 
@@ -109,6 +132,7 @@ export function publicCommercePayload(settings: CommerceSettings) {
     has_razorpay_secret: settings.hasRazorpaySecret,
     has_razorpay_webhook_secret: settings.hasRazorpayWebhookSecret,
     ship_beneficiary: settings.shipBeneficiary,
+    product_card_button: settings.productCardButton,
   }
 }
 
@@ -128,6 +152,7 @@ export interface CommerceSettingsPatch {
   razorpayWebhookSecret?: string | null
   clearRazorpayWebhookSecret?: boolean
   shipBeneficiary?: CommerceBeneficiary | null
+  productCardButton?: ProductCardButtonMode
 }
 
 export async function ensureCatalogCommerceRow(
@@ -201,6 +226,9 @@ export async function saveCommerceSettings(
       ? parseBeneficiary(patch.shipBeneficiary)
       : null
   }
+  if ('productCardButton' in patch && patch.productCardButton) {
+    update.product_card_button = parseProductCardButton(patch.productCardButton)
+  }
   if (Object.keys(update).length === 0) return
   let { error } = await db
     .from('shopify_configs')
@@ -209,6 +237,19 @@ export async function saveCommerceSettings(
   if (error && isMissingDbColumn(error, 'meta_catalog_ids') && 'meta_catalog_ids' in update) {
     const fallback = { ...update }
     delete fallback.meta_catalog_ids
+    ;({ error } = await db
+      .from('shopify_configs')
+      .update(fallback)
+      .eq('account_id', accountId))
+  }
+  if (
+    error &&
+    isMissingDbColumn(error, 'product_card_button') &&
+    'product_card_button' in update
+  ) {
+    const fallback = { ...update }
+    delete fallback.product_card_button
+    if (Object.keys(fallback).length === 0) return
     ;({ error } = await db
       .from('shopify_configs')
       .update(fallback)

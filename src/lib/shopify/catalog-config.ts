@@ -16,6 +16,7 @@ export function catalogOnlyStoreConfig(
     lastVerifiedAt: extras?.lastVerifiedAt ?? null,
     lastCatalogSyncAt: extras?.lastCatalogSyncAt ?? null,
     catalogProductCount: extras?.catalogProductCount ?? 0,
+    productCardButton: extras?.productCardButton ?? 'checkout',
   }
 }
 
