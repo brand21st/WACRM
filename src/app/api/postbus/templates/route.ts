@@ -2,7 +2,6 @@ import { requireApiKey } from '@/lib/auth/api-context'
 import { fail, ok, toApiErrorResponse } from '@/lib/api/v1/respond'
 import {
   POSTBUS_CONFIG_COLUMNS,
-  isGlobalPostBusMode,
   type PostBusIntegrationRow,
 } from '@/lib/postbus/config'
 import {
@@ -13,9 +12,10 @@ import {
 /**
  * GET/PUT /api/postbus/templates
  *
- * Machine-to-machine template + kill-switch updates for the dedicated
- * global sender. Requires postbus:send. Merchant PUT /config cannot
- * change routing_mode; this path is the only API-key way to own globals.
+ * GET returns mapped event templates plus approved WhatsApp templates
+ * for this API key's account (even before routing_mode is global).
+ * PUT is the API-key way to own/update the dedicated global sender.
+ * Requires postbus:send.
  */
 export async function GET(request: Request) {
   try {
@@ -25,15 +25,9 @@ export async function GET(request: Request) {
       .select(POSTBUS_CONFIG_COLUMNS)
       .eq('account_id', ctx.accountId)
       .maybeSingle()
-    if (error) return fail('internal', 'Failed to load templates', 500)
-    const row = data as unknown as PostBusIntegrationRow | null
-    if (!isGlobalPostBusMode(row)) {
-      return fail(
-        'forbidden',
-        'Templates are Super Admin owned on the global PostBus sender',
-        403,
-      )
-    }
+    const row = (!error && data
+      ? (data as unknown as PostBusIntegrationRow)
+      : null) ?? ({ account_id: ctx.accountId } as PostBusIntegrationRow)
     return ok(await globalPostBusPublicPayload(ctx.supabase, row))
   } catch (err) {
     return toApiErrorResponse(err)
