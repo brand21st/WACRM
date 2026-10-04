@@ -8,7 +8,7 @@ interface WebhookRow {
   address?: string
 }
 
-function webhookCallbackUrl(): string | null {
+export function webhookCallbackUrl(): string | null {
   const origin = process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, '')
   if (!origin) return null
   return `${origin}/api/shopify/webhook`

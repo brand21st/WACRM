@@ -9,13 +9,14 @@ import {
 import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rate-limit'
 import { encrypt, decrypt } from '@/lib/whatsapp/encryption'
 import { shopifyGraphql, ShopifyError } from '@/lib/shopify/client'
-import { resolveAdminAccessToken } from '@/lib/shopify/oauth'
+import { isApiSecretKey, resolveAdminAccessToken } from '@/lib/shopify/oauth'
 import { SHOP_INFO_QUERY } from '@/lib/shopify/queries'
 import { normalizeShopDomain } from '@/lib/shopify/domain'
 import { adminAccessTokenHint } from '@/lib/shopify/validate-access-token'
 import { isMissingClientIdColumn, isMissingDbColumn } from '@/lib/shopify/config-db'
+import { webhookCallbackUrl } from '@/lib/shopify/register-webhooks'
 import {
-  packShopifyCredential,
+  packShopifyCredentialForPersist,
   resolveStoredClientId,
   unpackShopifyCredential,
 } from '@/lib/shopify/credential-storage'
@@ -69,6 +70,7 @@ async function persistShopifyConfig(
     existingId: string | null
     shopDomain: string
     plaintext: string
+    webhookSecret?: string | null
     isActive: boolean
     clientId: string | null
     metaCatalogId?: string | null
@@ -80,7 +82,11 @@ async function persistShopifyConfig(
   const base = {
     shop_domain: args.shopDomain,
     access_token: encrypt(
-      packShopifyCredential(args.clientId, args.plaintext),
+      packShopifyCredentialForPersist({
+        clientId: args.clientId,
+        credential: args.plaintext,
+        existingWebhookSecret: args.webhookSecret,
+      }),
     ),
     is_active: args.isActive,
     shop_name: args.shopName,
@@ -176,10 +182,12 @@ export async function GET() {
       typeof safe.client_id === 'string' && safe.client_id.trim()
         ? safe.client_id.trim()
         : null
-    if (!clientId && access_token) {
+    let hasWebhookSecret = false
+    if (access_token) {
       try {
         const unpacked = unpackShopifyCredential(decrypt(access_token))
-        clientId = unpacked.clientId
+        if (!clientId) clientId = unpacked.clientId
+        hasWebhookSecret = Boolean(unpacked.webhookSecret)
       } catch {
         // ignore — token may be unreadable on this instance
       }
@@ -192,6 +200,8 @@ export async function GET() {
     return NextResponse.json({
       configured: true,
       has_token: Boolean(access_token),
+      has_webhook_secret: hasWebhookSecret,
+      webhook_callback_url: webhookCallbackUrl(),
       ...safe,
       client_id: clientId,
       ...(commerce ? publicCommercePayload(commerce) : {}),
@@ -241,6 +251,17 @@ export async function POST(request: Request) {
       typeof body.access_token === 'string' ? body.access_token.trim() : ''
     const tokenEdited = incomingToken && !incomingToken.includes('•')
 
+    const incomingSecretRaw =
+      typeof body.api_secret === 'string'
+        ? body.api_secret.trim()
+        : typeof body.webhook_secret === 'string'
+          ? body.webhook_secret.trim()
+          : ''
+    const secretEdited = Boolean(incomingSecretRaw && !incomingSecretRaw.includes('•'))
+    if (secretEdited && !isApiSecretKey(incomingSecretRaw)) {
+      return bad('api_secret must be the Partner API secret (shpss_…)')
+    }
+
     let { data: existingRow, error: existingErr } = await supabase
       .from('shopify_configs')
       .select('id, access_token, client_id')
@@ -262,22 +283,25 @@ export async function POST(request: Request) {
         typeof raw === 'string' && raw.trim() ? raw.trim().slice(0, 128) : null
     }
 
-    let plaintext: string
-    if (tokenEdited) {
-      plaintext = incomingToken
-    } else if (existingRow?.access_token) {
+    let existingWebhookSecret: string | null = null
+    let plaintext: string | null = null
+    if (existingRow?.access_token) {
       try {
         const unpacked = unpackShopifyCredential(decrypt(existingRow.access_token))
-        plaintext = unpacked.credential
+        existingWebhookSecret = unpacked.webhookSecret
         existingClientId = resolveStoredClientId(existingClientId, unpacked.clientId)
+        if (!tokenEdited) plaintext = unpacked.credential
       } catch {
-        return bad('Stored token could not be decrypted. Paste a new Admin API token.')
+        if (!tokenEdited) {
+          return bad('Stored token could not be decrypted. Paste a new Admin API token.')
+        }
       }
-    } else {
-      return bad('access_token is required')
     }
+    if (tokenEdited) plaintext = incomingToken
+    if (!plaintext) return bad('access_token is required')
 
     const resolvedClientId = resolveStoredClientId(clientId, existingClientId)
+    const webhookSecret = secretEdited ? incomingSecretRaw : existingWebhookSecret
 
     const tokenHint = adminAccessTokenHint(plaintext, resolvedClientId)
     if (tokenHint) return bad(tokenHint)
@@ -307,6 +331,7 @@ export async function POST(request: Request) {
       existingId: existingRow?.id ?? null,
       shopDomain,
       plaintext,
+      webhookSecret,
       isActive,
       clientId: resolvedClientId,
       ...(metaCatalogId !== undefined ? { metaCatalogId } : {}),
@@ -335,6 +360,10 @@ export async function POST(request: Request) {
       is_active: isActive,
       client_id: resolvedClientId,
       meta_catalog_id: metaCatalogId,
+      has_webhook_secret: Boolean(
+        isApiSecretKey(plaintext) || webhookSecret,
+      ),
+      webhook_callback_url: webhookCallbackUrl(),
     })
   } catch (err) {
     return toErrorResponse(err)

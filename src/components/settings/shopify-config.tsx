@@ -105,6 +105,8 @@ interface ShopifyConfigResponse {
     postal_code?: string;
   } | null;
   product_card_button?: string | null;
+  has_webhook_secret?: boolean;
+  webhook_callback_url?: string | null;
 }
 
 export function ShopifyConfigPanel() {
@@ -122,6 +124,10 @@ export function ShopifyConfigPanel() {
   const [clientId, setClientId] = useState('');
   const [accessToken, setAccessToken] = useState('');
   const [tokenEdited, setTokenEdited] = useState(false);
+  const [apiSecret, setApiSecret] = useState('');
+  const [apiSecretEdited, setApiSecretEdited] = useState(false);
+  const [hasWebhookSecret, setHasWebhookSecret] = useState(false);
+  const [registeringWebhooks, setRegisteringWebhooks] = useState(false);
   const [isActive, setIsActive] = useState(true);
   const [metaCatalogId, setMetaCatalogId] = useState('');
   const [metaCatalogIds, setMetaCatalogIds] = useState<string[]>([]);
@@ -189,6 +195,9 @@ export function ShopifyConfigPanel() {
     setClientId(data.client_id ?? '');
     setAccessToken(data.has_token ? MASKED_TOKEN : '');
     setTokenEdited(false);
+    setHasWebhookSecret(Boolean(data.has_webhook_secret));
+    setApiSecret(data.has_webhook_secret ? MASKED_TOKEN : '');
+    setApiSecretEdited(false);
     setIsActive(data.is_active !== false);
     const ids =
       Array.isArray(data.meta_catalog_ids) && data.meta_catalog_ids.length > 0
@@ -311,6 +320,7 @@ export function ShopifyConfigPanel() {
           shop_domain: shopDomain,
           client_id: clientId || null,
           access_token: tokenEdited ? accessToken : undefined,
+          api_secret: apiSecretEdited ? apiSecret : undefined,
           is_active: isActive,
         }),
       });
@@ -353,6 +363,28 @@ export function ShopifyConfigPanel() {
       toast.error(t('syncFailed'));
     } finally {
       setSyncing(false);
+    }
+  };
+
+  const registerWebhooks = async () => {
+    setRegisteringWebhooks(true);
+    try {
+      const res = await fetch('/api/shopify/webhooks/register', { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data.error || t('registerWebhooksFailed'));
+        return;
+      }
+      toast.success(
+        t('registerWebhooksDone', {
+          registered: data.registered?.length ?? 0,
+          skipped: data.skipped?.length ?? 0,
+        }),
+      );
+    } catch {
+      toast.error(t('registerWebhooksFailed'));
+    } finally {
+      setRegisteringWebhooks(false);
     }
   };
 
@@ -626,6 +658,22 @@ export function ShopifyConfigPanel() {
                 />
                 <p className="text-xs text-muted-foreground">{t('accessTokenHint')}</p>
               </div>
+              <div className="space-y-2">
+                <Label htmlFor="shop-api-secret">{t('apiSecret')}</Label>
+                <Input
+                  id="shop-api-secret"
+                  type="password"
+                  placeholder={t('apiSecretPlaceholder')}
+                  value={apiSecret}
+                  onChange={(e) => {
+                    setApiSecret(e.target.value);
+                    setApiSecretEdited(true);
+                  }}
+                  disabled={disabled}
+                  autoComplete="off"
+                />
+                <p className="text-xs text-muted-foreground">{t('apiSecretHint')}</p>
+              </div>
               <div className="flex items-center justify-between rounded-lg border p-3">
                 <div>
                   <p className="text-sm font-medium">{t('active')}</p>
@@ -692,6 +740,9 @@ export function ShopifyConfigPanel() {
                 })}
               </p>
               <p className="text-xs text-muted-foreground">{t('contentHint')}</p>
+              <p className="text-sm text-muted-foreground">
+                {hasWebhookSecret ? t('autoSyncOn') : t('autoSyncOff')}
+              </p>
               <div className="space-y-2 rounded-lg border p-3">
                 <div>
                   <p className="text-sm font-medium">{t('productCardButton')}</p>
@@ -740,6 +791,16 @@ export function ShopifyConfigPanel() {
                 >
                   {syncing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
                   {t('sync')}
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => void registerWebhooks()}
+                  disabled={disabled || !configured || registeringWebhooks}
+                >
+                  {registeringWebhooks ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : null}
+                  {t('registerWebhooks')}
                 </Button>
                 <Link
                   href="/catalog"

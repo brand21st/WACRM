@@ -53,6 +53,7 @@ describe('GET /api/shopify/config', () => {
     expect(body.has_token).toBe(true)
     expect(body.access_token).toBeUndefined()
     expect(body.client_id).toBe('abcdef0123456789abcdef0123456789')
+    expect(body.has_webhook_secret).toBe(false)
     expect(body.product_card_button).toBe('checkout')
     expect(JSON.stringify(body)).not.toContain('shpat_secret_must_not_leak')
   })
