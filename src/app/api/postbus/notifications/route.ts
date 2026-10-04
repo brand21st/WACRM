@@ -183,6 +183,8 @@ export async function POST(request: Request) {
       order_number: str(body, 'order_number'),
       tracking_number: str(body, 'tracking_number'),
       tracking_url: str(body, 'tracking_url'),
+      amount: str(body, 'amount'),
+      delivery_address: str(body, 'delivery_address'),
     })
 
     const resolved = await resolveConversationByPhone(
