@@ -3,6 +3,7 @@ export const POSTBUS_LIVE_EVENTS = [
   'processing',
   'booked',
   'in_transit',
+  'shipment_delayed',
   'delivered',
 ] as const
 
@@ -29,11 +30,13 @@ export const POSTBUS_TEMPLATE_COLUMNS: Record<
   | 'processing_template_name'
   | 'booked_template_name'
   | 'in_transit_template_name'
+  | 'shipment_delayed_template_name'
   | 'delivered_template_name'
 > = {
   order_confirmation: 'order_confirmation_template_name',
   processing: 'processing_template_name',
   booked: 'booked_template_name',
   in_transit: 'in_transit_template_name',
+  shipment_delayed: 'shipment_delayed_template_name',
   delivered: 'delivered_template_name',
 }

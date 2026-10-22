@@ -175,6 +175,7 @@ export async function globalPostBusPublicPayload(
     processing_template_name: row?.processing_template_name ?? null,
     booked_template_name: row?.booked_template_name ?? null,
     in_transit_template_name: row?.in_transit_template_name ?? null,
+    shipment_delayed_template_name: row?.shipment_delayed_template_name ?? null,
     delivered_template_name: row?.delivered_template_name ?? null,
     whatsapp_connected: identity.connected,
     display_phone_number: identity.display_phone,

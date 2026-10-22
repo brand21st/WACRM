@@ -71,22 +71,6 @@ export function extractVariableIndices(text: string): number[] {
   return [...set].sort((a, b) => a - b);
 }
 
-/**
- * Meta requires contiguous, 1-indexed variables. `{{1}} {{3}}` is
- * invalid — it must be `{{1}} {{2}}`.
- */
-function assertContiguous(indices: number[], where: string): void {
-  for (let i = 0; i < indices.length; i++) {
-    if (indices[i] !== i + 1) {
-      throw new Error(
-        `${where} variables must be contiguous starting at {{1}} — found ${indices
-          .map((n) => `{{${n}}}`)
-          .join(', ')}.`,
-      );
-    }
-  }
-}
-
 export function validateBody(bodyText: string): number[] {
   if (!bodyText.trim()) throw new Error('Body text is required.');
   if (bodyText.length > TEMPLATE_LIMITS.bodyMaxLength) {
@@ -94,9 +78,7 @@ export function validateBody(bodyText: string): number[] {
       `Body text exceeds ${TEMPLATE_LIMITS.bodyMaxLength} chars (got ${bodyText.length}).`,
     );
   }
-  const indices = extractVariableIndices(bodyText);
-  assertContiguous(indices, 'Body');
-  return indices;
+  return extractVariableIndices(bodyText);
 }
 
 export function validateFooter(footerText: string | undefined): void {

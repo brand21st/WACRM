@@ -45,7 +45,7 @@ export async function listApprovedTemplates(
 ): Promise<PostBusApprovedTemplate[]> {
   const { data, error } = await db
     .from('message_templates')
-    .select('name, language, status')
+    .select('name, language, status, category')
     .eq('account_id', accountId)
     .in('status', ['APPROVED', 'Approved'])
     .order('name')
@@ -56,6 +56,10 @@ export async function listApprovedTemplates(
       name: row.name as string,
       language: (row.language as string) || 'en_US',
       status: String(row.status),
+      category:
+        typeof row.category === 'string' && row.category.trim()
+          ? row.category.trim()
+          : null,
     }))
 }
 

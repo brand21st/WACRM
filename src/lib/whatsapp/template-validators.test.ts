@@ -53,8 +53,8 @@ describe('validateBody', () => {
       /exceeds 1024/,
     );
   });
-  it('rejects non-contiguous variables', () => {
-    expect(() => validateBody('Hi {{1}} {{3}}')).toThrow(/contiguous/);
+  it('allows non-contiguous variables', () => {
+    expect(validateBody('Hi {{1}} {{3}}')).toEqual([1, 3]);
   });
   it('accepts contiguous variables', () => {
     expect(validateBody('Hi {{1}} {{2}}')).toEqual([1, 2]);

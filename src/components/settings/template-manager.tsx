@@ -258,10 +258,11 @@ export function TemplateManager() {
   // Body variable indices — `[1, 2, 3]` for "{{1}} {{2}} {{3}}". We
   // re-run the extractor on every render to keep the sample-value rows
   // in sync with what the user typed.
-  const bodyVarCount = useMemo(
-    () => extractVariableIndices(form.body_text).length,
+  const bodyVarIndices = useMemo(
+    () => extractVariableIndices(form.body_text),
     [form.body_text],
   );
+  const bodyVarCount = bodyVarIndices.length;
   const nextBodyVarIndex = useMemo(() => {
     const indices = extractVariableIndices(form.body_text);
     return indices.length === 0 ? 1 : Math.max(...indices) + 1;
@@ -1134,12 +1135,13 @@ export function TemplateManager() {
                   </Label>
                   {form.body_samples.map((val, i) => {
                     const inputId = `template-body-sample-${i}`;
+                    const varLabel = `{{${bodyVarIndices[i] ?? i + 1}}}`;
                     return (
                       <Input
                         key={i}
                         id={inputId}
-                        aria-label={t('sampleAria', { var: `{{${i + 1}}}` })}
-                        placeholder={t('samplePlaceholder', { var: `{{${i + 1}}}` })}
+                        aria-label={t('sampleAria', { var: varLabel })}
+                        placeholder={t('samplePlaceholder', { var: varLabel })}
                         value={val}
                         onChange={(e) => {
                           const next = [...form.body_samples];

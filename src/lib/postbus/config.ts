@@ -12,7 +12,7 @@ import type {
 import { POSTBUS_TEST_RESULT_CODES } from './types'
 
 export const POSTBUS_CONFIG_COLUMNS =
-  'id, account_id, postbus_merchant_id, routing_mode, api_base_url, api_key_encrypted, status, notification_settings, connected_at, last_tested_at, last_test_result, order_confirmation_template_name, processing_template_name, booked_template_name, in_transit_template_name, delivered_template_name, template_language, webhook_endpoint_id'
+  'id, account_id, postbus_merchant_id, routing_mode, api_base_url, api_key_encrypted, status, notification_settings, connected_at, last_tested_at, last_test_result, order_confirmation_template_name, processing_template_name, booked_template_name, in_transit_template_name, shipment_delayed_template_name, delivered_template_name, template_language, webhook_endpoint_id'
 
 export type PostBusRoutingMode = 'merchant' | 'global'
 
@@ -44,6 +44,7 @@ export interface PostBusIntegrationRow {
   processing_template_name?: string | null
   booked_template_name?: string | null
   in_transit_template_name?: string | null
+  shipment_delayed_template_name?: string | null
   delivered_template_name?: string | null
   template_language?: string | null
   webhook_endpoint_id?: string | null
@@ -96,6 +97,8 @@ export interface PostBusApprovedTemplate {
   name: string
   language: string
   status: string
+  /** Meta category stored by Sync from Meta. Absent until that sync has run. */
+  category?: string | null
 }
 
 export interface PostBusPublicConfig extends IntegrationConnection {
@@ -114,6 +117,7 @@ export interface PostBusPublicConfig extends IntegrationConnection {
   processing_template_name: string | null
   booked_template_name: string | null
   in_transit_template_name: string | null
+  shipment_delayed_template_name: string | null
   delivered_template_name: string | null
   webhook_endpoint_id: string | null
   status_webhook_url: string | null
@@ -145,6 +149,7 @@ export function emptyPublicConfig(accountId: string): PostBusPublicConfig {
     processing_template_name: null,
     booked_template_name: null,
     in_transit_template_name: null,
+    shipment_delayed_template_name: null,
     delivered_template_name: null,
     webhook_endpoint_id: null,
     status_webhook_url: null,
@@ -205,6 +210,7 @@ export function toPublicConfig(
     processing_template_name: row.processing_template_name ?? null,
     booked_template_name: row.booked_template_name ?? null,
     in_transit_template_name: row.in_transit_template_name ?? null,
+    shipment_delayed_template_name: row.shipment_delayed_template_name ?? null,
     delivered_template_name: row.delivered_template_name ?? null,
     webhook_endpoint_id: row.webhook_endpoint_id ?? null,
     status_webhook_url: opts?.statusWebhookUrl ?? null,

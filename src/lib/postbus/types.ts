@@ -19,6 +19,7 @@ export interface PostBusTemplateMap {
   processing_template_name: string | null
   booked_template_name: string | null
   in_transit_template_name: string | null
+  shipment_delayed_template_name: string | null
   delivered_template_name: string | null
   template_language: string
 }

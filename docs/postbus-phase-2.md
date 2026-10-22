@@ -1,6 +1,8 @@
 # PostBus Phase 2 — notification pipeline
 
-Vachat accepts PostBus shipment-stage WhatsApp sends on the existing Cloud API path. PostBus enqueues the same five **live** events (`order_confirmation`, `processing`, `booked`, `in_transit`, `delivered`) to `POST /api/postbus/notifications`. Tenant is always the key’s `account_id`. Future keys (`out_for_delivery`, `delivery_failed`, `return_rto`, `tracking_updated`) are not sourced by PostBus and are not sent.
+Vachat accepts PostBus shipment-stage WhatsApp sends on the existing Cloud API path. PostBus enqueues these **live** events (`order_confirmation`, `processing`, `booked`, `in_transit`, `shipment_delayed`, `delivered`) to `POST /api/postbus/notifications`. Tenant is always the key’s `account_id`.
+
+`shipment_delayed` is sourced from India Post tracking scans whose text includes delay/detention (not NDR or RTO). Future keys (`out_for_delivery`, `delivery_failed`, `return_rto`, `tracking_updated`) are not sourced as separate WhatsApp types.
 
 There is **no second Meta webhook**. Delivery stays on `/api/whatsapp/webhook`, then a signed `message.status_updated` event is forwarded to PostBus.
 

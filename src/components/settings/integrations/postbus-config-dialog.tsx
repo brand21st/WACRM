@@ -63,6 +63,7 @@ function emptyForm(accountId: string): PostBusPublicConfig {
     processing_template_name: null,
     booked_template_name: null,
     in_transit_template_name: null,
+    shipment_delayed_template_name: null,
     delivered_template_name: null,
     webhook_endpoint_id: null,
     status_webhook_url: null,
@@ -124,6 +125,7 @@ export function PostBusConfigDialog({
         processing_template_name: data.processing_template_name ?? '',
         booked_template_name: data.booked_template_name ?? '',
         in_transit_template_name: data.in_transit_template_name ?? '',
+        shipment_delayed_template_name: data.shipment_delayed_template_name ?? '',
         delivered_template_name: data.delivered_template_name ?? '',
       })
     } catch {

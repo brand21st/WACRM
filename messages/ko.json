@@ -2170,7 +2170,7 @@
       "addVariableGroupLinks": "링크 · 배송",
       "bodyPlaceholder": "안녕하세요 {{1}}님, 주문 {{2}}이(가) 확정되었습니다.",
       "sampleValues": "샘플 값 (Meta가 템플릿 검토에 사용합니다)",
-      "bodyHint": "변수에는 {{1}}, {{2}}를 사용하세요 ({{1}}부터 연속되어야 합니다).",
+      "bodyHint": "변수에는 {{1}}, {{2}} 등 {{N}}을 사용하세요.",
       "sampleAria": "본문 변수 {var}의 샘플 값",
       "samplePlaceholder": "{var}의 샘플",
 
@@ -2665,6 +2665,7 @@
           "processing": "처리 중",
           "booked": "예약됨",
           "in_transit": "배송 중",
+          "shipment_delayed": "배송 지연",
           "delivered": "배송 완료",
           "order_created": "주문 생성",
           "shipment_created": "배송 생성",
