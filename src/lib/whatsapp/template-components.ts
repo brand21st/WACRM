@@ -10,7 +10,10 @@
  *   https://developers.facebook.com/docs/whatsapp/business-management-api/message-templates/components
  */
 
-import type { TemplatePayload } from './template-validators';
+import {
+  remumberBodyPlaceholders,
+  type TemplatePayload,
+} from './template-validators';
 import type { TemplateButton } from '@/types';
 
 export interface MetaComponent {
@@ -69,7 +72,7 @@ function buildHeaderComponent(payload: TemplatePayload): MetaComponent | null {
 function buildBodyComponent(payload: TemplatePayload): MetaComponent {
   const component: MetaComponent = {
     type: 'BODY',
-    text: payload.body_text,
+    text: remumberBodyPlaceholders(payload.body_text),
   };
   const bodySample = payload.sample_values?.body;
   if (bodySample && bodySample.length > 0) {

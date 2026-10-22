@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   extractVariableIndices,
+  remumberBodyPlaceholders,
   TEMPLATE_LIMITS,
   validateBody,
   validateButtons,
@@ -25,6 +26,20 @@ describe('extractVariableIndices', () => {
   });
   it('returns empty array for no variables', () => {
     expect(extractVariableIndices('No vars here')).toEqual([]);
+  });
+});
+
+describe('remumberBodyPlaceholders', () => {
+  it('leaves contiguous variables unchanged', () => {
+    expect(remumberBodyPlaceholders('Hi {{1}}, order {{2}}.')).toBe(
+      'Hi {{1}}, order {{2}}.',
+    );
+  });
+  it('rewrites gaps so Meta sees {{1}}…{{N}}', () => {
+    expect(remumberBodyPlaceholders('Hi {{1}}, order {{3}}.')).toBe(
+      'Hi {{1}}, order {{2}}.',
+    );
+    expect(remumberBodyPlaceholders('Only {{2}} here')).toBe('Only {{1}} here');
   });
 });
 
@@ -273,5 +288,17 @@ describe('validateTemplatePayload — integration', () => {
         body_text: 'Hi {{1}}',
       }),
     ).toThrow(/exactly 1 sample/);
+  });
+  it('rewrites gapped body variables before submit', () => {
+    const payload: TemplatePayload = {
+      ...baseValid,
+      body_text: 'Hi {{1}}, order {{3}}.',
+      sample_values: { body: ['John', 'ORD-42'] },
+    };
+    expect(validateTemplatePayload(payload)).toEqual({
+      bodyVarCount: 2,
+      headerVarCount: 0,
+    });
+    expect(payload.body_text).toBe('Hi {{1}}, order {{2}}.');
   });
 });

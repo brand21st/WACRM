@@ -32,6 +32,16 @@ describe('buildMetaTemplatePayload', () => {
     expect(body?.example?.body_text).toEqual([['John', 'ORD-42']]);
   });
 
+  it('sends contiguous body placeholders when the editor skipped a number', () => {
+    const payload = buildMetaTemplatePayload({
+      ...base,
+      body_text: 'Hi {{1}}, order {{3}}.',
+      sample_values: { body: ['John', 'ORD-42'] },
+    });
+    const body = payload.components.find((c) => c.type === 'BODY');
+    expect(body?.text).toBe('Hi {{1}}, order {{2}}.');
+  });
+
   it('emits TEXT header in canonical first position', () => {
     const payload = buildMetaTemplatePayload({
       ...base,

@@ -71,6 +71,22 @@ export function extractVariableIndices(text: string): number[] {
   return [...set].sort((a, b) => a - b);
 }
 
+/**
+ * Meta still requires body placeholders to be {{1}}…{{N}} with no
+ * gaps. The editor allows skipped numbers; rewrite them in sorted
+ * order so submit does not fail with a generic "Invalid parameter".
+ */
+export function remumberBodyPlaceholders(text: string): string {
+  const indices = extractVariableIndices(text);
+  if (indices.length === 0) return text;
+  if (indices.every((n, i) => n === i + 1)) return text;
+  const map = new Map(indices.map((n, i) => [n, i + 1]));
+  return text.replace(/\{\{(\d+)\}\}/g, (match, raw: string) => {
+    const mapped = map.get(Number(raw));
+    return mapped ? `{{${mapped}}}` : match;
+  });
+}
+
 export function validateBody(bodyText: string): number[] {
   if (!bodyText.trim()) throw new Error('Body text is required.');
   if (bodyText.length > TEMPLATE_LIMITS.bodyMaxLength) {
@@ -308,6 +324,7 @@ export function validateTemplatePayload(payload: TemplatePayload): {
   if (!payload.language?.trim()) {
     throw new Error('Language is required.');
   }
+  payload.body_text = remumberBodyPlaceholders(payload.body_text);
   const bodyVars = validateBody(payload.body_text);
   validateFooter(payload.footer_text);
   const headerResult = validateHeader(payload);

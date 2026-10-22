@@ -26,7 +26,14 @@ export interface MetaPhoneInfo {
 }
 
 interface MetaErrorResponse {
-  error?: { message?: string; code?: number; type?: string }
+  error?: {
+    message?: string
+    code?: number
+    type?: string
+    error_user_title?: string
+    error_user_msg?: string
+    error_data?: string | { details?: string }
+  }
 }
 
 /** Graph API error with Meta's numeric `error.code` when present. */
@@ -44,12 +51,33 @@ export class MetaApiError extends Error {
   }
 }
 
+function formatGraphErrorMessage(
+  error: NonNullable<MetaErrorResponse['error']>,
+  fallback: string,
+): string {
+  const dataDetails =
+    typeof error.error_data === 'string'
+      ? error.error_data
+      : error.error_data?.details
+  const specific =
+    error.error_user_msg?.trim() ||
+    error.error_user_title?.trim() ||
+    dataDetails?.trim() ||
+    ''
+  const generic = error.message?.trim() || fallback
+  if (specific && generic && specific !== generic) {
+    if (/^invalid parameter$/i.test(generic)) return specific
+    return `${generic}: ${specific}`
+  }
+  return specific || generic
+}
+
 async function throwMetaError(response: Response, fallback: string): Promise<never> {
   let message = fallback
   let code: number | undefined
   try {
     const data = (await response.json()) as MetaErrorResponse
-    if (data.error?.message) message = data.error.message
+    if (data.error) message = formatGraphErrorMessage(data.error, fallback)
     if (typeof data.error?.code === 'number') code = data.error.code
   } catch {
     // response body wasn't JSON — keep the fallback

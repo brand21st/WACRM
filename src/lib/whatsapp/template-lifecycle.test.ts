@@ -59,6 +59,31 @@ describe('submitMessageTemplate', () => {
     });
   });
 
+  it('prefers Meta error_user_msg over generic Invalid parameter', async () => {
+    fetchMock.mockResolvedValueOnce(
+      errorResponse(400, {
+        error: {
+          message: 'Invalid parameter',
+          code: 100,
+          error_user_msg:
+            'Variables must be sequential and start at {{1}}.',
+        },
+      }),
+    );
+    await expect(
+      submitMessageTemplate({
+        wabaId: 'W',
+        accessToken: 't',
+        payload: {
+          name: 'n',
+          category: 'UTILITY',
+          language: 'en_US',
+          components: [],
+        },
+      }),
+    ).rejects.toThrow(/sequential/);
+  });
+
   it('throws Meta\'s error message on non-OK responses', async () => {
     fetchMock.mockResolvedValueOnce(
       errorResponse(429, {
